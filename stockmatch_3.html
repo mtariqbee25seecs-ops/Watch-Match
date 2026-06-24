@@ -1,0 +1,1487 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+:root{
+  --bg: #15140f;
+  --bg-raised: #1c1b15;
+  --bg-raised-2: #23221a;
+  --border: #36342a;
+  --border-soft: #2a2920;
+  --brass: #c9a24b;
+  --brass-dim: #8d7437;
+  --brass-bright: #e6c068;
+  --text: #ece7da;
+  --text-dim: #9a9587;
+  --text-faint: #6e6a5e;
+  --red: #c2614a;
+  --green: #7fa86b;
+  --serif: 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --mono: 'SF Mono', 'IBM Plex Mono', 'Courier New', monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+*{box-sizing:border-box;margin:0;padding:0;}
+
+#app{
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--sans);
+  min-height:100vh;
+  width:100%;
+  font-size:14px;
+  line-height:1.5;
+}
+
+/* ---------- topbar ---------- */
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:16px;
+  padding:20px 28px;
+  border-bottom:1px solid var(--border-soft);
+  background:var(--bg-raised);
+}
+.brand{display:flex;align-items:center;gap:12px;}
+.brand-mark{
+  font-size:26px;
+  color:var(--brass);
+  line-height:1;
+}
+.brand-text h1{
+  font-family:var(--serif);
+  font-size:20px;
+  font-weight:600;
+  letter-spacing:0.01em;
+  color:var(--text);
+}
+.brand-text p{
+  font-size:11px;
+  color:var(--text-faint);
+  letter-spacing:0.04em;
+  text-transform:uppercase;
+  margin-top:2px;
+}
+.tabs{display:flex;gap:4px;background:var(--bg);border:1px solid var(--border-soft);border-radius:8px;padding:3px;}
+.tab{
+  background:transparent;
+  border:none;
+  color:var(--text-dim);
+  font-size:13px;
+  font-family:var(--sans);
+  padding:8px 14px;
+  border-radius:6px;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  transition:background 0.15s, color 0.15s;
+}
+.tab:hover{color:var(--text);}
+.tab.active{background:var(--bg-raised-2);color:var(--brass-bright);}
+.tab .count{
+  font-family:var(--mono);
+  font-size:11px;
+  background:var(--border-soft);
+  color:var(--text-dim);
+  padding:1px 6px;
+  border-radius:10px;
+  min-width:16px;
+  text-align:center;
+}
+.tab.active .count{background:rgba(201,162,75,0.18);color:var(--brass-bright);}
+
+/* ---------- layout ---------- */
+main{padding:28px;max-width:1100px;margin:0 auto;}
+.view{display:none;}
+.view.active{display:block;}
+
+.panel-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:20px;
+  flex-wrap:wrap;
+  margin-bottom:24px;
+}
+.panel-head h2{
+  font-family:var(--serif);
+  font-size:19px;
+  font-weight:600;
+  color:var(--text);
+  margin-bottom:6px;
+}
+.panel-head .sub{
+  font-size:12.5px;
+  color:var(--text-dim);
+  max-width:520px;
+  line-height:1.55;
+}
+.paste-hint{
+  color:var(--text-faint);
+  font-style:italic;
+}
+.panel-actions{display:flex;gap:8px;flex-wrap:wrap;}
+
+/* ---------- buttons ---------- */
+.btn{
+  background:var(--bg-raised-2);
+  border:1px solid var(--border);
+  color:var(--text);
+  font-size:12.5px;
+  font-family:var(--sans);
+  padding:9px 16px;
+  border-radius:6px;
+  cursor:pointer;
+  white-space:nowrap;
+  transition:background 0.15s,border-color 0.15s,opacity 0.15s;
+}
+.btn:hover:not(:disabled){border-color:var(--brass-dim);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn.primary{background:var(--brass);border-color:var(--brass);color:#1c1606;font-weight:600;}
+.btn.primary:hover:not(:disabled){background:var(--brass-bright);}
+.btn.small{padding:5px 10px;font-size:11.5px;}
+.btn.danger-text{color:var(--red);}
+.file-btn{display:inline-flex;align-items:center;justify-content:center;}
+
+/* ---------- empty state ---------- */
+.empty-state{
+  text-align:center;
+  padding:64px 20px;
+  color:var(--text-faint);
+  border:1px dashed var(--border);
+  border-radius:10px;
+}
+.empty-icon{font-size:30px;color:var(--border);margin-bottom:14px;}
+.empty-state p{font-size:13.5px;color:var(--text-dim);margin-bottom:4px;}
+.empty-state p.sub{font-size:12px;color:var(--text-faint);max-width:380px;margin:6px auto 0;line-height:1.5;}
+
+/* ---------- grid of item cards ---------- */
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
+  gap:14px;
+}
+.card{
+  background:var(--bg-raised);
+  border:1px solid var(--border-soft);
+  border-radius:10px;
+  overflow:hidden;
+  position:relative;
+}
+.card-img-wrap{
+  width:100%;
+  aspect-ratio:1/1;
+  background:var(--bg);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  overflow:hidden;
+  position:relative;
+}
+.card-img-wrap img{width:100%;height:100%;object-fit:cover;display:block;}
+.card-img-wrap.no-image{
+  color:var(--text-faint);
+  font-size:11px;
+  text-align:center;
+  padding:20px;
+  cursor:default;
+}
+.card-body{padding:12px 14px;}
+.card-caption-input{
+  width:100%;
+  background:var(--bg);
+  border:1px solid var(--border-soft);
+  color:var(--text);
+  font-size:12px;
+  font-family:var(--sans);
+  padding:7px 9px;
+  border-radius:5px;
+  margin-bottom:8px;
+}
+.card-caption-input::placeholder{color:var(--text-faint);}
+.card-status{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+.status-badge{
+  font-size:10.5px;
+  letter-spacing:0.03em;
+  text-transform:uppercase;
+  padding:3px 8px;
+  border-radius:4px;
+  font-family:var(--mono);
+}
+.status-badge.pending{background:rgba(154,149,135,0.15);color:var(--text-dim);}
+.status-badge.analyzing{background:rgba(201,162,75,0.15);color:var(--brass);}
+.status-badge.done{background:rgba(127,168,107,0.15);color:var(--green);}
+.status-badge.error{background:rgba(194,97,74,0.15);color:var(--red);}
+.card-remove{
+  background:none;border:none;color:var(--text-faint);cursor:pointer;font-size:16px;line-height:1;padding:2px 4px;
+}
+.card-remove:hover{color:var(--red);}
+
+.fingerprint{
+  margin-top:10px;
+  padding-top:10px;
+  border-top:1px solid var(--border-soft);
+  font-family:var(--mono);
+  font-size:11px;
+  color:var(--text-dim);
+  display:grid;
+  grid-template-columns:auto 1fr;
+  gap:3px 8px;
+}
+.fingerprint .fp-label{color:var(--text-faint);}
+.fingerprint .fp-val{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.fingerprint .fp-val.ref{color:var(--brass-bright);}
+
+/* ---------- results ---------- */
+#resultsList{display:flex;flex-direction:column;gap:10px;}
+.result-row{
+  background:var(--bg-raised);
+  border:1px solid var(--border-soft);
+  border-radius:10px;
+  overflow:hidden;
+}
+.result-summary{
+  display:flex;
+  align-items:center;
+  gap:16px;
+  padding:14px 18px;
+  cursor:pointer;
+}
+.result-thumbs{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.thumb{width:46px;height:46px;border-radius:6px;background:var(--bg);object-fit:cover;border:1px solid var(--border-soft);}
+.thumb.placeholder{display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:9px;font-family:var(--mono);}
+.result-arrow{color:var(--text-faint);font-size:13px;flex-shrink:0;}
+.result-text{flex:1;min-width:0;}
+.result-text .demand-name{font-size:13.5px;color:var(--text);font-weight:600;}
+.result-text .match-name{font-size:12.5px;color:var(--text-dim);margin-top:2px;}
+.result-text .no-match{font-size:12.5px;color:var(--text-faint);font-style:italic;margin-top:2px;}
+
+.confidence{
+  flex-shrink:0;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:4px;
+  min-width:90px;
+}
+.confidence-label{font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-faint);font-family:var(--mono);}
+.confidence-meter{width:84px;height:4px;background:var(--border-soft);border-radius:2px;overflow:hidden;}
+.confidence-fill{height:100%;border-radius:2px;}
+.confidence-fill.high{background:var(--green);}
+.confidence-fill.medium{background:var(--brass);}
+.confidence-fill.low{background:var(--red);}
+.confidence-pct{font-family:var(--mono);font-size:12px;color:var(--text);}
+
+.result-detail{
+  display:none;
+  padding:0 18px 18px;
+  border-top:1px solid var(--border-soft);
+}
+.result-row.expanded .result-detail{display:block;}
+.result-row.expanded .result-arrow{transform:rotate(90deg);}
+.reasoning-block{
+  margin-top:14px;
+  padding:12px 14px;
+  background:var(--bg);
+  border-radius:8px;
+  border:1px solid var(--border-soft);
+}
+.reasoning-block .rb-label{font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;color:var(--brass);font-family:var(--mono);margin-bottom:6px;}
+.reasoning-block p{font-size:13px;color:var(--text-dim);line-height:1.6;}
+.compare-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;}
+.compare-col h4{font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-faint);margin-bottom:8px;font-family:var(--mono);}
+.alt-matches{margin-top:14px;}
+.alt-matches h4{font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-faint);margin-bottom:8px;font-family:var(--mono);}
+.alt-match-item{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:12px;color:var(--text-dim);}
+.alt-match-item .thumb{width:30px;height:30px;}
+
+/* ---------- modal ---------- */
+.modal-overlay{
+  display:none;
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.6);
+  align-items:center;
+  justify-content:center;
+  z-index:100;
+  padding:20px;
+}
+.modal-overlay.open{display:flex;}
+.modal{
+  background:var(--bg-raised);
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:20px;
+  width:100%;
+  max-width:420px;
+}
+.modal h3{font-family:var(--serif);font-size:16px;margin-bottom:12px;color:var(--text);}
+.modal textarea{
+  width:100%;
+  min-height:100px;
+  background:var(--bg);
+  border:1px solid var(--border-soft);
+  color:var(--text);
+  font-size:13px;
+  font-family:var(--sans);
+  padding:10px;
+  border-radius:6px;
+  resize:vertical;
+}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;}
+
+.lightbox{max-width:90vw;max-height:90vh;}
+.lightbox img{max-width:90vw;max-height:90vh;border-radius:8px;}
+
+/* ---------- toast ---------- */
+.toast{
+  position:fixed;
+  bottom:24px;
+  left:50%;
+  transform:translateX(-50%) translateY(20px);
+  background:var(--bg-raised-2);
+  border:1px solid var(--border);
+  color:var(--text);
+  padding:11px 20px;
+  border-radius:8px;
+  font-size:12.5px;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity 0.2s, transform 0.2s;
+  z-index:200;
+  max-width:80vw;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.toast.error{border-color:var(--red);color:var(--red);}
+
+/* progress bar within analyze button area */
+.progress-wrap{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:11.5px;
+  color:var(--text-dim);
+  font-family:var(--mono);
+}
+.progress-track{width:80px;height:4px;background:var(--border-soft);border-radius:2px;overflow:hidden;}
+.progress-fill{height:100%;background:var(--brass);border-radius:2px;transition:width 0.2s;}
+
+.msg-text{
+  margin-top:10px;
+  padding-top:10px;
+  border-top:1px solid var(--border-soft);
+}
+.msg-text p{
+  font-size:12px;
+  color:var(--text-dim);
+  line-height:1.5;
+  font-family:var(--sans);
+  white-space:pre-wrap;
+  max-height:80px;
+  overflow-y:auto;
+}
+.price-row{
+  margin-top:10px;
+  padding-top:10px;
+  border-top:1px solid var(--border-soft);
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.price-row .fp-label{font-family:var(--mono);font-size:11px;color:var(--text-faint);flex-shrink:0;}
+.price-input{
+  flex:1;
+  background:var(--bg);
+  border:1px solid var(--border-soft);
+  color:var(--brass-bright);
+  font-family:var(--mono);
+  font-size:12.5px;
+  padding:6px 9px;
+  border-radius:5px;
+}
+.sold-btn{border-color:var(--red);color:var(--red);}
+.sold-btn:hover{background:rgba(194,97,74,0.1);}
+
+/* ---------- dashboard table ---------- */
+.dash-table{
+  width:100%;
+  border-collapse:collapse;
+  background:var(--bg-raised);
+  border:1px solid var(--border-soft);
+  border-radius:10px;
+  overflow:hidden;
+}
+.dash-table thead th{
+  text-align:left;
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:0.04em;
+  color:var(--text-faint);
+  font-family:var(--mono);
+  font-weight:400;
+  padding:10px 14px;
+  background:var(--bg-raised-2);
+  border-bottom:1px solid var(--border-soft);
+}
+.dash-table tbody tr{border-bottom:1px solid var(--border-soft);}
+.dash-table tbody tr:last-child{border-bottom:none;}
+.dash-table td{padding:10px 14px;vertical-align:middle;font-size:13px;}
+.dash-thumb{width:42px;height:42px;border-radius:6px;object-fit:cover;display:block;}
+.dash-thumb.placeholder{
+  display:flex;align-items:center;justify-content:center;
+  background:var(--bg);color:var(--text-faint);font-size:9px;font-family:var(--mono);
+  border:1px solid var(--border-soft);
+}
+.dash-name{font-weight:600;color:var(--text);}
+.dash-ref{font-family:var(--mono);font-size:11px;color:var(--brass-bright);margin-top:2px;}
+.dash-price-input{
+  width:110px;
+  background:var(--bg);
+  border:1px solid var(--border-soft);
+  color:var(--brass-bright);
+  font-family:var(--mono);
+  font-size:12.5px;
+  padding:6px 9px;
+  border-radius:5px;
+}
+.dash-actions{text-align:right;}
+
+@media (max-width:640px){
+  .topbar{padding:16px;}
+  main{padding:16px;}
+  .panel-head{flex-direction:column;}
+  .compare-grid{grid-template-columns:1fr;}
+  .dash-table{display:block;overflow-x:auto;}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">&#9678;</span>
+      <div class="brand-text">
+        <h1>Stockmatch</h1>
+        <p>Inventory fingerprinting &amp; demand matching</p>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-view="stock">Today's stock <span class="count" id="stockCount">0</span></button>
+      <button class="tab" data-view="demand">Demand <span class="count" id="demandCount">0</span></button>
+      <button class="tab" data-view="results">Results <span class="count" id="resultsCount">0</span></button>
+      <button class="tab" data-view="dashboard">Dashboard <span class="count" id="dashboardCount">0</span></button>
+    </nav>
+  </header>
+
+  <main id="views">
+
+    <!-- STOCK VIEW -->
+    <section class="view active" id="view-stock">
+      <div class="panel-head">
+        <div>
+          <h2>Today's stock</h2>
+          <p class="sub">Upload watch photos. Each gets fingerprinted by Claude's vision &mdash; brand, model, ref number, dial, bezel, case, bracelet, markings. <span class="paste-hint">Tip: you can also paste an image directly (Ctrl/Cmd+V).</span></p>
+        </div>
+        <div class="panel-actions">
+          <label class="btn primary file-btn">
+            Add images
+            <input type="file" id="stockFileInput" accept="image/*" multiple hidden>
+          </label>
+          <button class="btn" id="analyzeStockBtn" disabled>Analyze pending</button>
+        </div>
+      </div>
+
+      <div class="empty-state" id="stockEmpty">
+        <div class="empty-icon">&#9676;</div>
+        <p>No stock yet.</p>
+        <p class="sub">Add images to start building today's catalog. You can attach a caption or filename note to each before analyzing.</p>
+      </div>
+
+      <div class="grid" id="stockGrid"></div>
+    </section>
+
+    <!-- DEMAND VIEW -->
+    <section class="view" id="view-demand">
+      <div class="panel-head">
+        <div>
+          <h2>Demand</h2>
+          <p class="sub">Add a request &mdash; an image, free text, or both. Text gets parsed into the same fingerprint fields as stock. <span class="paste-hint">Tip: you can also paste an image directly (Ctrl/Cmd+V).</span></p>
+        </div>
+        <div class="panel-actions">
+          <button class="btn" id="addTextDemandBtn">Add text request</button>
+          <label class="btn primary file-btn">
+            Add image request
+            <input type="file" id="demandFileInput" accept="image/*" multiple hidden>
+          </label>
+          <button class="btn" id="analyzeDemandBtn" disabled>Analyze pending</button>
+        </div>
+      </div>
+
+      <div class="empty-state" id="demandEmpty">
+        <div class="empty-icon">&#9676;</div>
+        <p>No demand requests yet.</p>
+        <p class="sub">Add a customer request as a photo, a typed description, or both.</p>
+      </div>
+
+      <div class="grid" id="demandGrid"></div>
+    </section>
+
+    <!-- RESULTS VIEW -->
+    <section class="view" id="view-results">
+      <div class="panel-head">
+        <div>
+          <h2>Match results</h2>
+          <p class="sub">Each demand item against its best stock match, weighted toward hard identifiers &mdash; reference numbers and confirmed brand + model &mdash; over loose visual similarity.</p>
+        </div>
+        <div class="panel-actions">
+          <button class="btn primary" id="runMatchBtn" disabled>Run matching</button>
+        </div>
+      </div>
+
+      <div class="empty-state" id="resultsEmpty">
+        <div class="empty-icon">&#9676;</div>
+        <p>No results yet.</p>
+        <p class="sub">Fingerprint your stock and demand first, then run matching.</p>
+      </div>
+
+      <div id="resultsList"></div>
+    </section>
+
+    <!-- DASHBOARD VIEW -->
+    <section class="view" id="view-dashboard">
+      <div class="panel-head">
+        <div>
+          <h2>Dashboard</h2>
+          <p class="sub">Everything in stock at a glance &mdash; price, dial, case material, and analysis status. Mark items sold to remove them, or update price inline.</p>
+        </div>
+      </div>
+
+      <div class="empty-state" id="dashboardEmpty">
+        <div class="empty-icon">&#9676;</div>
+        <p>No stock yet.</p>
+        <p class="sub">Add items in the Today's stock tab and they'll appear here.</p>
+      </div>
+
+      <table class="dash-table" id="dashboardTable" style="display:none;">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Item</th>
+            <th>Dial</th>
+            <th>Case</th>
+            <th>Status</th>
+            <th>Price</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="dashboardBody"></tbody>
+      </table>
+    </section>
+
+  </main>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<!-- Text demand modal -->
+<div class="modal-overlay" id="textModalOverlay">
+  <div class="modal">
+    <h3>Add text request</h3>
+    <textarea id="textDemandInput" placeholder="e.g. Looking for a steel Daytona, panda dial, box and papers preferred"></textarea>
+    <div class="modal-actions">
+      <button class="btn" id="textModalCancel">Cancel</button>
+      <button class="btn primary" id="textModalSave">Add request</button>
+    </div>
+  </div>
+</div>
+
+<!-- Image lightbox -->
+<div class="modal-overlay" id="lightboxOverlay">
+  <div class="lightbox">
+    <img id="lightboxImg" src="" alt="">
+  </div>
+</div>
+<script>
+/* ===================== state ===================== */
+
+let stockItems = [];   // {id, type:'image', filename, caption, imageData(base64,session-only), status, fingerprint, error}
+let demandItems = [];  // {id, type:'image'|'text', filename, caption, text, imageData, status, fingerprint, error}
+let matchResults = []; // {demandId, demandLabel, demandThumb, matches:[{stockId,label,thumb,confidence,reasoning}], topConfidence}
+
+let currentView = 'stock';
+
+/* ===================== utils ===================== */
+
+function uid(){
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+function showToast(msg, isError){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.className = 'toast'; }, 3200);
+}
+
+function fileToBase64(file){
+  return new Promise((resolve, reject) => {
+    if (!file){ reject(new Error('no file')); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (!result || typeof result !== 'string' || !result.includes(',')){
+        reject(new Error('empty read result'));
+        return;
+      }
+      resolve(result.split(',')[1]);
+    };
+    reader.onerror = () => reject(reader.error || new Error('file read error'));
+    reader.onabort = () => reject(new Error('file read aborted'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function escapeHtml(str){
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function fpLine(fp){
+  if (!fp) return '';
+  const parts = [fp.brand, fp.model_line].filter(Boolean);
+  return parts.join(' ') || 'unidentified';
+}
+
+/* ===================== persistence ===================== */
+/* We persist fingerprints + metadata (small) but NOT raw image bytes (5MB/key cap). */
+
+async function saveStockCatalog(){
+  try{
+    const persistable = stockItems.map(it => ({
+      id: it.id, filename: it.filename, caption: it.caption,
+      status: it.status, fingerprint: it.fingerprint || null, error: it.error || null,
+      hasImage: !!it.imageData, priceOverride: it.priceOverride !== undefined ? it.priceOverride : null
+    }));
+    await window.storage.set('stock-catalog', JSON.stringify(persistable), false);
+  }catch(e){ console.error('save stock failed', e); }
+}
+
+async function loadStockCatalog(){
+  try{
+    const res = await window.storage.get('stock-catalog', false);
+    if (res && res.value){
+      const parsed = JSON.parse(res.value);
+      stockItems = parsed.map(it => ({...it, imageData: null}));
+    }
+  }catch(e){
+    // key not found is normal on first run
+  }
+}
+
+/* ===================== rendering: view switching ===================== */
+
+function setView(view){
+  currentView = view;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
+}
+
+/* ===================== rendering: stock ===================== */
+
+function renderStock(){
+  const grid = document.getElementById('stockGrid');
+  const empty = document.getElementById('stockEmpty');
+  document.getElementById('stockCount').textContent = stockItems.length;
+
+  empty.style.display = stockItems.length ? 'none' : '';
+  grid.innerHTML = stockItems.map(renderStockCard).join('');
+
+  const pending = stockItems.filter(it => it.status === 'pending' || it.status === 'error').length;
+  const analyzeBtn = document.getElementById('analyzeStockBtn');
+  analyzeBtn.disabled = pending === 0;
+  analyzeBtn.textContent = pending ? `Analyze pending (${pending})` : 'Analyze pending';
+
+  updateRunMatchAvailability();
+  attachStockCardHandlers();
+}
+
+function renderStockCard(it){
+  const fp = it.fingerprint;
+  const priceVal = it.priceOverride !== undefined && it.priceOverride !== null ? it.priceOverride : (fp ? fp.price : null);
+
+  const fpHtml = fp ? `
+    <div class="fingerprint">
+      <span class="fp-label">brand</span><span class="fp-val">${escapeHtml(fp.brand || '\u2014')}</span>
+      <span class="fp-label">model</span><span class="fp-val">${escapeHtml(fp.model_line || '\u2014')}</span>
+      <span class="fp-label">ref</span><span class="fp-val ref">${escapeHtml(fp.reference_number || '\u2014')}</span>
+      <span class="fp-label">dial</span><span class="fp-val">${escapeHtml(fp.dial_color || '\u2014')}</span>
+      <span class="fp-label">case</span><span class="fp-val">${escapeHtml(fp.case_material || '\u2014')}${fp.case_size ? ', ' + escapeHtml(fp.case_size) : ''}</span>
+      <span class="fp-label">strap</span><span class="fp-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}</span>
+    </div>
+    ${fp.message_text ? `<div class="msg-text"><span class="fp-label">message</span><p>${escapeHtml(fp.message_text)}</p></div>` : ''}
+    <div class="price-row">
+      <span class="fp-label">price</span>
+      <input class="price-input" type="text" placeholder="not detected" value="${escapeHtml(priceVal || '')}" data-id="${it.id}" data-field="price">
+    </div>` : '';
+
+  return `
+  <div class="card" data-id="${it.id}" data-kind="stock">
+    <div class="card-img-wrap ${it.imageData ? '' : 'no-image'}" data-action="${it.imageData ? 'lightbox' : 'readd'}" data-id="${it.id}">
+      ${it.imageData ? `<img src="data:image/jpeg;base64,${it.imageData}" alt="${escapeHtml(it.filename)}">` : `image not loaded this session<br>click to re-attach`}
+    </div>
+    <div class="card-body">
+      <input class="card-caption-input" type="text" placeholder="Caption / filename note"
+        value="${escapeHtml(it.caption || '')}" data-id="${it.id}" data-field="caption">
+      <div class="card-status">
+        <span class="status-badge ${it.status}">${it.status}</span>
+        <button class="card-remove" data-action="remove" data-id="${it.id}" aria-label="Remove">&times;</button>
+      </div>
+      ${it.status === 'error' ? `<p style="font-size:11px;color:var(--red);margin-top:6px;">${escapeHtml(it.error || 'analysis failed')}</p>` : ''}
+      ${fpHtml}
+      ${it.status === 'done' ? `<button class="btn small sold-btn" data-action="sold" data-id="${it.id}" style="margin-top:10px;width:100%;">Sold out</button>` : ''}
+    </div>
+  </div>`;
+}
+
+function attachStockCardHandlers(){
+  const grid = document.getElementById('stockGrid');
+  grid.querySelectorAll('[data-field="caption"]').forEach(input => {
+    input.oninput = (e) => {
+      const item = stockItems.find(s => s.id === e.target.dataset.id);
+      if (item) item.caption = e.target.value;
+    };
+    input.onblur = saveStockCatalog;
+  });
+  grid.querySelectorAll('[data-field="price"]').forEach(input => {
+    input.oninput = (e) => {
+      const item = stockItems.find(s => s.id === e.target.dataset.id);
+      if (item) item.priceOverride = e.target.value;
+    };
+    input.onblur = () => { saveStockCatalog(); renderDashboard(); };
+  });
+  grid.querySelectorAll('[data-action="remove"]').forEach(btn => {
+    btn.onclick = (e) => {
+      stockItems = stockItems.filter(s => s.id !== e.target.dataset.id);
+      saveStockCatalog();
+      renderStock();
+      renderDashboard();
+    };
+  });
+  grid.querySelectorAll('[data-action="sold"]').forEach(btn => {
+    btn.onclick = (e) => markSold(e.target.dataset.id);
+  });
+  grid.querySelectorAll('[data-action="lightbox"]').forEach(el => {
+    el.onclick = (e) => {
+      const item = stockItems.find(s => s.id === el.dataset.id);
+      if (item && item.imageData) openLightbox(item.imageData);
+    };
+  });
+  grid.querySelectorAll('[data-action="readd"]').forEach(el => {
+    el.onclick = () => triggerReattach(el.dataset.id, 'stock');
+  });
+}
+
+function markSold(id){
+  const item = stockItems.find(s => s.id === id);
+  if (!item) return;
+  if (!confirm(`Mark "${itemLabel(item)}" as sold out? It will be removed from stock.`)) return;
+  stockItems = stockItems.filter(s => s.id !== id);
+  saveStockCatalog();
+  renderStock();
+  renderDashboard();
+  showToast('Marked sold out and removed from stock');
+}
+
+function triggerReattach(id, kind){
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = async () => {
+    if (!input.files[0]) return;
+    const base64 = await fileToBase64(input.files[0]);
+    const list = kind === 'stock' ? stockItems : demandItems;
+    const item = list.find(s => s.id === id);
+    if (item){
+      item.imageData = base64;
+      item.hasImage = true;
+    }
+    kind === 'stock' ? renderStock() : renderDemand();
+  };
+  input.click();
+}
+
+function openLightbox(base64){
+  document.getElementById('lightboxImg').src = 'data:image/jpeg;base64,' + base64;
+  document.getElementById('lightboxOverlay').classList.add('open');
+}
+
+/* ===================== rendering: demand ===================== */
+
+function renderDemand(){
+  const grid = document.getElementById('demandGrid');
+  const empty = document.getElementById('demandEmpty');
+  document.getElementById('demandCount').textContent = demandItems.length;
+
+  empty.style.display = demandItems.length ? 'none' : '';
+  grid.innerHTML = demandItems.map(renderDemandCard).join('');
+
+  const pending = demandItems.filter(it => it.status === 'pending' || it.status === 'error').length;
+  const analyzeBtn = document.getElementById('analyzeDemandBtn');
+  analyzeBtn.disabled = pending === 0;
+  analyzeBtn.textContent = pending ? `Analyze pending (${pending})` : 'Analyze pending';
+
+  updateRunMatchAvailability();
+  attachDemandCardHandlers();
+}
+
+function renderDemandCard(it){
+  const fp = it.fingerprint;
+  const fpHtml = fp ? `
+    <div class="fingerprint">
+      <span class="fp-label">brand</span><span class="fp-val">${escapeHtml(fp.brand || '\u2014')}</span>
+      <span class="fp-label">model</span><span class="fp-val">${escapeHtml(fp.model_line || '\u2014')}</span>
+      <span class="fp-label">ref</span><span class="fp-val ref">${escapeHtml(fp.reference_number || '\u2014')}</span>
+      <span class="fp-label">dial</span><span class="fp-val">${escapeHtml(fp.dial_color || '\u2014')}</span>
+      <span class="fp-label">case</span><span class="fp-val">${escapeHtml(fp.case_material || '\u2014')}${fp.case_size ? ', ' + escapeHtml(fp.case_size) : ''}</span>
+      <span class="fp-label">strap</span><span class="fp-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}</span>
+    </div>` : '';
+
+  const mediaHtml = it.type === 'image'
+    ? `<div class="card-img-wrap ${it.imageData ? '' : 'no-image'}" data-action="${it.imageData ? 'lightbox' : 'readd'}" data-id="${it.id}">
+        ${it.imageData ? `<img src="data:image/jpeg;base64,${it.imageData}" alt="">` : `image not loaded this session<br>click to re-attach`}
+      </div>`
+    : '';
+
+  const textHtml = it.type === 'text'
+    ? `<div class="card-body" style="padding-top:14px;">
+        <textarea class="card-caption-input" rows="3" style="resize:vertical;" placeholder="Customer request text"
+          data-id="${it.id}" data-field="text">${escapeHtml(it.text || '')}</textarea>
+      </div>`
+    : `<div class="card-body">
+        <input class="card-caption-input" type="text" placeholder="Caption / note (optional)"
+          value="${escapeHtml(it.caption || '')}" data-id="${it.id}" data-field="caption">
+      </div>`;
+
+  return `
+  <div class="card" data-id="${it.id}" data-kind="demand">
+    ${mediaHtml}
+    ${textHtml}
+    <div class="card-body" style="padding-top:0;">
+      <div class="card-status">
+        <span class="status-badge ${it.status}">${it.status}</span>
+        <button class="card-remove" data-action="remove" data-id="${it.id}" aria-label="Remove">&times;</button>
+      </div>
+      ${it.status === 'error' ? `<p style="font-size:11px;color:var(--red);margin-top:6px;">${escapeHtml(it.error || 'analysis failed')}</p>` : ''}
+      ${fpHtml}
+    </div>
+  </div>`;
+}
+
+function attachDemandCardHandlers(){
+  const grid = document.getElementById('demandGrid');
+  grid.querySelectorAll('[data-field="caption"], [data-field="text"]').forEach(input => {
+    input.oninput = (e) => {
+      const item = demandItems.find(s => s.id === e.target.dataset.id);
+      if (!item) return;
+      if (e.target.dataset.field === 'text') item.text = e.target.value;
+      else item.caption = e.target.value;
+    };
+  });
+  grid.querySelectorAll('[data-action="remove"]').forEach(btn => {
+    btn.onclick = (e) => {
+      demandItems = demandItems.filter(s => s.id !== e.target.dataset.id);
+      renderDemand();
+    };
+  });
+  grid.querySelectorAll('[data-action="lightbox"]').forEach(el => {
+    el.onclick = () => {
+      const item = demandItems.find(s => s.id === el.dataset.id);
+      if (item && item.imageData) openLightbox(item.imageData);
+    };
+  });
+  grid.querySelectorAll('[data-action="readd"]').forEach(el => {
+    el.onclick = () => triggerReattach(el.dataset.id, 'demand');
+  });
+}
+
+/* ===================== vision extraction ===================== */
+
+const FINGERPRINT_SCHEMA_PROMPT = `You are inspecting a watch listing screenshot for a dealer's inventory system. The screenshot is typically a chat message (e.g. WhatsApp) containing a watch photo AND message text baked into the same image \u2014 the text may include price, description, condition, or seller notes layered over or alongside the photo. Read both the watch itself and any visible text in the image.
+
+Extract a structured fingerprint as STRICT JSON ONLY (no markdown fences, no preamble, no commentary). Use null for any field you cannot determine. Fields:
+{
+  "brand": string or null,
+  "model_line": string or null,
+  "reference_number": string or null,
+  "dial_color": string or null,
+  "bezel": string or null,
+  "case_material": string or null,
+  "case_size": string or null,
+  "bracelet_or_strap": string or null,
+  "distinguishing_markings": string or null,
+  "message_text": string or null,
+  "price": string or null,
+  "confidence_notes": string or null
+}
+
+For "message_text": transcribe any visible chat/message text in the screenshot verbatim (price, description, condition notes, seller comments). If there is no visible text, use null.
+For "price": extract just the price/amount if stated anywhere in the visible text (keep currency symbol or code as shown, e.g. "PKR 450,000" or "$3,200"). If no price is stated, use null.
+Only state what is visually evident or stated in the caption. If the caption conflicts with the image or message text, prefer the image/message text but note the conflict in confidence_notes. Respond with the JSON object only.`;
+
+async function extractFingerprintFromImage(base64, caption){
+  const userText = caption
+    ? `Caption / filename provided by the dealer: "${caption}". Use this as supporting signal alongside the image.`
+    : 'No caption was provided. Rely on the image alone.';
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1000,
+      system: FINGERPRINT_SCHEMA_PROMPT,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
+          { type: 'text', text: userText }
+        ]
+      }]
+    })
+  });
+
+  if (!response.ok) throw new Error('API error ' + response.status);
+  const data = await response.json();
+  const textBlock = data.content.find(b => b.type === 'text');
+  if (!textBlock) throw new Error('No text response');
+  return parseJsonLoose(textBlock.text);
+}
+
+async function extractFingerprintFromText(text){
+  const textSystemPrompt = FINGERPRINT_SCHEMA_PROMPT
+    .replace('You are inspecting a watch listing screenshot for a dealer\'s inventory system. The screenshot is typically a chat message (e.g. WhatsApp) containing a watch photo AND message text baked into the same image \u2014 the text may include price, description, condition, or seller notes layered over or alongside the photo. Read both the watch itself and any visible text in the image.',
+      'You are parsing a free-text customer demand request describing a watch they want. There is no image \u2014 work only from the text.')
+    .replace('For "message_text": transcribe any visible chat/message text in the screenshot verbatim (price, description, condition notes, seller comments). If there is no visible text, use null.',
+      'For "message_text": set this to the original request text verbatim.');
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1000,
+      system: textSystemPrompt,
+      messages: [{ role: 'user', content: `Customer request text: "${text}"` }]
+    })
+  });
+
+  if (!response.ok) throw new Error('API error ' + response.status);
+  const data = await response.json();
+  const textBlock = data.content.find(b => b.type === 'text');
+  if (!textBlock) throw new Error('No text response');
+  return parseJsonLoose(textBlock.text);
+}
+
+function parseJsonLoose(text){
+  let cleaned = text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '');
+  return JSON.parse(cleaned);
+}
+
+/* ===================== batch analysis with progress ===================== */
+
+async function analyzeBatch(items, kind, renderFn){
+  const toProcess = items.filter(it => it.status === 'pending' || it.status === 'error');
+  if (!toProcess.length) return;
+
+  const btn = document.getElementById(kind === 'stock' ? 'analyzeStockBtn' : 'analyzeDemandBtn');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+
+  let done = 0;
+  const total = toProcess.length;
+  const CONCURRENCY = 4;
+  let idx = 0;
+
+  function updateProgress(){
+    btn.innerHTML = `<span class="progress-wrap">Analyzing <span class="progress-track"><span class="progress-fill" style="width:${Math.round(done/total*100)}%"></span></span> ${done}/${total}</span>`;
+  }
+  updateProgress();
+
+  async function worker(){
+    while (idx < toProcess.length){
+      const item = toProcess[idx++];
+      item.status = 'analyzing';
+      renderFn();
+      try{
+        let fp;
+        if (item.type === 'image'){
+          if (!item.imageData) throw new Error('image not attached this session');
+          fp = await extractFingerprintFromImage(item.imageData, item.caption);
+        } else {
+          fp = await extractFingerprintFromText(item.text || '');
+        }
+        item.fingerprint = fp;
+        item.status = 'done';
+        item.error = null;
+      }catch(e){
+        item.status = 'error';
+        item.error = e.message || 'analysis failed';
+      }
+      done++;
+      updateProgress();
+      renderFn();
+      if (kind === 'stock') renderDashboard();
+    }
+  }
+
+  const workers = Array.from({length: Math.min(CONCURRENCY, toProcess.length)}, worker);
+  await Promise.all(workers);
+
+  btn.disabled = false;
+  btn.textContent = originalText;
+  if (kind === 'stock') { saveStockCatalog(); renderDashboard(); }
+  renderFn();
+
+  const failed = toProcess.filter(it => it.status === 'error').length;
+  if (failed) showToast(`${failed} item${failed > 1 ? 's' : ''} failed to analyze`, true);
+  else showToast(`Analyzed ${total} item${total > 1 ? 's' : ''}`);
+}
+
+/* ===================== matching ===================== */
+
+function updateRunMatchAvailability(){
+  const stockReady = stockItems.some(it => it.status === 'done');
+  const demandReady = demandItems.some(it => it.status === 'done');
+  document.getElementById('runMatchBtn').disabled = !(stockReady && demandReady);
+}
+
+const MATCH_SYSTEM_PROMPT = `You are matching customer watch demand requests against a dealer's current stock, using structured fingerprints extracted from photos and text.
+
+For EACH demand item, find the best matching stock item(s), if any. Weight HARD identifiers heavily: an exact or near-exact reference number match is the strongest signal; confirmed brand + model line match is strong; dial color, case material/size, bracelet type are moderate corroborating signals; bezel and markings are supporting detail. Generic similarity (just "same brand", vague styling, photo conditions) should NOT produce a high confidence score on its own.
+
+Only include a stock item as a match if there is genuine overlap in identifying fields. If nothing in stock plausibly matches a demand item, return an empty matches array for it rather than forcing a weak match.
+
+Return STRICT JSON ONLY, no markdown fences, no commentary, in this exact shape:
+{
+  "results": [
+    {
+      "demand_id": "string, must match the demand_id given in input",
+      "matches": [
+        {
+          "stock_id": "string, must match a stock_id given in input",
+          "confidence": number from 0 to 100,
+          "reasoning": "one or two sentences explaining the match using specific field values, e.g. which reference number, dial, or marking matched or conflicted"
+        }
+      ]
+    }
+  ]
+}
+Order matches within each demand item from highest to lowest confidence. Include at most 3 matches per demand item. If no plausible match exists for a demand item, return "matches": [].`;
+
+async function runMatching(){
+  const stockReady = stockItems.filter(it => it.status === 'done' && it.fingerprint);
+  const demandReady = demandItems.filter(it => it.status === 'done' && it.fingerprint);
+
+  if (!stockReady.length || !demandReady.length){
+    showToast('Need at least one analyzed stock item and one analyzed demand item', true);
+    return;
+  }
+
+  const btn = document.getElementById('runMatchBtn');
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = 'Matching\u2026';
+
+  const stockPayload = stockReady.map(it => ({ stock_id: it.id, fingerprint: it.fingerprint }));
+  const demandPayload = demandReady.map(it => ({ demand_id: it.id, fingerprint: it.fingerprint }));
+
+  try{
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4000,
+        system: MATCH_SYSTEM_PROMPT,
+        messages: [{
+          role: 'user',
+          content: `STOCK:\n${JSON.stringify(stockPayload, null, 2)}\n\nDEMAND:\n${JSON.stringify(demandPayload, null, 2)}`
+        }]
+      })
+    });
+
+    if (!response.ok) throw new Error('API error ' + response.status);
+    const data = await response.json();
+    const textBlock = data.content.find(b => b.type === 'text');
+    if (!textBlock) throw new Error('No text response');
+    const parsed = parseJsonLoose(textBlock.text);
+
+    matchResults = (parsed.results || []).map(r => {
+      const demandItem = demandItems.find(d => d.id === r.demand_id);
+      const matches = (r.matches || []).map(m => {
+        const stockItem = stockItems.find(s => s.id === m.stock_id);
+        return {
+          stockId: m.stock_id,
+          stockItem,
+          confidence: m.confidence,
+          reasoning: m.reasoning
+        };
+      }).filter(m => m.stockItem);
+      return { demandId: r.demand_id, demandItem, matches };
+    }).filter(r => r.demandItem);
+
+    renderResults();
+    setView('results');
+    showToast('Matching complete');
+  }catch(e){
+    showToast('Matching failed: ' + (e.message || 'unknown error'), true);
+  }finally{
+    btn.disabled = false;
+    btn.textContent = originalText;
+    updateRunMatchAvailability();
+  }
+}
+
+/* ===================== rendering: dashboard ===================== */
+
+function renderDashboard(){
+  const tbody = document.getElementById('dashboardBody');
+  const empty = document.getElementById('dashboardEmpty');
+  const table = document.getElementById('dashboardTable');
+  document.getElementById('dashboardCount').textContent = stockItems.length;
+
+  if (!stockItems.length){
+    empty.style.display = '';
+    table.style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none';
+  table.style.display = '';
+
+  tbody.innerHTML = stockItems.map(it => {
+    const fp = it.fingerprint;
+    const priceVal = it.priceOverride !== undefined && it.priceOverride !== null && it.priceOverride !== '' ? it.priceOverride : (fp ? fp.price : null);
+    const thumb = it.imageData
+      ? `<img class="dash-thumb" src="data:image/jpeg;base64,${it.imageData}" alt="">`
+      : `<div class="dash-thumb placeholder">no img</div>`;
+    return `
+    <tr data-id="${it.id}">
+      <td>${thumb}</td>
+      <td>
+        <div class="dash-name">${escapeHtml(fp ? fpLine(fp) : (it.caption || it.filename || 'Unidentified'))}</div>
+        ${fp && fp.reference_number ? `<div class="dash-ref">${escapeHtml(fp.reference_number)}</div>` : ''}
+      </td>
+      <td>${fp ? escapeHtml(fp.dial_color || '\u2014') : '\u2014'}</td>
+      <td>${fp ? escapeHtml(fp.case_material || '\u2014') : '\u2014'}</td>
+      <td><span class="status-badge ${it.status}">${it.status}</span></td>
+      <td>
+        <input class="dash-price-input" type="text" placeholder="\u2014" value="${escapeHtml(priceVal || '')}" data-id="${it.id}" data-field="dashprice">
+      </td>
+      <td class="dash-actions">
+        <button class="btn small" data-action="dashsold" data-id="${it.id}">Sold out</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  tbody.querySelectorAll('[data-field="dashprice"]').forEach(input => {
+    input.oninput = (e) => {
+      const item = stockItems.find(s => s.id === e.target.dataset.id);
+      if (item) item.priceOverride = e.target.value;
+    };
+    input.onblur = () => { saveStockCatalog(); renderStock(); };
+  });
+  tbody.querySelectorAll('[data-action="dashsold"]').forEach(btn => {
+    btn.onclick = (e) => markSold(e.target.dataset.id);
+  });
+}
+
+
+
+function confidenceTier(pct){
+  if (pct >= 70) return 'high';
+  if (pct >= 40) return 'medium';
+  return 'low';
+}
+
+function thumbHtml(item, size){
+  if (item && item.type === 'image' && item.imageData){
+    return `<img class="thumb" style="width:${size}px;height:${size}px;" src="data:image/jpeg;base64,${item.imageData}" alt="">`;
+  }
+  const label = item ? (item.fingerprint ? fpLine(item.fingerprint).slice(0,3).toUpperCase() : 'TXT') : '?';
+  return `<div class="thumb placeholder" style="width:${size}px;height:${size}px;">${escapeHtml(label)}</div>`;
+}
+
+function itemLabel(item){
+  if (!item) return 'Unknown';
+  if (item.fingerprint){
+    const line = fpLine(item.fingerprint);
+    return line !== 'unidentified' ? line : (item.caption || item.filename || (item.type === 'text' ? item.text?.slice(0,40) : 'Unidentified'));
+  }
+  return item.caption || item.filename || 'Unidentified';
+}
+
+function renderResults(){
+  const list = document.getElementById('resultsList');
+  const empty = document.getElementById('resultsEmpty');
+  document.getElementById('resultsCount').textContent = matchResults.length;
+
+  empty.style.display = matchResults.length ? 'none' : '';
+  list.innerHTML = matchResults.map(renderResultRow).join('');
+
+  list.querySelectorAll('.result-summary').forEach(el => {
+    el.onclick = () => {
+      el.closest('.result-row').classList.toggle('expanded');
+    };
+  });
+}
+
+function renderResultRow(r){
+  const demandItem = r.demandItem;
+  const top = r.matches[0];
+  const pct = top ? Math.round(top.confidence) : 0;
+  const tier = confidenceTier(pct);
+
+  const altMatches = r.matches.slice(1).map(m => `
+    <div class="alt-match-item">
+      ${thumbHtml(m.stockItem, 30)}
+      <span>${escapeHtml(itemLabel(m.stockItem))} &middot; ${Math.round(m.confidence)}%</span>
+    </div>
+  `).join('');
+
+  return `
+  <div class="result-row" data-demand-id="${r.demandId}">
+    <div class="result-summary">
+      <div class="result-thumbs">
+        ${thumbHtml(demandItem, 46)}
+        ${top ? `<span style="color:var(--text-faint);font-size:13px;">&rarr;</span>${thumbHtml(top.stockItem, 46)}` : ''}
+      </div>
+      <span class="result-arrow">&#9656;</span>
+      <div class="result-text">
+        <div class="demand-name">${escapeHtml(itemLabel(demandItem))}</div>
+        ${top
+          ? `<div class="match-name">matched: ${escapeHtml(itemLabel(top.stockItem))}</div>`
+          : `<div class="no-match">no confident match in current stock</div>`}
+      </div>
+      ${top ? `
+      <div class="confidence">
+        <span class="confidence-label">confidence</span>
+        <div class="confidence-meter"><div class="confidence-fill ${tier}" style="width:${pct}%"></div></div>
+        <span class="confidence-pct">${pct}%</span>
+      </div>` : ''}
+    </div>
+    <div class="result-detail">
+      ${top ? `
+      <div class="compare-grid">
+        <div class="compare-col">
+          <h4>Demand</h4>
+          ${fingerprintMini(demandItem.fingerprint)}
+        </div>
+        <div class="compare-col">
+          <h4>Matched stock</h4>
+          ${fingerprintMini(top.stockItem.fingerprint)}
+        </div>
+      </div>
+      <div class="reasoning-block">
+        <div class="rb-label">Reasoning</div>
+        <p>${escapeHtml(top.reasoning || '')}</p>
+      </div>
+      ${altMatches ? `<div class="alt-matches"><h4>Other possible matches</h4>${altMatches}</div>` : ''}
+      ` : `<p style="font-size:12.5px;color:var(--text-faint);padding-top:14px;">No stock item shared enough identifying detail with this request to surface as a match.</p>`}
+    </div>
+  </div>`;
+}
+
+function fingerprintMini(fp){
+  if (!fp) return '<p style="font-size:12px;color:var(--text-faint);">No fingerprint</p>';
+  const rows = [
+    ['brand', fp.brand], ['model', fp.model_line], ['ref', fp.reference_number],
+    ['dial', fp.dial_color], ['case', fp.case_material], ['strap', fp.bracelet_or_strap]
+  ];
+  return `<div class="fingerprint">${rows.map(([k,v]) => `<span class="fp-label">${k}</span><span class="fp-val${k==='ref'?' ref':''}">${escapeHtml(v || '\u2014')}</span>`).join('')}</div>`;
+}
+
+/* ===================== event wiring ===================== */
+
+async function handleStockFiles(fileList){
+  const files = Array.from(fileList || []);
+  if (!files.length){
+    showToast('No images were received from the picker \u2014 try selecting again', true);
+    return;
+  }
+  showToast(`Loading ${files.length} image${files.length > 1 ? 's' : ''}\u2026`);
+  let added = 0, failed = 0;
+  for (const file of files){
+    try{
+      if (!file.type || !file.type.startsWith('image/')){
+        failed++;
+        continue;
+      }
+      const base64 = await fileToBase64(file);
+      stockItems.push({
+        id: uid(), type: 'image', filename: file.name || 'untitled', caption: '',
+        imageData: base64, hasImage: true, status: 'pending', fingerprint: null, error: null
+      });
+      added++;
+      // render incrementally so progress is visible on slow mobile reads
+      renderStock();
+    }catch(e){
+      failed++;
+      console.error('failed to read file', file && file.name, e);
+    }
+  }
+  saveStockCatalog();
+  renderDashboard();
+  if (added && !failed) showToast(`Added ${added} image${added > 1 ? 's' : ''} to stock`);
+  else if (added && failed) showToast(`Added ${added}, ${failed} failed to load`, true);
+  else showToast('Could not load any of the selected images', true);
+}
+
+async function handleDemandFiles(fileList){
+  const files = Array.from(fileList || []);
+  if (!files.length){
+    showToast('No images were received from the picker \u2014 try selecting again', true);
+    return;
+  }
+  showToast(`Loading ${files.length} image${files.length > 1 ? 's' : ''}\u2026`);
+  let added = 0, failed = 0;
+  for (const file of files){
+    try{
+      if (!file.type || !file.type.startsWith('image/')){
+        failed++;
+        continue;
+      }
+      const base64 = await fileToBase64(file);
+      demandItems.push({
+        id: uid(), type: 'image', filename: file.name || 'untitled', caption: '',
+        imageData: base64, hasImage: true, status: 'pending', fingerprint: null, error: null
+      });
+      added++;
+      renderDemand();
+    }catch(e){
+      failed++;
+      console.error('failed to read file', file && file.name, e);
+    }
+  }
+  if (added && !failed) showToast(`Added ${added} image${added > 1 ? 's' : ''} to demand`);
+  else if (added && failed) showToast(`Added ${added}, ${failed} failed to load`, true);
+  else showToast('Could not load any of the selected images', true);
+}
+
+function handlePaste(e){
+  // Only act if a relevant tab is active and no modal is open
+  if (document.getElementById('textModalOverlay').classList.contains('open')) return;
+  if (currentView !== 'stock' && currentView !== 'demand') return;
+
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+
+  const imageFiles = [];
+  for (const item of items){
+    if (item.type && item.type.startsWith('image/')){
+      const file = item.getAsFile();
+      if (file) imageFiles.push(file);
+    }
+  }
+  if (!imageFiles.length) return;
+
+  e.preventDefault();
+  if (currentView === 'stock'){
+    handleStockFiles(imageFiles);
+    showToast(`Pasted ${imageFiles.length} image${imageFiles.length > 1 ? 's' : ''} into stock`);
+  } else {
+    handleDemandFiles(imageFiles);
+    showToast(`Pasted ${imageFiles.length} image${imageFiles.length > 1 ? 's' : ''} into demand`);
+  }
+}
+
+function wireFileInput(inputId, handlerFn){
+  const input = document.getElementById(inputId);
+  let lastHandledAt = 0;
+
+  function handle(e){
+    const fl = (e.target && e.target.files) || input.files;
+    if (!fl || !fl.length) return;
+    // change and input can both fire for the same selection; collapse duplicates
+    // that land within a short window of each other
+    const now = Date.now();
+    if (now - lastHandledAt < 600) return;
+    lastHandledAt = now;
+    handlerFn(fl);
+    // delay clearing the input value so iOS WebKit has finished handing off
+    // file blobs before we reset it (clearing too early can orphan the FileList
+    // in some mobile WebKit/iframe combinations)
+    setTimeout(() => { input.value = ''; }, 500);
+  }
+
+  input.addEventListener('change', handle, false);
+  input.addEventListener('input', handle, false);
+
+  // Fallback: if neither event fires within a few seconds of the input
+  // losing focus (picker closed) but files are present, handle them anyway.
+  input.addEventListener('blur', () => {
+    setTimeout(() => {
+      if (input.files && input.files.length && Date.now() - lastHandledAt > 600){
+        lastHandledAt = Date.now();
+        handlerFn(input.files);
+        setTimeout(() => { input.value = ''; }, 500);
+      }
+    }, 700);
+  }, false);
+}
+
+function init(){
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.onclick = () => setView(tab.dataset.view);
+  });
+
+  wireFileInput('stockFileInput', handleStockFiles);
+  wireFileInput('demandFileInput', handleDemandFiles);
+
+  document.getElementById('analyzeStockBtn').onclick = () => analyzeBatch(stockItems, 'stock', renderStock);
+  document.getElementById('analyzeDemandBtn').onclick = () => analyzeBatch(demandItems, 'demand', renderDemand);
+  document.getElementById('runMatchBtn').onclick = runMatching;
+
+  document.getElementById('addTextDemandBtn').onclick = () => {
+    document.getElementById('textDemandInput').value = '';
+    document.getElementById('textModalOverlay').classList.add('open');
+  };
+  document.getElementById('textModalCancel').onclick = () => {
+    document.getElementById('textModalOverlay').classList.remove('open');
+  };
+  document.getElementById('textModalSave').onclick = () => {
+    const text = document.getElementById('textDemandInput').value.trim();
+    if (!text){ showToast('Enter some text first', true); return; }
+    demandItems.push({
+      id: uid(), type: 'text', filename: null, caption: '', text,
+      imageData: null, status: 'pending', fingerprint: null, error: null
+    });
+    document.getElementById('textModalOverlay').classList.remove('open');
+    renderDemand();
+  };
+
+  document.getElementById('lightboxOverlay').onclick = (e) => {
+    if (e.target.id === 'lightboxOverlay') e.target.classList.remove('open');
+  };
+
+  document.addEventListener('paste', handlePaste);
+
+  loadStockCatalog().then(() => { renderStock(); renderDashboard(); });
+  renderDemand();
+  renderResults();
+}
+
+init();
+</script>
+</body>
+</html>
