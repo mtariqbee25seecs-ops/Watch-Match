@@ -126,6 +126,31 @@ main{padding:28px;max-width:1100px;margin:0 auto;}
 }
 .panel-actions{display:flex;gap:8px;flex-wrap:wrap;}
 
+.settings-btn{
+  font-size:16px;
+  padding:8px 12px;
+  flex-shrink:0;
+}
+.key-banner{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  flex-wrap:wrap;
+  background:rgba(194,97,74,0.12);
+  border-bottom:1px solid var(--border-soft);
+  padding:10px 28px;
+  font-size:12.5px;
+  color:var(--text-dim);
+}
+.settings-copy{
+  font-size:12.5px;
+  color:var(--text-dim);
+  line-height:1.6;
+  margin-bottom:14px;
+}
+.settings-copy strong{color:var(--brass-bright);font-family:var(--mono);font-weight:400;}
+
 /* ---------- buttons ---------- */
 .btn{
   background:var(--bg-raised-2);
@@ -481,7 +506,13 @@ main{padding:28px;max-width:1100px;margin:0 auto;}
       <button class="tab" data-view="results">Results <span class="count" id="resultsCount">0</span></button>
       <button class="tab" data-view="dashboard">Dashboard <span class="count" id="dashboardCount">0</span></button>
     </nav>
+    <button class="btn settings-btn" id="settingsBtn" title="API key settings">&#9881;</button>
   </header>
+
+  <div class="key-banner" id="keyBanner" style="display:none;">
+    <span>No Gemini API key set &mdash; analysis won't work until you add one (free, no card needed).</span>
+    <button class="btn small primary" id="keyBannerBtn">Add API key</button>
+  </div>
 
   <main id="views">
 
@@ -611,6 +642,22 @@ main{padding:28px;max-width:1100px;margin:0 auto;}
     <img id="lightboxImg" src="" alt="">
   </div>
 </div>
+
+<!-- Settings / API key modal -->
+<div class="modal-overlay" id="settingsModalOverlay">
+  <div class="modal">
+    <h3>Gemini API key</h3>
+    <p class="settings-copy">
+      This app uses Google's Gemini API (free tier, no card required) to read watch photos and match stock against demand.
+      Get a key at <strong>aistudio.google.com/apikey</strong>, then paste it below. It's stored only in this browser, never sent anywhere except directly to Google's API.
+    </p>
+    <input type="password" id="apiKeyInput" class="card-caption-input" placeholder="Paste your Gemini API key" autocomplete="off" spellcheck="false">
+    <div class="modal-actions">
+      <button class="btn" id="settingsModalCancel">Cancel</button>
+      <button class="btn primary" id="settingsModalSave">Save key</button>
+    </div>
+  </div>
+</div>
 <script>
 /* ===================== state ===================== */
 
@@ -619,6 +666,46 @@ let demandItems = [];  // {id, type:'image'|'text', filename, caption, text, ima
 let matchResults = []; // {demandId, demandLabel, demandThumb, matches:[{stockId,label,thumb,confidence,reasoning}], topConfidence}
 
 let currentView = 'stock';
+
+/* ===================== local storage shim ===================== */
+/* This app always needs a Google Gemini API key (free tier available, no
+   card required) since it's hosted standalone rather than inside Claude.ai.
+   It uses window.storage when available (Claude.ai artifact viewer) and
+   falls back to real browser localStorage when run standalone, e.g. on
+   GitHub Pages, so the catalog persists either way. */
+
+const localStore = {
+  async get(key){
+    if (window.storage && typeof window.storage.get === 'function'){
+      try{ return await window.storage.get(key, false); }catch(e){ return null; }
+    }
+    try{
+      const raw = window.localStorage.getItem('sm:' + key);
+      return raw === null ? null : { key, value: raw, shared: false };
+    }catch(e){ return null; }
+  },
+  async set(key, value){
+    if (window.storage && typeof window.storage.set === 'function'){
+      try{ return await window.storage.set(key, value, false); }catch(e){ return null; }
+    }
+    try{
+      window.localStorage.setItem('sm:' + key, value);
+      return { key, value, shared: false };
+    }catch(e){ return null; }
+  }
+};
+
+function getApiKey(){
+  try{ return window.localStorage.getItem('sm:gemini-api-key') || ''; }catch(e){ return ''; }
+}
+function setApiKey(key){
+  try{ window.localStorage.setItem('sm:gemini-api-key', key.trim()); }catch(e){}
+}
+const GEMINI_MODEL = 'gemini-2.5-flash';
+function geminiUrl(){
+  const key = getApiKey();
+  return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`;
+}
 
 /* ===================== utils ===================== */
 
@@ -673,13 +760,13 @@ async function saveStockCatalog(){
       status: it.status, fingerprint: it.fingerprint || null, error: it.error || null,
       hasImage: !!it.imageData, priceOverride: it.priceOverride !== undefined ? it.priceOverride : null
     }));
-    await window.storage.set('stock-catalog', JSON.stringify(persistable), false);
+    await localStore.set('stock-catalog', JSON.stringify(persistable));
   }catch(e){ console.error('save stock failed', e); }
 }
 
 async function loadStockCatalog(){
   try{
-    const res = await window.storage.get('stock-catalog', false);
+    const res = await localStore.get('stock-catalog');
     if (res && res.value){
       const parsed = JSON.parse(res.value);
       stockItems = parsed.map(it => ({...it, imageData: null}));
@@ -939,33 +1026,45 @@ For "message_text": transcribe any visible chat/message text in the screenshot v
 For "price": extract just the price/amount if stated anywhere in the visible text (keep currency symbol or code as shown, e.g. "PKR 450,000" or "$3,200"). If no price is stated, use null.
 Only state what is visually evident or stated in the caption. If the caption conflicts with the image or message text, prefer the image/message text but note the conflict in confidence_notes. Respond with the JSON object only.`;
 
+async function callGemini({ systemText, userParts, maxOutputTokens }){
+  if (!getApiKey()){
+    throw new Error('No Gemini API key set \u2014 click the settings (gear) icon to add one');
+  }
+  const response = await fetch(geminiUrl(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: systemText }] },
+      contents: [{ role: 'user', parts: userParts }],
+      generationConfig: { temperature: 0.2, maxOutputTokens: maxOutputTokens || 2000 }
+    })
+  });
+
+  if (!response.ok){
+    let detail = '';
+    try{ const errJson = await response.json(); detail = errJson?.error?.message || ''; }catch(e){}
+    throw new Error('Gemini API error ' + response.status + (detail ? ': ' + detail : ''));
+  }
+  const data = await response.json();
+  const candidate = data.candidates && data.candidates[0];
+  const part = candidate && candidate.content && candidate.content.parts && candidate.content.parts.find(p => p.text);
+  if (!part || !part.text) throw new Error('No text response from Gemini');
+  return part.text;
+}
+
 async function extractFingerprintFromImage(base64, caption){
   const userText = caption
     ? `Caption / filename provided by the dealer: "${caption}". Use this as supporting signal alongside the image.`
     : 'No caption was provided. Rely on the image alone.';
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1000,
-      system: FINGERPRINT_SCHEMA_PROMPT,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
-          { type: 'text', text: userText }
-        ]
-      }]
-    })
+  const text = await callGemini({
+    systemText: FINGERPRINT_SCHEMA_PROMPT,
+    userParts: [
+      { inline_data: { mime_type: 'image/jpeg', data: base64 } },
+      { text: userText }
+    ]
   });
-
-  if (!response.ok) throw new Error('API error ' + response.status);
-  const data = await response.json();
-  const textBlock = data.content.find(b => b.type === 'text');
-  if (!textBlock) throw new Error('No text response');
-  return parseJsonLoose(textBlock.text);
+  return parseJsonLoose(text);
 }
 
 async function extractFingerprintFromText(text){
@@ -975,22 +1074,11 @@ async function extractFingerprintFromText(text){
     .replace('For "message_text": transcribe any visible chat/message text in the screenshot verbatim (price, description, condition notes, seller comments). If there is no visible text, use null.',
       'For "message_text": set this to the original request text verbatim.');
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1000,
-      system: textSystemPrompt,
-      messages: [{ role: 'user', content: `Customer request text: "${text}"` }]
-    })
+  const responseText = await callGemini({
+    systemText: textSystemPrompt,
+    userParts: [{ text: `Customer request text: "${text}"` }]
   });
-
-  if (!response.ok) throw new Error('API error ' + response.status);
-  const data = await response.json();
-  const textBlock = data.content.find(b => b.type === 'text');
-  if (!textBlock) throw new Error('No text response');
-  return parseJsonLoose(textBlock.text);
+  return parseJsonLoose(responseText);
 }
 
 function parseJsonLoose(text){
@@ -1107,25 +1195,12 @@ async function runMatching(){
   const demandPayload = demandReady.map(it => ({ demand_id: it.id, fingerprint: it.fingerprint }));
 
   try{
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 4000,
-        system: MATCH_SYSTEM_PROMPT,
-        messages: [{
-          role: 'user',
-          content: `STOCK:\n${JSON.stringify(stockPayload, null, 2)}\n\nDEMAND:\n${JSON.stringify(demandPayload, null, 2)}`
-        }]
-      })
+    const responseText = await callGemini({
+      systemText: MATCH_SYSTEM_PROMPT,
+      userParts: [{ text: `STOCK:\n${JSON.stringify(stockPayload, null, 2)}\n\nDEMAND:\n${JSON.stringify(demandPayload, null, 2)}` }],
+      maxOutputTokens: 6000
     });
-
-    if (!response.ok) throw new Error('API error ' + response.status);
-    const data = await response.json();
-    const textBlock = data.content.find(b => b.type === 'text');
-    if (!textBlock) throw new Error('No text response');
-    const parsed = parseJsonLoose(textBlock.text);
+    const parsed = parseJsonLoose(responseText);
 
     matchResults = (parsed.results || []).map(r => {
       const demandItem = demandItems.find(d => d.id === r.demand_id);
@@ -1474,11 +1549,34 @@ function init(){
     if (e.target.id === 'lightboxOverlay') e.target.classList.remove('open');
   };
 
+  function openSettingsModal(){
+    document.getElementById('apiKeyInput').value = getApiKey();
+    document.getElementById('settingsModalOverlay').classList.add('open');
+  }
+  document.getElementById('settingsBtn').onclick = openSettingsModal;
+  document.getElementById('keyBannerBtn').onclick = openSettingsModal;
+  document.getElementById('settingsModalCancel').onclick = () => {
+    document.getElementById('settingsModalOverlay').classList.remove('open');
+  };
+  document.getElementById('settingsModalSave').onclick = () => {
+    const key = document.getElementById('apiKeyInput').value.trim();
+    setApiKey(key);
+    document.getElementById('settingsModalOverlay').classList.remove('open');
+    updateKeyBanner();
+    showToast(key ? 'API key saved' : 'API key cleared');
+  };
+
   document.addEventListener('paste', handlePaste);
 
+  updateKeyBanner();
   loadStockCatalog().then(() => { renderStock(); renderDashboard(); });
   renderDemand();
   renderResults();
+}
+
+function updateKeyBanner(){
+  const banner = document.getElementById('keyBanner');
+  banner.style.display = getApiKey() ? 'none' : '';
 }
 
 init();
