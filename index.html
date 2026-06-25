@@ -965,6 +965,97 @@ let matchResults = []; // {demandId, demandLabel, demandThumb, matches:[{stockId
 
 let currentView = 'stock';
 
+/* ===================== IndexedDB image store ===================== */
+/* localStorage caps out around 5-10MB total, nowhere near enough for dozens
+   of full-resolution watch photos. IndexedDB has a much higher practical
+   ceiling (typically hundreds of MB, browser-dependent), so it's the only
+   realistic way to keep photos themselves persisted across reloads. This
+   wraps it in a tiny promise-based API so the rest of the app can just
+   call imageStore.get(id) / imageStore.set(id, base64) / imageStore.delete(id). */
+
+const IMAGE_DB_NAME = 'stockmatch-images';
+const IMAGE_DB_VERSION = 1;
+const IMAGE_STORE_NAME = 'images';
+let _imageDbPromise = null;
+
+function openImageDb(){
+  if (_imageDbPromise) return _imageDbPromise;
+  _imageDbPromise = new Promise((resolve, reject) => {
+    if (!window.indexedDB){ reject(new Error('IndexedDB not available in this browser')); return; }
+    const req = window.indexedDB.open(IMAGE_DB_NAME, IMAGE_DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(IMAGE_STORE_NAME)){
+        db.createObjectStore(IMAGE_STORE_NAME);
+      }
+    };
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = (e) => reject(e.target.error || new Error('failed to open image database'));
+  });
+  return _imageDbPromise;
+}
+
+const imageStore = {
+  async set(id, base64){
+    try{
+      const db = await openImageDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(IMAGE_STORE_NAME, 'readwrite');
+        tx.objectStore(IMAGE_STORE_NAME).put(base64, id);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      });
+    }catch(e){ console.error('imageStore.set failed', e); return false; }
+  },
+  async get(id){
+    try{
+      const db = await openImageDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(IMAGE_STORE_NAME, 'readonly');
+        const req = tx.objectStore(IMAGE_STORE_NAME).get(id);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+      });
+    }catch(e){ console.error('imageStore.get failed', e); return null; }
+  },
+  async delete(id){
+    try{
+      const db = await openImageDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(IMAGE_STORE_NAME, 'readwrite');
+        tx.objectStore(IMAGE_STORE_NAME).delete(id);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      });
+    }catch(e){ console.error('imageStore.delete failed', e); return false; }
+  },
+  async getMany(ids){
+    try{
+      const db = await openImageDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(IMAGE_STORE_NAME, 'readonly');
+        const store = tx.objectStore(IMAGE_STORE_NAME);
+        const results = {};
+        let remaining = ids.length;
+        if (!remaining){ resolve(results); return; }
+        ids.forEach(id => {
+          const req = store.get(id);
+          req.onsuccess = () => {
+            results[id] = req.result || null;
+            remaining--;
+            if (remaining === 0) resolve(results);
+          };
+          req.onerror = () => {
+            results[id] = null;
+            remaining--;
+            if (remaining === 0) resolve(results);
+          };
+        });
+      });
+    }catch(e){ console.error('imageStore.getMany failed', e); return {}; }
+  }
+};
+
 /* ===================== local storage shim ===================== */
 /* This app needs a paid Anthropic API key (billing enabled at
    console.anthropic.com) since it's hosted standalone rather than inside
@@ -1046,7 +1137,10 @@ function fpLine(fp){
 }
 
 /* ===================== persistence ===================== */
-/* We persist fingerprints + metadata (small) but NOT raw image bytes (5MB/key cap). */
+/* Metadata (fingerprints, captions, prices) goes in localStore, which is
+   small and reliable. Actual image bytes go in IndexedDB via imageStore,
+   which has enough headroom for dozens of full photos. Both are written
+   together so a reload restores the full catalog, photos included. */
 
 async function saveStockCatalog(){
   try{
@@ -1059,12 +1153,60 @@ async function saveStockCatalog(){
   }catch(e){ console.error('save stock failed', e); }
 }
 
+async function saveStockImage(id, base64){
+  if (!base64) return;
+  await imageStore.set(id, base64);
+}
+
 async function loadStockCatalog(){
   try{
     const res = await localStore.get('stock-catalog');
     if (res && res.value){
       const parsed = JSON.parse(res.value);
       stockItems = parsed.map(it => ({...it, imageData: null}));
+      // Restore actual photos from IndexedDB for items that have one saved.
+      const idsWithImages = stockItems.filter(it => it.hasImage).map(it => it.id);
+      if (idsWithImages.length){
+        const images = await imageStore.getMany(idsWithImages);
+        stockItems.forEach(it => {
+          if (images[it.id]) it.imageData = images[it.id];
+        });
+      }
+    }
+  }catch(e){
+    // key not found is normal on first run
+  }
+}
+
+async function saveDemandCatalog(){
+  try{
+    const persistable = demandItems.map(it => ({
+      id: it.id, type: it.type, filename: it.filename, caption: it.caption, text: it.text,
+      status: it.status, fingerprint: it.fingerprint || null, error: it.error || null,
+      hasImage: !!it.imageData
+    }));
+    await localStore.set('demand-catalog', JSON.stringify(persistable));
+  }catch(e){ console.error('save demand failed', e); }
+}
+
+async function saveDemandImage(id, base64){
+  if (!base64) return;
+  await imageStore.set('demand:' + id, base64);
+}
+
+async function loadDemandCatalog(){
+  try{
+    const res = await localStore.get('demand-catalog');
+    if (res && res.value){
+      const parsed = JSON.parse(res.value);
+      demandItems = parsed.map(it => ({...it, imageData: null}));
+      const idsWithImages = demandItems.filter(it => it.hasImage).map(it => 'demand:' + it.id);
+      if (idsWithImages.length){
+        const images = await imageStore.getMany(idsWithImages);
+        demandItems.forEach(it => {
+          if (images['demand:' + it.id]) it.imageData = images['demand:' + it.id];
+        });
+      }
     }
   }catch(e){
     // key not found is normal on first run
@@ -1154,7 +1296,9 @@ function attachStockCardHandlers(){
   });
   grid.querySelectorAll('[data-action="remove"]').forEach(btn => {
     btn.onclick = (e) => {
-      stockItems = stockItems.filter(s => s.id !== e.target.dataset.id);
+      const removedId = e.target.dataset.id;
+      stockItems = stockItems.filter(s => s.id !== removedId);
+      imageStore.delete(removedId);
       saveStockCatalog();
       renderStock();
       renderDashboard();
@@ -1179,6 +1323,7 @@ function markSold(id){
   if (!item) return;
   if (!confirm(`Mark "${itemLabel(item)}" as sold out? It will be removed from stock.`)) return;
   stockItems = stockItems.filter(s => s.id !== id);
+  imageStore.delete(id);
   // Drop this item from any existing match results immediately so sold
   // stock never lingers as a "match" in memory.
   matchResults = matchResults.map(r => ({
@@ -1204,6 +1349,13 @@ function triggerReattach(id, kind){
     if (item){
       item.imageData = base64;
       item.hasImage = true;
+      if (kind === 'stock'){
+        saveStockImage(id, base64);
+        saveStockCatalog();
+      } else {
+        saveDemandImage(id, base64);
+        saveDemandCatalog();
+      }
     }
     kind === 'stock' ? renderStock() : renderDemand();
   };
@@ -1286,11 +1438,18 @@ function attachDemandCardHandlers(){
       if (e.target.dataset.field === 'text') item.text = e.target.value;
       else item.caption = e.target.value;
     };
+    input.onblur = saveDemandCatalog;
   });
   grid.querySelectorAll('[data-action="remove"]').forEach(btn => {
     btn.onclick = (e) => {
-      demandItems = demandItems.filter(s => s.id !== e.target.dataset.id);
+      const removedId = e.target.dataset.id;
+      demandItems = demandItems.filter(s => s.id !== removedId);
+      imageStore.delete('demand:' + removedId);
+      matchResults = matchResults.filter(r => r.demandId !== removedId);
+      saveDemandCatalog();
       renderDemand();
+      renderResults();
+      renderDashboard();
     };
   });
   grid.querySelectorAll('[data-action="lightbox"]').forEach(el => {
@@ -1440,7 +1599,27 @@ async function extractFingerprintFromText(text, onRetryWait){
 
 function parseJsonLoose(text){
   let cleaned = text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '');
-  return JSON.parse(cleaned);
+  try{
+    return JSON.parse(cleaned);
+  }catch(e){
+    // Model sometimes adds stray prose before/after the JSON despite
+    // instructions not to, or the fence isn't at the exact string boundary.
+    // Fall back to extracting the outermost {...} block by bracket matching.
+    const start = cleaned.indexOf('{');
+    if (start === -1) throw e;
+    let depth = 0;
+    for (let i = start; i < cleaned.length; i++){
+      if (cleaned[i] === '{') depth++;
+      else if (cleaned[i] === '}'){
+        depth--;
+        if (depth === 0){
+          const candidate = cleaned.slice(start, i + 1);
+          try{ return JSON.parse(candidate); }catch(e2){ throw e; }
+        }
+      }
+    }
+    throw e;
+  }
 }
 
 /* ===================== batch analysis with progress ===================== */
@@ -1506,6 +1685,7 @@ async function analyzeBatch(items, kind, renderFn){
   btn.disabled = false;
   btn.textContent = originalText;
   if (kind === 'stock') { saveStockCatalog(); renderDashboard(); }
+  else { saveDemandCatalog(); }
   renderFn();
 
   const failed = toProcess.filter(it => it.status === 'error').length;
@@ -1539,15 +1719,15 @@ const MATCH_SYSTEM_PROMPT = `You are matching customer watch demand requests aga
 
 HARD RULES \u2014 these are gates, not soft preferences. Violating either means the pair is NOT a match, regardless of how similar anything else looks:
 1. GENDER: if both items have a known gender ("mens" or "ladies", not unisex and not null) and they differ, this is NEVER a match, even if brand, model name, or photos look similar. A men's and a women's watch are never the same item. "unisex" can match against "mens", "ladies", or "unisex". If gender is null/unknown on either side, don't use it as a blocker, but don't claim it as confirmed either.
-2. REFERENCE NUMBER: if both items have a reference_number, they must be the same (or a clearly equivalent format of the same number, e.g. with/without a suffix letter for bracelet type) to be considered a match. A reference number mismatch rules the pair out even if brand and model line match.
+2. REFERENCE NUMBER: if both items have a reference_number, normalize both before comparing \u2014 ignore spacing, dashes, capitalization, and leading zeros, and treat OCR-style noise as equivalent (e.g. "0" vs "O", "1" vs "I", a missing or extra trailing bracelet/dial suffix letter). If the normalized core reference number is the same, treat it as a match even if the raw strings differ slightly \u2014 minor transcription variance between two photos of the same physical watch is expected and common, not a reason to reject the match. Only treat reference numbers as a genuine mismatch when they clearly identify different references after normalization (e.g. "126610" vs "116610" \u2014 different core numbers, not just noisy formatting of the same one). When in doubt between "noisy transcription of the same ref" and "actually different ref," prefer treating close numeric matches (off by reformatting, not by digits) as the same reference, and explain the normalization you applied in the reasoning.
 
 CONFIDENCE SCORING:
-- Both reference numbers present, source "visible" on both sides, and they match exactly \u2192 highest confidence (90-100).
-- Reference numbers match but one or both sides have reference_number_source "inferred" (i.e. Claude guessed it from visual style rather than reading it off the piece) \u2192 cap confidence around 55-75, and say explicitly in the reasoning that the reference was inferred, not read, so it should be treated as a strong lead rather than a certainty.
+- Both reference numbers present, source "visible" on both sides, and they match (after normalization) \u2192 highest confidence (90-100).
+- Reference numbers match (after normalization) but one or both sides have reference_number_source "inferred" (i.e. Claude guessed it from visual style rather than reading it off the piece) \u2192 cap confidence around 55-75, and say explicitly in the reasoning that the reference was inferred, not read, so it should be treated as a strong lead rather than a certainty.
 - No reference number available on one or both sides, but brand + model line + dial + case all align and gender doesn't conflict \u2192 moderate confidence (35-55), and say explicitly that this is a similarity match without a confirmed reference number.
 - Otherwise weight dial color, case material/size, bracelet type, and markings as moderate corroborating signals; bezel and markings are supporting detail. Generic similarity (just "same brand", vague styling, photo conditions) should NOT produce a high confidence score on its own.
 
-Only include a stock item as a match if there is genuine overlap in identifying fields and neither hard rule is violated. If nothing in stock plausibly matches a demand item, return an empty matches array for it rather than forcing a weak match.
+Only include a stock item as a match if there is genuine overlap in identifying fields and neither hard rule is violated. If nothing in stock plausibly matches a demand item, return an empty matches array for it rather than forcing a weak match. But before excluding a pair, double-check you're not rejecting a real match purely over formatting noise in the reference number \u2014 that's the single most common false negative, so resolve it in favor of matching when the core identifying digits agree.
 
 Return STRICT JSON ONLY, no markdown fences, no commentary, in this exact shape:
 {
@@ -1591,10 +1771,16 @@ async function runMatching(opts){
     const responseText = await callAnthropic({
       systemText: MATCH_SYSTEM_PROMPT,
       userParts: [{ text: `STOCK:\n${JSON.stringify(stockPayload, null, 2)}\n\nDEMAND:\n${JSON.stringify(demandPayload, null, 2)}` }],
-      maxOutputTokens: 6000,
+      maxOutputTokens: 8000,
       onRetryWait: (waitSeconds) => { if (!silent) btn.textContent = `Rate limited, waiting ${waitSeconds}s\u2026`; }
     });
-    const parsed = parseJsonLoose(responseText);
+    let parsed;
+    try{
+      parsed = parseJsonLoose(responseText);
+    }catch(parseErr){
+      console.error('Matching response was not valid JSON. Raw response:', responseText);
+      throw new Error('Claude\'s matching response could not be read as JSON (' + parseErr.message + '). This usually means the response got cut off \u2014 try matching a smaller batch at a time.');
+    }
 
     matchResults = (parsed.results || []).map(r => {
       const demandItem = demandItems.find(d => d.id === r.demand_id);
@@ -1891,10 +2077,12 @@ async function handleStockFiles(fileList){
         continue;
       }
       const base64 = await fileToBase64(file);
+      const newId = uid();
       stockItems.push({
-        id: uid(), type: 'image', filename: file.name || 'untitled', caption: '',
+        id: newId, type: 'image', filename: file.name || 'untitled', caption: '',
         imageData: base64, hasImage: true, status: 'pending', fingerprint: null, error: null
       });
+      saveStockImage(newId, base64);
       added++;
       // render incrementally so progress is visible on slow mobile reads
       renderStock();
@@ -1925,10 +2113,12 @@ async function handleDemandFiles(fileList){
         continue;
       }
       const base64 = await fileToBase64(file);
+      const newId = uid();
       demandItems.push({
-        id: uid(), type: 'image', filename: file.name || 'untitled', caption: '',
+        id: newId, type: 'image', filename: file.name || 'untitled', caption: '',
         imageData: base64, hasImage: true, status: 'pending', fingerprint: null, error: null
       });
+      saveDemandImage(newId, base64);
       added++;
       renderDemand();
     }catch(e){
@@ -1936,6 +2126,7 @@ async function handleDemandFiles(fileList){
       console.error('failed to read file', file && file.name, e);
     }
   }
+  saveDemandCatalog();
   if (added && !failed) showToast(`Added ${added} image${added > 1 ? 's' : ''} to demand`);
   else if (added && failed) showToast(`Added ${added}, ${failed} failed to load`, true);
   else showToast('Could not load any of the selected images', true);
@@ -2029,6 +2220,7 @@ function init(){
       id: uid(), type: 'text', filename: null, caption: '', text,
       imageData: null, status: 'pending', fingerprint: null, error: null
     });
+    saveDemandCatalog();
     document.getElementById('textModalOverlay').classList.remove('open');
     renderDemand();
   };
@@ -2064,7 +2256,7 @@ function init(){
 
   updateKeyBanner();
   loadStockCatalog().then(() => { renderStock(); renderDashboard(); });
-  renderDemand();
+  loadDemandCatalog().then(() => { renderDemand(); });
   renderResults();
 }
 
