@@ -3,29 +3,63 @@
 <head>
 <meta charset="UTF-8">
 <style>
+/* ============================================================
+   STOCKMATCH — instrument-panel design system
+   Inspired by the inside of a fine watch movement: gunmetal,
+   bronze, brushed steel, jewel-bearing indicators.
+   ============================================================ */
+
 :root{
-  --bg: #15140f;
-  --bg-raised: #1c1b15;
-  --bg-raised-2: #23221a;
-  --border: #36342a;
-  --border-soft: #2a2920;
-  --brass: #c9a24b;
-  --brass-dim: #8d7437;
-  --brass-bright: #e6c068;
-  --text: #ece7da;
-  --text-dim: #9a9587;
-  --text-faint: #6e6a5e;
-  --red: #c2614a;
-  --green: #7fa86b;
+  /* surfaces */
+  --bg: #0f0e0c;
+  --bg-raised: #181511;
+  --bg-raised-2: #211d16;
+  --bg-raised-3: #2a2419;
+  --border: #3d3527;
+  --border-soft: #2a2419;
+  --border-bright: #54462e;
+
+  /* movement gold (primary accent) */
+  --brass: #d4a84b;
+  --brass-dim: #97793a;
+  --brass-bright: #f0c668;
+  --brass-glow: rgba(212,168,75,0.35);
+
+  /* steel blue (mens / cool data) */
+  --steel: #5a8fb0;
+  --steel-bright: #8fc1e0;
+
+  /* rose gold (ladies) */
+  --rose: #b8638a;
+  --rose-bright: #e0a0c0;
+
+  /* jewel states */
+  --jade: #6fae5f;
+  --jade-bright: #97d985;
+  --ruby: #c75450;
+  --ruby-bright: #e88884;
+
+  /* text */
+  --text: #f2ede0;
+  --text-dim: #aaa392;
+  --text-faint: #756c5a;
+
+  /* type */
+  --display: 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
   --serif: 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
   --mono: 'SF Mono', 'IBM Plex Mono', 'Courier New', monospace;
   --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  --radius: 10px;
+  --radius-sm: 6px;
 }
 
 *{box-sizing:border-box;margin:0;padding:0;}
 
 #app{
-  background:var(--bg);
+  background:
+    radial-gradient(ellipse 1200px 600px at 50% -10%, rgba(212,168,75,0.06), transparent),
+    var(--bg);
   color:var(--text);
   font-family:var(--sans);
   min-height:100vh;
@@ -41,95 +75,94 @@
   justify-content:space-between;
   flex-wrap:wrap;
   gap:16px;
-  padding:20px 28px;
+  padding:22px 28px;
   border-bottom:1px solid var(--border-soft);
-  background:var(--bg-raised);
+  background:linear-gradient(180deg, var(--bg-raised-2) 0%, var(--bg-raised) 100%);
+  box-shadow:0 1px 0 rgba(212,168,75,0.08) inset, 0 4px 20px rgba(0,0,0,0.4);
+  position:relative;
 }
-.brand{display:flex;align-items:center;gap:12px;}
+.topbar::after{
+  content:'';
+  position:absolute;
+  left:0; right:0; bottom:-1px;
+  height:1px;
+  background:linear-gradient(90deg, transparent, var(--brass-dim) 20%, var(--brass) 50%, var(--brass-dim) 80%, transparent);
+  opacity:0.5;
+}
+.brand{display:flex;align-items:center;gap:14px;}
 .brand-mark{
-  font-size:26px;
+  font-size:30px;
   color:var(--brass);
   line-height:1;
+  filter:drop-shadow(0 0 8px var(--brass-glow));
+  animation:slowSpin 40s linear infinite;
+  display:inline-block;
 }
+@keyframes slowSpin{ from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
 .brand-text h1{
-  font-family:var(--serif);
-  font-size:20px;
+  font-family:var(--display);
+  font-size:21px;
   font-weight:600;
-  letter-spacing:0.01em;
+  letter-spacing:0.015em;
   color:var(--text);
+  background:linear-gradient(90deg, var(--text) 60%, var(--brass-bright));
+  -webkit-background-clip:text;
+  background-clip:text;
 }
 .brand-text p{
-  font-size:11px;
+  font-size:10.5px;
   color:var(--text-faint);
-  letter-spacing:0.04em;
+  letter-spacing:0.08em;
   text-transform:uppercase;
-  margin-top:2px;
+  margin-top:3px;
 }
-.tabs{display:flex;gap:4px;background:var(--bg);border:1px solid var(--border-soft);border-radius:8px;padding:3px;}
+.tabs{
+  display:flex;
+  gap:4px;
+  background:var(--bg);
+  border:1px solid var(--border-soft);
+  border-radius:10px;
+  padding:4px;
+  box-shadow:0 2px 8px rgba(0,0,0,0.35) inset;
+}
 .tab{
   background:transparent;
   border:none;
   color:var(--text-dim);
   font-size:13px;
   font-family:var(--sans);
-  padding:8px 14px;
-  border-radius:6px;
+  font-weight:500;
+  padding:9px 15px;
+  border-radius:7px;
   cursor:pointer;
   display:flex;
   align-items:center;
   gap:8px;
-  transition:background 0.15s, color 0.15s;
+  transition:background 0.18s, color 0.18s, box-shadow 0.18s;
 }
 .tab:hover{color:var(--text);}
-.tab.active{background:var(--bg-raised-2);color:var(--brass-bright);}
+.tab.active{
+  background:linear-gradient(180deg, var(--bg-raised-3), var(--bg-raised-2));
+  color:var(--brass-bright);
+  box-shadow:0 1px 0 rgba(255,255,255,0.05) inset, 0 2px 6px rgba(0,0,0,0.3);
+}
 .tab .count{
   font-family:var(--mono);
   font-size:11px;
   background:var(--border-soft);
   color:var(--text-dim);
-  padding:1px 6px;
+  padding:1px 7px;
   border-radius:10px;
   min-width:16px;
   text-align:center;
 }
-.tab.active .count{background:rgba(201,162,75,0.18);color:var(--brass-bright);}
-
-/* ---------- layout ---------- */
-main{padding:28px;max-width:1100px;margin:0 auto;}
-.view{display:none;}
-.view.active{display:block;}
-
-.panel-head{
-  display:flex;
-  align-items:flex-start;
-  justify-content:space-between;
-  gap:20px;
-  flex-wrap:wrap;
-  margin-bottom:24px;
-}
-.panel-head h2{
-  font-family:var(--serif);
-  font-size:19px;
-  font-weight:600;
-  color:var(--text);
-  margin-bottom:6px;
-}
-.panel-head .sub{
-  font-size:12.5px;
-  color:var(--text-dim);
-  max-width:520px;
-  line-height:1.55;
-}
-.paste-hint{
-  color:var(--text-faint);
-  font-style:italic;
-}
-.panel-actions{display:flex;gap:8px;flex-wrap:wrap;}
+.tab.active .count{background:var(--brass-glow);color:var(--brass-bright);}
 
 .settings-btn{
-  font-size:16px;
-  padding:8px 12px;
+  font-size:17px;
+  padding:9px 13px;
   flex-shrink:0;
+  border-radius:10px;
 }
 .key-banner{
   display:flex;
@@ -137,65 +170,202 @@ main{padding:28px;max-width:1100px;margin:0 auto;}
   justify-content:space-between;
   gap:14px;
   flex-wrap:wrap;
-  background:rgba(194,97,74,0.12);
-  border-bottom:1px solid var(--border-soft);
-  padding:10px 28px;
+  background:linear-gradient(90deg, rgba(199,84,80,0.14), rgba(199,84,80,0.06));
+  border-bottom:1px solid rgba(199,84,80,0.25);
+  padding:11px 28px;
   font-size:12.5px;
-  color:var(--text-dim);
+  color:var(--ruby-bright);
 }
-.settings-copy{
+
+/* ---------- layout ---------- */
+main{padding:30px 28px;max-width:1140px;margin:0 auto;}
+.view{display:none;}
+.view.active{display:block;animation:fadeIn 0.25s ease-out;}
+@keyframes fadeIn{ from{opacity:0;transform:translateY(4px);} to{opacity:1;transform:translateY(0);} }
+
+.panel-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:20px;
+  flex-wrap:wrap;
+  margin-bottom:26px;
+}
+.panel-head h2{
+  font-family:var(--display);
+  font-size:21px;
+  font-weight:600;
+  color:var(--text);
+  margin-bottom:7px;
+  position:relative;
+  display:inline-block;
+}
+.panel-head h2::after{
+  content:'';
+  position:absolute;
+  left:0; bottom:-6px;
+  width:32px; height:2px;
+  background:linear-gradient(90deg, var(--brass), transparent);
+  border-radius:2px;
+}
+.panel-head .sub{
   font-size:12.5px;
   color:var(--text-dim);
+  max-width:540px;
   line-height:1.6;
-  margin-bottom:14px;
 }
-.settings-copy strong{color:var(--brass-bright);font-family:var(--mono);font-weight:400;}
+.paste-hint{color:var(--text-faint);font-style:italic;}
+.panel-actions{display:flex;gap:9px;flex-wrap:wrap;}
 
 /* ---------- buttons ---------- */
 .btn{
-  background:var(--bg-raised-2);
+  background:linear-gradient(180deg, var(--bg-raised-3), var(--bg-raised-2));
   border:1px solid var(--border);
   color:var(--text);
   font-size:12.5px;
   font-family:var(--sans);
-  padding:9px 16px;
-  border-radius:6px;
+  font-weight:500;
+  padding:10px 17px;
+  border-radius:9px;
   cursor:pointer;
   white-space:nowrap;
-  transition:background 0.15s,border-color 0.15s,opacity 0.15s;
+  box-shadow:0 1px 0 rgba(255,255,255,0.04) inset, 0 2px 6px rgba(0,0,0,0.3);
+  transition:background 0.16s,border-color 0.16s,opacity 0.16s,transform 0.12s,box-shadow 0.16s;
 }
-.btn:hover:not(:disabled){border-color:var(--brass-dim);}
-.btn:disabled{opacity:0.4;cursor:not-allowed;}
-.btn.primary{background:var(--brass);border-color:var(--brass);color:#1c1606;font-weight:600;}
-.btn.primary:hover:not(:disabled){background:var(--brass-bright);}
-.btn.small{padding:5px 10px;font-size:11.5px;}
-.btn.danger-text{color:var(--red);}
+.btn:hover:not(:disabled){
+  border-color:var(--brass-dim);
+  transform:translateY(-1.5px);
+  box-shadow:0 1px 0 rgba(255,255,255,0.06) inset, 0 6px 16px rgba(0,0,0,0.4);
+}
+.btn:active:not(:disabled){transform:translateY(0px);}
+.btn:disabled{opacity:0.38;cursor:not-allowed;}
+.btn.primary{
+  background:linear-gradient(180deg, var(--brass-bright), var(--brass));
+  border-color:var(--brass);
+  color:#1a1206;
+  font-weight:700;
+  box-shadow:0 1px 0 rgba(255,255,255,0.35) inset, 0 3px 12px var(--brass-glow);
+}
+.btn.primary:hover:not(:disabled){
+  background:linear-gradient(180deg, #f7da8c, var(--brass-bright));
+  box-shadow:0 1px 0 rgba(255,255,255,0.4) inset, 0 6px 20px var(--brass-glow);
+}
+.btn.small{padding:6px 11px;font-size:11.5px;border-radius:7px;}
+.btn.danger-text{color:var(--ruby-bright);}
 .file-btn{display:inline-flex;align-items:center;justify-content:center;}
+
+.sold-btn{
+  border-color:rgba(199,84,80,0.4);
+  color:var(--ruby-bright);
+  background:linear-gradient(180deg, rgba(199,84,80,0.1), rgba(199,84,80,0.04));
+}
+.sold-btn:hover{
+  background:linear-gradient(180deg, rgba(199,84,80,0.18), rgba(199,84,80,0.08));
+  border-color:var(--ruby);
+}
+
+/* ---------- jewel-bearing status indicators ---------- */
+.status-badge{
+  font-size:10px;
+  letter-spacing:0.04em;
+  text-transform:uppercase;
+  padding:4px 9px 4px 20px;
+  border-radius:20px;
+  font-family:var(--mono);
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+}
+.status-badge::before{
+  content:'';
+  position:absolute;
+  left:7px; top:50%;
+  width:7px; height:7px;
+  border-radius:50%;
+  transform:translateY(-50%);
+  box-shadow:0 0 0 2px rgba(0,0,0,0.2) inset;
+}
+.status-badge.pending{background:rgba(170,163,146,0.1);color:var(--text-dim);}
+.status-badge.pending::before{background:radial-gradient(circle at 35% 30%, #cfc9b8, var(--text-faint));}
+.status-badge.analyzing{background:rgba(212,168,75,0.12);color:var(--brass-bright);}
+.status-badge.analyzing::before{background:radial-gradient(circle at 35% 30%, var(--brass-bright), var(--brass-dim));animation:pulseGlow 1.1s ease-in-out infinite;}
+.status-badge.done{background:rgba(111,174,95,0.12);color:var(--jade-bright);}
+.status-badge.done::before{background:radial-gradient(circle at 35% 30%, var(--jade-bright), var(--jade));}
+.status-badge.error{background:rgba(199,84,80,0.12);color:var(--ruby-bright);}
+.status-badge.error::before{background:radial-gradient(circle at 35% 30%, var(--ruby-bright), var(--ruby));}
+@keyframes pulseGlow{ 0%,100%{box-shadow:0 0 0 0 var(--brass-glow), 0 0 0 2px rgba(0,0,0,0.2) inset;} 50%{box-shadow:0 0 0 4px transparent, 0 0 0 2px rgba(0,0,0,0.2) inset;} }
+
+/* ---------- gender / reference badges ---------- */
+.gender-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  font-size:10.5px;
+  font-family:var(--mono);
+  text-transform:uppercase;
+  letter-spacing:0.03em;
+  padding:4px 9px;
+  border-radius:20px;
+  cursor:default;
+}
+.gender-badge::before{content:'';width:6px;height:6px;border-radius:50%;}
+.gender-badge.mens{background:rgba(90,143,176,0.16);color:var(--steel-bright);}
+.gender-badge.mens::before{background:radial-gradient(circle at 35% 30%, var(--steel-bright), var(--steel));}
+.gender-badge.ladies{background:rgba(184,99,138,0.16);color:var(--rose-bright);}
+.gender-badge.ladies::before{background:radial-gradient(circle at 35% 30%, var(--rose-bright), var(--rose));}
+.gender-badge.unisex{background:rgba(170,163,146,0.14);color:var(--text-dim);}
+.gender-badge.unisex::before{background:var(--text-faint);}
+
+.ref-badge{
+  display:inline-flex;
+  align-items:center;
+  font-size:10.5px;
+  font-family:var(--mono);
+  padding:4px 9px;
+  border-radius:6px;
+  margin-top:4px;
+  cursor:default;
+}
+.ref-badge.visible{background:rgba(111,174,95,0.14);color:var(--jade-bright);}
+.ref-badge.inferred{background:rgba(212,168,75,0.14);color:var(--brass-bright);}
+
+.card-badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px;}
 
 /* ---------- empty state ---------- */
 .empty-state{
   text-align:center;
-  padding:64px 20px;
+  padding:70px 20px;
   color:var(--text-faint);
   border:1px dashed var(--border);
-  border-radius:10px;
+  border-radius:var(--radius);
+  background:radial-gradient(ellipse at 50% 0%, rgba(212,168,75,0.04), transparent);
 }
-.empty-icon{font-size:30px;color:var(--border);margin-bottom:14px;}
+.empty-icon{
+  font-size:32px;
+  color:var(--brass-dim);
+  margin-bottom:16px;
+  opacity:0.6;
+}
 .empty-state p{font-size:13.5px;color:var(--text-dim);margin-bottom:4px;}
-.empty-state p.sub{font-size:12px;color:var(--text-faint);max-width:380px;margin:6px auto 0;line-height:1.5;}
+.empty-state p.sub{font-size:12px;color:var(--text-faint);max-width:380px;margin:6px auto 0;line-height:1.55;}
 
 /* ---------- grid of item cards ---------- */
 .grid{
   display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
-  gap:14px;
+  grid-template-columns:repeat(auto-fill,minmax(225px,1fr));
+  gap:16px;
 }
 .card{
-  background:var(--bg-raised);
+  background:linear-gradient(165deg, var(--bg-raised-2), var(--bg-raised));
   border:1px solid var(--border-soft);
-  border-radius:10px;
+  border-radius:var(--radius);
   overflow:hidden;
   position:relative;
+  transition:border-color 0.2s, box-shadow 0.2s;
+}
+.card:hover{
+  border-color:var(--border-bright);
+  box-shadow:0 6px 22px rgba(0,0,0,0.35);
 }
 .card-img-wrap{
   width:100%;
@@ -208,7 +378,15 @@ main{padding:28px;max-width:1100px;margin:0 auto;}
   overflow:hidden;
   position:relative;
 }
-.card-img-wrap img{width:100%;height:100%;object-fit:cover;display:block;}
+.card-img-wrap::after{
+  content:'';
+  position:absolute;
+  inset:0;
+  background:linear-gradient(180deg, transparent 60%, rgba(0,0,0,0.25));
+  pointer-events:none;
+}
+.card-img-wrap img{width:100%;height:100%;object-fit:cover;display:block;transition:transform 0.3s;}
+.card-img-wrap:hover img{transform:scale(1.035);}
 .card-img-wrap.no-image{
   color:var(--text-faint);
   font-size:11px;
@@ -216,7 +394,7 @@ main{padding:28px;max-width:1100px;margin:0 auto;}
   padding:20px;
   cursor:default;
 }
-.card-body{padding:12px 14px;}
+.card-body{padding:14px 15px;}
 .card-caption-input{
   width:100%;
   background:var(--bg);
@@ -224,10 +402,12 @@ main{padding:28px;max-width:1100px;margin:0 auto;}
   color:var(--text);
   font-size:12px;
   font-family:var(--sans);
-  padding:7px 9px;
-  border-radius:5px;
-  margin-bottom:8px;
+  padding:8px 10px;
+  border-radius:var(--radius-sm);
+  margin-bottom:9px;
+  transition:border-color 0.15s;
 }
+.card-caption-input:focus{border-color:var(--brass-dim);outline:none;}
 .card-caption-input::placeholder{color:var(--text-faint);}
 .card-status{
   display:flex;
@@ -235,57 +415,89 @@ main{padding:28px;max-width:1100px;margin:0 auto;}
   justify-content:space-between;
   gap:8px;
 }
-.status-badge{
-  font-size:10.5px;
-  letter-spacing:0.03em;
-  text-transform:uppercase;
-  padding:3px 8px;
-  border-radius:4px;
-  font-family:var(--mono);
-}
-.status-badge.pending{background:rgba(154,149,135,0.15);color:var(--text-dim);}
-.status-badge.analyzing{background:rgba(201,162,75,0.15);color:var(--brass);}
-.status-badge.done{background:rgba(127,168,107,0.15);color:var(--green);}
-.status-badge.error{background:rgba(194,97,74,0.15);color:var(--red);}
 .card-remove{
-  background:none;border:none;color:var(--text-faint);cursor:pointer;font-size:16px;line-height:1;padding:2px 4px;
+  background:none;border:none;color:var(--text-faint);cursor:pointer;font-size:17px;line-height:1;padding:2px 4px;
+  transition:color 0.15s;
 }
-.card-remove:hover{color:var(--red);}
+.card-remove:hover{color:var(--ruby-bright);}
+
+.highlight-flash{animation:flashHighlight 1.6s ease-out;}
+@keyframes flashHighlight{
+  0%{box-shadow:0 0 0 3px var(--brass-bright);}
+  100%{box-shadow:0 0 0 0px transparent;}
+}
 
 .fingerprint{
-  margin-top:10px;
-  padding-top:10px;
+  margin-top:11px;
+  padding-top:11px;
   border-top:1px solid var(--border-soft);
   font-family:var(--mono);
   font-size:11px;
   color:var(--text-dim);
   display:grid;
   grid-template-columns:auto 1fr;
-  gap:3px 8px;
+  gap:4px 10px;
 }
 .fingerprint .fp-label{color:var(--text-faint);}
 .fingerprint .fp-val{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.fingerprint .fp-val.ref{color:var(--brass-bright);}
+
+.msg-text{
+  margin-top:11px;
+  padding-top:11px;
+  border-top:1px solid var(--border-soft);
+}
+.msg-text p{
+  font-size:12px;
+  color:var(--text-dim);
+  line-height:1.55;
+  font-family:var(--sans);
+  white-space:pre-wrap;
+  max-height:80px;
+  overflow-y:auto;
+}
+.price-row{
+  margin-top:11px;
+  padding-top:11px;
+  border-top:1px solid var(--border-soft);
+  display:flex;
+  align-items:center;
+  gap:9px;
+}
+.price-row .fp-label{font-family:var(--mono);font-size:11px;color:var(--text-faint);flex-shrink:0;}
+.price-input{
+  flex:1;
+  background:var(--bg);
+  border:1px solid var(--border-soft);
+  color:var(--brass-bright);
+  font-family:var(--mono);
+  font-weight:600;
+  font-size:12.5px;
+  padding:7px 10px;
+  border-radius:var(--radius-sm);
+}
+.price-input:focus{border-color:var(--brass-dim);outline:none;}
 
 /* ---------- results ---------- */
-#resultsList{display:flex;flex-direction:column;gap:10px;}
+#resultsList{display:flex;flex-direction:column;gap:11px;}
 .result-row{
-  background:var(--bg-raised);
+  background:linear-gradient(165deg, var(--bg-raised-2), var(--bg-raised));
   border:1px solid var(--border-soft);
-  border-radius:10px;
+  border-radius:var(--radius);
   overflow:hidden;
+  transition:border-color 0.2s;
 }
+.result-row:hover{border-color:var(--border-bright);}
 .result-summary{
   display:flex;
   align-items:center;
   gap:16px;
-  padding:14px 18px;
+  padding:15px 19px;
   cursor:pointer;
 }
 .result-thumbs{display:flex;align-items:center;gap:8px;flex-shrink:0;}
-.thumb{width:46px;height:46px;border-radius:6px;background:var(--bg);object-fit:cover;border:1px solid var(--border-soft);}
+.thumb{width:46px;height:46px;border-radius:8px;background:var(--bg);object-fit:cover;border:1px solid var(--border-soft);}
 .thumb.placeholder{display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:9px;font-family:var(--mono);}
-.result-arrow{color:var(--text-faint);font-size:13px;flex-shrink:0;}
+.result-arrow{color:var(--brass-dim);font-size:13px;flex-shrink:0;transition:transform 0.2s;}
 .result-text{flex:1;min-width:0;}
 .result-text .demand-name{font-size:13.5px;color:var(--text);font-weight:600;}
 .result-text .match-name{font-size:12.5px;color:var(--text-dim);margin-top:2px;}
@@ -300,142 +512,107 @@ main{padding:28px;max-width:1100px;margin:0 auto;}
   min-width:90px;
 }
 .confidence-label{font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-faint);font-family:var(--mono);}
-.confidence-meter{width:84px;height:4px;background:var(--border-soft);border-radius:2px;overflow:hidden;}
-.confidence-fill{height:100%;border-radius:2px;}
-.confidence-fill.high{background:var(--green);}
-.confidence-fill.medium{background:var(--brass);}
-.confidence-fill.low{background:var(--red);}
-.confidence-pct{font-family:var(--mono);font-size:12px;color:var(--text);}
+.confidence-meter{width:84px;height:5px;background:var(--border-soft);border-radius:3px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.3) inset;}
+.confidence-fill{height:100%;border-radius:3px;}
+.confidence-fill.high{background:linear-gradient(90deg, var(--jade), var(--jade-bright));}
+.confidence-fill.medium{background:linear-gradient(90deg, var(--brass), var(--brass-bright));}
+.confidence-fill.low{background:linear-gradient(90deg, var(--ruby), var(--ruby-bright));}
+.confidence-pct{font-family:var(--mono);font-size:12.5px;color:var(--text);font-weight:600;}
 
 .result-detail{
   display:none;
-  padding:0 18px 18px;
+  padding:0 19px 19px;
   border-top:1px solid var(--border-soft);
 }
-.result-row.expanded .result-detail{display:block;}
-.result-row.expanded .result-arrow{transform:rotate(90deg);}
+.result-row.expanded .result-detail{display:block;animation:fadeIn 0.2s ease-out;}
+.result-row.expanded .result-arrow{transform:rotate(90deg);color:var(--brass-bright);}
 .reasoning-block{
-  margin-top:14px;
-  padding:12px 14px;
+  margin-top:15px;
+  padding:13px 15px;
   background:var(--bg);
-  border-radius:8px;
+  border-radius:var(--radius-sm);
   border:1px solid var(--border-soft);
 }
-.reasoning-block .rb-label{font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;color:var(--brass);font-family:var(--mono);margin-bottom:6px;}
+.reasoning-block .rb-label{font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;color:var(--brass);font-family:var(--mono);margin-bottom:7px;}
 .reasoning-block p{font-size:13px;color:var(--text-dim);line-height:1.6;}
-.compare-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;}
-.compare-col h4{font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-faint);margin-bottom:8px;font-family:var(--mono);}
-.alt-matches{margin-top:14px;}
-.alt-matches h4{font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-faint);margin-bottom:8px;font-family:var(--mono);}
-.alt-match-item{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:12px;color:var(--text-dim);}
+.compare-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-top:15px;}
+.compare-col h4{font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-faint);margin-bottom:9px;font-family:var(--mono);}
+.alt-matches{margin-top:15px;}
+.alt-matches h4{font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-faint);margin-bottom:9px;font-family:var(--mono);}
+.alt-match-item{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:12px;color:var(--text-dim);}
 .alt-match-item .thumb{width:30px;height:30px;}
 
-/* ---------- modal ---------- */
-.modal-overlay{
-  display:none;
-  position:fixed;
-  inset:0;
-  background:rgba(0,0,0,0.6);
-  align-items:center;
-  justify-content:center;
-  z-index:100;
-  padding:20px;
-}
-.modal-overlay.open{display:flex;}
-.modal{
-  background:var(--bg-raised);
-  border:1px solid var(--border);
-  border-radius:10px;
-  padding:20px;
-  width:100%;
-  max-width:420px;
-}
-.modal h3{font-family:var(--serif);font-size:16px;margin-bottom:12px;color:var(--text);}
-.modal textarea{
-  width:100%;
-  min-height:100px;
-  background:var(--bg);
-  border:1px solid var(--border-soft);
-  color:var(--text);
-  font-size:13px;
-  font-family:var(--sans);
-  padding:10px;
-  border-radius:6px;
-  resize:vertical;
-}
-.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;}
-
-.lightbox{max-width:90vw;max-height:90vh;}
-.lightbox img{max-width:90vw;max-height:90vh;border-radius:8px;}
-
-/* ---------- toast ---------- */
-.toast{
-  position:fixed;
-  bottom:24px;
-  left:50%;
-  transform:translateX(-50%) translateY(20px);
-  background:var(--bg-raised-2);
-  border:1px solid var(--border);
-  color:var(--text);
-  padding:11px 20px;
-  border-radius:8px;
-  font-size:12.5px;
-  opacity:0;
-  pointer-events:none;
-  transition:opacity 0.2s, transform 0.2s;
-  z-index:200;
-  max-width:80vw;
-}
-.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
-.toast.error{border-color:var(--red);color:var(--red);}
-
-/* progress bar within analyze button area */
-.progress-wrap{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  font-size:11.5px;
-  color:var(--text-dim);
+/* ---------- dashboard sections ---------- */
+.dash-section-label{
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:0.08em;
+  color:var(--brass-dim);
   font-family:var(--mono);
-}
-.progress-track{width:80px;height:4px;background:var(--border-soft);border-radius:2px;overflow:hidden;}
-.progress-fill{height:100%;background:var(--brass);border-radius:2px;transition:width 0.2s;}
-
-.msg-text{
-  margin-top:10px;
-  padding-top:10px;
-  border-top:1px solid var(--border-soft);
-}
-.msg-text p{
-  font-size:12px;
-  color:var(--text-dim);
-  line-height:1.5;
-  font-family:var(--sans);
-  white-space:pre-wrap;
-  max-height:80px;
-  overflow-y:auto;
-}
-.price-row{
-  margin-top:10px;
-  padding-top:10px;
-  border-top:1px solid var(--border-soft);
+  margin:28px 0 14px;
   display:flex;
   align-items:center;
-  gap:8px;
+  gap:10px;
 }
-.price-row .fp-label{font-family:var(--mono);font-size:11px;color:var(--text-faint);flex-shrink:0;}
-.price-input{
+.dash-section-label:first-of-type{margin-top:0;}
+.dash-section-label::after{
+  content:'';
   flex:1;
-  background:var(--bg);
-  border:1px solid var(--border-soft);
-  color:var(--brass-bright);
-  font-family:var(--mono);
-  font-size:12.5px;
-  padding:6px 9px;
-  border-radius:5px;
+  height:1px;
+  background:linear-gradient(90deg, var(--border-bright), transparent);
 }
-.sold-btn{border-color:var(--red);color:var(--red);}
-.sold-btn:hover{background:rgba(194,97,74,0.1);}
+
+.match-pair-card{
+  display:flex;
+  align-items:center;
+  gap:18px;
+  background:linear-gradient(165deg, var(--bg-raised-2), var(--bg-raised));
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius);
+  padding:15px 19px;
+  margin-bottom:11px;
+  flex-wrap:wrap;
+  transition:border-color 0.2s, box-shadow 0.2s;
+}
+.match-pair-card:hover{border-color:var(--brass-dim);box-shadow:0 6px 20px rgba(0,0,0,0.3);}
+.match-pair-photos{
+  display:flex;
+  align-items:center;
+  gap:11px;
+  flex-shrink:0;
+}
+.match-photo-btn{
+  background:none;
+  border:none;
+  cursor:pointer;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:5px;
+  padding:0;
+}
+.match-photo-btn img, .match-photo-btn .thumb{
+  border-radius:9px;
+  border:2px solid var(--border-soft);
+  transition:border-color 0.15s, transform 0.15s;
+}
+.match-photo-btn:hover img, .match-photo-btn:hover .thumb{
+  border-color:var(--brass);
+  transform:scale(1.05);
+}
+.match-photo-label{
+  font-size:9.5px;
+  text-transform:uppercase;
+  letter-spacing:0.05em;
+  color:var(--text-faint);
+  font-family:var(--mono);
+}
+.match-pair-arrow{color:var(--brass-dim);font-size:17px;flex-shrink:0;}
+.match-pair-info{flex:1;min-width:200px;}
+.match-pair-title{font-size:13px;color:var(--text);font-weight:600;line-height:1.4;}
+.match-pair-sep{color:var(--text-faint);font-weight:400;font-style:italic;font-size:11.5px;}
+.match-pair-badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px;}
+.match-pair-reasoning{font-size:11.5px;color:var(--text-dim);margin-top:7px;line-height:1.55;}
 
 /* ---------- dashboard table ---------- */
 .dash-table{
@@ -443,25 +620,26 @@ main{padding:28px;max-width:1100px;margin:0 auto;}
   border-collapse:collapse;
   background:var(--bg-raised);
   border:1px solid var(--border-soft);
-  border-radius:10px;
+  border-radius:var(--radius);
   overflow:hidden;
 }
 .dash-table thead th{
   text-align:left;
-  font-size:11px;
+  font-size:10.5px;
   text-transform:uppercase;
-  letter-spacing:0.04em;
+  letter-spacing:0.05em;
   color:var(--text-faint);
   font-family:var(--mono);
   font-weight:400;
-  padding:10px 14px;
-  background:var(--bg-raised-2);
-  border-bottom:1px solid var(--border-soft);
+  padding:12px 15px;
+  background:var(--bg-raised-3);
+  border-bottom:1px solid var(--border-bright);
 }
-.dash-table tbody tr{border-bottom:1px solid var(--border-soft);}
+.dash-table tbody tr{border-bottom:1px solid var(--border-soft);transition:background 0.15s;}
+.dash-table tbody tr:hover{background:rgba(212,168,75,0.03);}
 .dash-table tbody tr:last-child{border-bottom:none;}
-.dash-table td{padding:10px 14px;vertical-align:middle;font-size:13px;}
-.dash-thumb{width:42px;height:42px;border-radius:6px;object-fit:cover;display:block;}
+.dash-table td{padding:11px 15px;vertical-align:middle;font-size:13px;}
+.dash-thumb{width:44px;height:44px;border-radius:7px;object-fit:cover;display:block;border:1px solid var(--border-soft);}
 .dash-thumb.placeholder{
   display:flex;align-items:center;justify-content:center;
   background:var(--bg);color:var(--text-faint);font-size:9px;font-family:var(--mono);
@@ -470,23 +648,130 @@ main{padding:28px;max-width:1100px;margin:0 auto;}
 .dash-name{font-weight:600;color:var(--text);}
 .dash-ref{font-family:var(--mono);font-size:11px;color:var(--brass-bright);margin-top:2px;}
 .dash-price-input{
-  width:110px;
+  width:135px;
   background:var(--bg);
   border:1px solid var(--border-soft);
   color:var(--brass-bright);
   font-family:var(--mono);
-  font-size:12.5px;
-  padding:6px 9px;
-  border-radius:5px;
+  font-weight:600;
+  font-size:12px;
+  padding:7px 9px;
+  border-radius:var(--radius-sm);
 }
+.dash-price-input:focus{border-color:var(--brass-dim);outline:none;}
 .dash-actions{text-align:right;}
 
+/* ---------- settings copy ---------- */
+.settings-copy{
+  font-size:12.5px;
+  color:var(--text-dim);
+  line-height:1.6;
+  margin-bottom:15px;
+}
+.settings-copy strong{color:var(--brass-bright);font-family:var(--mono);font-weight:400;}
+
+/* ---------- modal ---------- */
+.modal-overlay{
+  display:none;
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.65);
+  backdrop-filter:blur(3px);
+  align-items:center;
+  justify-content:center;
+  z-index:100;
+  padding:20px;
+}
+.modal-overlay.open{display:flex;animation:fadeIn 0.2s ease-out;}
+.modal{
+  background:linear-gradient(165deg, var(--bg-raised-2), var(--bg-raised));
+  border:1px solid var(--border-bright);
+  border-radius:var(--radius);
+  padding:22px;
+  width:100%;
+  max-width:430px;
+  box-shadow:0 20px 60px rgba(0,0,0,0.5);
+}
+.modal h3{font-family:var(--display);font-size:17px;margin-bottom:13px;color:var(--text);}
+.modal textarea{
+  width:100%;
+  min-height:100px;
+  background:var(--bg);
+  border:1px solid var(--border-soft);
+  color:var(--text);
+  font-size:13px;
+  font-family:var(--sans);
+  padding:11px;
+  border-radius:var(--radius-sm);
+  resize:vertical;
+}
+.modal textarea:focus{border-color:var(--brass-dim);outline:none;}
+.modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:16px;}
+
+.lightbox{max-width:90vw;max-height:90vh;}
+.lightbox img{max-width:90vw;max-height:90vh;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,0.6);}
+
+/* ---------- toast ---------- */
+.toast{
+  position:fixed;
+  bottom:26px;
+  left:50%;
+  transform:translateX(-50%) translateY(20px);
+  background:linear-gradient(165deg, var(--bg-raised-3), var(--bg-raised-2));
+  border:1px solid var(--border-bright);
+  color:var(--text);
+  padding:12px 22px;
+  border-radius:10px;
+  font-size:12.5px;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity 0.2s, transform 0.2s;
+  z-index:200;
+  max-width:80vw;
+  box-shadow:0 10px 30px rgba(0,0,0,0.45);
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.toast.error{border-color:var(--ruby);color:var(--ruby-bright);}
+
+/* progress bar within analyze button area */
+.progress-wrap{
+  display:flex;
+  align-items:center;
+  gap:9px;
+  font-size:11.5px;
+  color:var(--text-dim);
+  font-family:var(--mono);
+}
+.progress-track{width:80px;height:5px;background:var(--border-soft);border-radius:3px;overflow:hidden;}
+.progress-fill{height:100%;background:linear-gradient(90deg, var(--brass), var(--brass-bright));border-radius:3px;transition:width 0.2s;}
+
+/* ---------- catalog file import/export ---------- */
+.catalog-io{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+
 @media (max-width:640px){
-  .topbar{padding:16px;}
-  main{padding:16px;}
+  .topbar{padding:16px;gap:12px;}
+  .brand{flex:1;min-width:0;}
+  .brand-text h1{font-size:18px;}
+  .brand-text p{font-size:9.5px;}
+  .tabs{
+    order:3;
+    width:100%;
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    justify-content:flex-start;
+    scrollbar-width:none;
+  }
+  .tabs::-webkit-scrollbar{display:none;}
+  .tab{flex-shrink:0;}
+  main{padding:20px 16px;}
   .panel-head{flex-direction:column;}
   .compare-grid{grid-template-columns:1fr;}
   .dash-table{display:block;overflow-x:auto;}
+  .match-pair-card{padding:14px;}
 }
 </style>
 </head>
@@ -593,9 +878,21 @@ main{padding:28px;max-width:1100px;margin:0 auto;}
       <div class="panel-head">
         <div>
           <h2>Dashboard</h2>
-          <p class="sub">Everything in stock at a glance &mdash; price, dial, case material, and analysis status. Mark items sold to remove them, or update price inline.</p>
+          <p class="sub">Confirmed matches at the top, full stock list below &mdash; price, dial, gender, and analysis status. Mark items sold to remove them, or update price inline.</p>
+        </div>
+        <div class="panel-actions catalog-io">
+          <button class="btn small" id="exportCatalogBtn" title="Save your analyzed catalog to a file as a backup">Backup catalog</button>
+          <label class="btn small file-btn" title="Restore a previously saved catalog backup">
+            Restore catalog
+            <input type="file" id="importCatalogInput" accept="application/json" hidden>
+          </label>
         </div>
       </div>
+
+      <div class="dash-section-label" id="matchesSectionLabel" style="display:none;">Matches found</div>
+      <div id="dashboardMatches"></div>
+
+      <div class="dash-section-label" id="stockSectionLabel" style="display:none;">All stock</div>
 
       <div class="empty-state" id="dashboardEmpty">
         <div class="empty-icon">&#9676;</div>
@@ -608,6 +905,7 @@ main{padding:28px;max-width:1100px;margin:0 auto;}
           <tr>
             <th></th>
             <th>Item</th>
+            <th>Gender</th>
             <th>Dial</th>
             <th>Case</th>
             <th>Status</th>
@@ -805,10 +1103,10 @@ function renderStockCard(it){
   const priceVal = it.priceOverride !== undefined && it.priceOverride !== null ? it.priceOverride : (fp ? fp.price : null);
 
   const fpHtml = fp ? `
+    ${(genderBadge(fp) || refBadge(fp)) ? `<div class="card-badges">${genderBadge(fp)}${refBadge(fp)}</div>` : ''}
     <div class="fingerprint">
       <span class="fp-label">brand</span><span class="fp-val">${escapeHtml(fp.brand || '\u2014')}</span>
       <span class="fp-label">model</span><span class="fp-val">${escapeHtml(fp.model_line || '\u2014')}</span>
-      <span class="fp-label">ref</span><span class="fp-val ref">${escapeHtml(fp.reference_number || '\u2014')}</span>
       <span class="fp-label">dial</span><span class="fp-val">${escapeHtml(fp.dial_color || '\u2014')}</span>
       <span class="fp-label">case</span><span class="fp-val">${escapeHtml(fp.case_material || '\u2014')}${fp.case_size ? ', ' + escapeHtml(fp.case_size) : ''}</span>
       <span class="fp-label">strap</span><span class="fp-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}</span>
@@ -881,9 +1179,16 @@ function markSold(id){
   if (!item) return;
   if (!confirm(`Mark "${itemLabel(item)}" as sold out? It will be removed from stock.`)) return;
   stockItems = stockItems.filter(s => s.id !== id);
+  // Drop this item from any existing match results immediately so sold
+  // stock never lingers as a "match" in memory.
+  matchResults = matchResults.map(r => ({
+    ...r,
+    matches: r.matches.filter(m => m.stockId !== id)
+  }));
   saveStockCatalog();
   renderStock();
   renderDashboard();
+  renderResults();
   showToast('Marked sold out and removed from stock');
 }
 
@@ -932,10 +1237,10 @@ function renderDemand(){
 function renderDemandCard(it){
   const fp = it.fingerprint;
   const fpHtml = fp ? `
+    ${(genderBadge(fp) || refBadge(fp)) ? `<div class="card-badges">${genderBadge(fp)}${refBadge(fp)}</div>` : ''}
     <div class="fingerprint">
       <span class="fp-label">brand</span><span class="fp-val">${escapeHtml(fp.brand || '\u2014')}</span>
       <span class="fp-label">model</span><span class="fp-val">${escapeHtml(fp.model_line || '\u2014')}</span>
-      <span class="fp-label">ref</span><span class="fp-val ref">${escapeHtml(fp.reference_number || '\u2014')}</span>
       <span class="fp-label">dial</span><span class="fp-val">${escapeHtml(fp.dial_color || '\u2014')}</span>
       <span class="fp-label">case</span><span class="fp-val">${escapeHtml(fp.case_material || '\u2014')}${fp.case_size ? ', ' + escapeHtml(fp.case_size) : ''}</span>
       <span class="fp-label">strap</span><span class="fp-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}</span>
@@ -1008,6 +1313,9 @@ Extract a structured fingerprint as STRICT JSON ONLY (no markdown fences, no pre
   "brand": string or null,
   "model_line": string or null,
   "reference_number": string or null,
+  "reference_number_source": "visible" or "inferred" or null,
+  "gender": "mens" or "ladies" or "unisex" or null,
+  "gender_basis": string or null,
   "dial_color": string or null,
   "bezel": string or null,
   "case_material": string or null,
@@ -1018,6 +1326,16 @@ Extract a structured fingerprint as STRICT JSON ONLY (no markdown fences, no pre
   "price": string or null,
   "confidence_notes": string or null
 }
+
+REFERENCE NUMBER RULES (important):
+- If a reference number is legibly visible (engraved, printed, or stated in message text), set "reference_number" to that exact value and "reference_number_source" to "visible".
+- If no reference number is legible anywhere, use your trained knowledge of this brand's model line, case shape, dial layout, bezel, and bracelet design to infer the single most likely reference number for what's shown. Set "reference_number" to that inferred value and "reference_number_source" to "inferred". Briefly note in "confidence_notes" what specific visual cues led to that inference, and flag if the piece could plausibly be one of several close variants.
+- If you genuinely cannot narrow it down even approximately, set "reference_number" to null and "reference_number_source" to null.
+
+GENDER RULES (important, this affects matching \u2014 never blur this):
+- Set "gender" based on case size, dial design, and known model conventions (e.g. Datejust 36mm+ is typically mens, Lady-Datejust / smaller diamond-marker dials are typically ladies). Some models are unisex by design (e.g. many modern 36-41mm steel sport watches) \u2014 use "unisex" only when that's a genuine, well-known convention, not as a default when unsure.
+- Set "gender_basis" to a short phrase explaining the signal used (e.g. "case size ~36mm + model name", "small dial with diamond hour markers", "known unisex sport model").
+- Do not guess gender from styling alone if it conflicts with known model conventions for that exact reference \u2014 model convention takes priority over surface styling.
 
 For "message_text": transcribe any visible chat/message text in the screenshot verbatim (price, description, condition notes, seller comments). If there is no visible text, use null.
 For "price": extract just the price/amount if stated anywhere in the visible text (keep currency symbol or code as shown, e.g. "PKR 450,000" or "$3,200"). If no price is stated, use null.
@@ -1193,6 +1511,20 @@ async function analyzeBatch(items, kind, renderFn){
   const failed = toProcess.filter(it => it.status === 'error').length;
   if (failed) showToast(`${failed} item${failed > 1 ? 's' : ''} failed to analyze`, true);
   else showToast(`Analyzed ${total} item${total > 1 ? 's' : ''}`);
+
+  if (kind === 'stock' && !failed && !window._backupNudgeShown){
+    window._backupNudgeShown = true;
+    setTimeout(() => showToast('Tip: use "Backup catalog" on the Dashboard tab to save this analysis to a file'), 3500);
+  }
+
+  // Memory behavior: as soon as new demand is analyzed, automatically check
+  // it against current stock rather than requiring a separate manual click.
+  // Likewise, new stock should be checked against any demand already on file.
+  if (kind === 'demand' && stockItems.some(it => it.status === 'done')){
+    runMatching({ silent: true });
+  } else if (kind === 'stock' && demandItems.some(it => it.status === 'done')){
+    runMatching({ silent: true });
+  }
 }
 
 /* ===================== matching ===================== */
@@ -1203,11 +1535,19 @@ function updateRunMatchAvailability(){
   document.getElementById('runMatchBtn').disabled = !(stockReady && demandReady);
 }
 
-const MATCH_SYSTEM_PROMPT = `You are matching customer watch demand requests against a dealer's current stock, using structured fingerprints extracted from photos and text.
+const MATCH_SYSTEM_PROMPT = `You are matching customer watch demand requests against a dealer's current stock, using structured fingerprints extracted from photos and text. Each fingerprint may include a "gender" field (mens/ladies/unisex) and a "reference_number_source" field (visible/inferred).
 
-For EACH demand item, find the best matching stock item(s), if any. Weight HARD identifiers heavily: an exact or near-exact reference number match is the strongest signal; confirmed brand + model line match is strong; dial color, case material/size, bracelet type are moderate corroborating signals; bezel and markings are supporting detail. Generic similarity (just "same brand", vague styling, photo conditions) should NOT produce a high confidence score on its own.
+HARD RULES \u2014 these are gates, not soft preferences. Violating either means the pair is NOT a match, regardless of how similar anything else looks:
+1. GENDER: if both items have a known gender ("mens" or "ladies", not unisex and not null) and they differ, this is NEVER a match, even if brand, model name, or photos look similar. A men's and a women's watch are never the same item. "unisex" can match against "mens", "ladies", or "unisex". If gender is null/unknown on either side, don't use it as a blocker, but don't claim it as confirmed either.
+2. REFERENCE NUMBER: if both items have a reference_number, they must be the same (or a clearly equivalent format of the same number, e.g. with/without a suffix letter for bracelet type) to be considered a match. A reference number mismatch rules the pair out even if brand and model line match.
 
-Only include a stock item as a match if there is genuine overlap in identifying fields. If nothing in stock plausibly matches a demand item, return an empty matches array for it rather than forcing a weak match.
+CONFIDENCE SCORING:
+- Both reference numbers present, source "visible" on both sides, and they match exactly \u2192 highest confidence (90-100).
+- Reference numbers match but one or both sides have reference_number_source "inferred" (i.e. Claude guessed it from visual style rather than reading it off the piece) \u2192 cap confidence around 55-75, and say explicitly in the reasoning that the reference was inferred, not read, so it should be treated as a strong lead rather than a certainty.
+- No reference number available on one or both sides, but brand + model line + dial + case all align and gender doesn't conflict \u2192 moderate confidence (35-55), and say explicitly that this is a similarity match without a confirmed reference number.
+- Otherwise weight dial color, case material/size, bracelet type, and markings as moderate corroborating signals; bezel and markings are supporting detail. Generic similarity (just "same brand", vague styling, photo conditions) should NOT produce a high confidence score on its own.
+
+Only include a stock item as a match if there is genuine overlap in identifying fields and neither hard rule is violated. If nothing in stock plausibly matches a demand item, return an empty matches array for it rather than forcing a weak match.
 
 Return STRICT JSON ONLY, no markdown fences, no commentary, in this exact shape:
 {
@@ -1218,7 +1558,8 @@ Return STRICT JSON ONLY, no markdown fences, no commentary, in this exact shape:
         {
           "stock_id": "string, must match a stock_id given in input",
           "confidence": number from 0 to 100,
-          "reasoning": "one or two sentences explaining the match using specific field values, e.g. which reference number, dial, or marking matched or conflicted"
+          "reference_match_type": "visible_exact" or "inferred" or "none",
+          "reasoning": "one or two sentences explaining the match using specific field values, e.g. which reference number, dial, or marking matched or conflicted, and explicitly noting if the reference was inferred rather than read"
         }
       ]
     }
@@ -1226,19 +1567,22 @@ Return STRICT JSON ONLY, no markdown fences, no commentary, in this exact shape:
 }
 Order matches within each demand item from highest to lowest confidence. Include at most 3 matches per demand item. If no plausible match exists for a demand item, return "matches": [].`;
 
-async function runMatching(){
+async function runMatching(opts){
+  const silent = opts && opts.silent;
   const stockReady = stockItems.filter(it => it.status === 'done' && it.fingerprint);
   const demandReady = demandItems.filter(it => it.status === 'done' && it.fingerprint);
 
   if (!stockReady.length || !demandReady.length){
-    showToast('Need at least one analyzed stock item and one analyzed demand item', true);
+    if (!silent) showToast('Need at least one analyzed stock item and one analyzed demand item', true);
     return;
   }
 
   const btn = document.getElementById('runMatchBtn');
-  btn.disabled = true;
   const originalText = btn.textContent;
-  btn.textContent = 'Matching\u2026';
+  if (!silent){
+    btn.disabled = true;
+    btn.textContent = 'Matching\u2026';
+  }
 
   const stockPayload = stockReady.map(it => ({ stock_id: it.id, fingerprint: it.fingerprint }));
   const demandPayload = demandReady.map(it => ({ demand_id: it.id, fingerprint: it.fingerprint }));
@@ -1248,7 +1592,7 @@ async function runMatching(){
       systemText: MATCH_SYSTEM_PROMPT,
       userParts: [{ text: `STOCK:\n${JSON.stringify(stockPayload, null, 2)}\n\nDEMAND:\n${JSON.stringify(demandPayload, null, 2)}` }],
       maxOutputTokens: 6000,
-      onRetryWait: (waitSeconds) => { btn.textContent = `Rate limited, waiting ${waitSeconds}s\u2026`; }
+      onRetryWait: (waitSeconds) => { if (!silent) btn.textContent = `Rate limited, waiting ${waitSeconds}s\u2026`; }
     });
     const parsed = parseJsonLoose(responseText);
 
@@ -1260,6 +1604,7 @@ async function runMatching(){
           stockId: m.stock_id,
           stockItem,
           confidence: m.confidence,
+          referenceMatchType: m.reference_match_type || null,
           reasoning: m.reasoning
         };
       }).filter(m => m.stockItem);
@@ -1267,10 +1612,14 @@ async function runMatching(){
     }).filter(r => r.demandItem);
 
     renderResults();
-    setView('results');
-    showToast('Matching complete');
+    renderDashboard();
+    if (!silent){
+      setView('results');
+      showToast('Matching complete');
+    }
   }catch(e){
-    showToast('Matching failed: ' + (e.message || 'unknown error'), true);
+    if (!silent) showToast('Matching failed: ' + (e.message || 'unknown error'), true);
+    else console.error('silent matching failed', e);
   }finally{
     btn.disabled = false;
     btn.textContent = originalText;
@@ -1280,7 +1629,94 @@ async function runMatching(){
 
 /* ===================== rendering: dashboard ===================== */
 
+function genderBadge(fp){
+  if (!fp || !fp.gender) return '';
+  const label = fp.gender === 'mens' ? 'Mens' : fp.gender === 'ladies' ? 'Ladies' : 'Unisex';
+  const cls = fp.gender === 'mens' ? 'mens' : fp.gender === 'ladies' ? 'ladies' : 'unisex';
+  return `<span class="gender-badge ${cls}" title="${escapeHtml(fp.gender_basis || '')}">${label}</span>`;
+}
+
+function refBadge(fp){
+  if (!fp || !fp.reference_number) return '';
+  const inferred = fp.reference_number_source === 'inferred';
+  return `<span class="ref-badge ${inferred ? 'inferred' : 'visible'}" title="${inferred ? 'Inferred from visual style, not read off the piece' : 'Read directly from the photo or message text'}">${escapeHtml(fp.reference_number)}${inferred ? ' (inferred)' : ''}</span>`;
+}
+
+function renderDashboardMatches(){
+  const wrap = document.getElementById('dashboardMatches');
+  const label = document.getElementById('matchesSectionLabel');
+  const stockLabel = document.getElementById('stockSectionLabel');
+
+  const withMatches = matchResults.filter(r => r.matches && r.matches.length && r.matches[0].stockItem);
+  if (!withMatches.length){
+    wrap.innerHTML = '';
+    label.style.display = 'none';
+    stockLabel.style.display = stockItems.length ? '' : 'none';
+    return;
+  }
+
+  label.style.display = '';
+  stockLabel.style.display = stockItems.length ? '' : 'none';
+
+  wrap.innerHTML = withMatches.map(r => {
+    const demandItem = r.demandItem;
+    const top = r.matches[0];
+    const stockItem = top.stockItem;
+    const pct = Math.round(top.confidence || 0);
+    const tier = confidenceTier(pct);
+    const inferred = top.referenceMatchType === 'inferred';
+
+    return `
+    <div class="match-pair-card">
+      <div class="match-pair-photos">
+        <button class="match-photo-btn" data-action="goto-demand" data-id="${demandItem.id}" title="Open this demand request">
+          ${thumbHtml(demandItem, 64)}
+          <span class="match-photo-label">Demand</span>
+        </button>
+        <span class="match-pair-arrow">&harr;</span>
+        <button class="match-photo-btn" data-action="goto-stock" data-id="${stockItem.id}" title="Open this stock item">
+          ${thumbHtml(stockItem, 64)}
+          <span class="match-photo-label">Stock</span>
+        </button>
+      </div>
+      <div class="match-pair-info">
+        <div class="match-pair-title">${escapeHtml(itemLabel(demandItem))} <span class="match-pair-sep">matched</span> ${escapeHtml(itemLabel(stockItem))}</div>
+        <div class="match-pair-badges">
+          ${genderBadge(stockItem.fingerprint)}
+          ${refBadge(stockItem.fingerprint)}
+          ${inferred ? '<span class="ref-badge inferred">inferred match</span>' : ''}
+        </div>
+        <div class="match-pair-reasoning">${escapeHtml(top.reasoning || '')}</div>
+      </div>
+      <div class="confidence">
+        <span class="confidence-label">confidence</span>
+        <div class="confidence-meter"><div class="confidence-fill ${tier}" style="width:${pct}%"></div></div>
+        <span class="confidence-pct">${pct}%</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  wrap.querySelectorAll('[data-action="goto-demand"]').forEach(btn => {
+    btn.onclick = () => { setView('demand'); setTimeout(() => scrollToCard('demand', btn.dataset.id), 50); };
+  });
+  wrap.querySelectorAll('[data-action="goto-stock"]').forEach(btn => {
+    btn.onclick = () => { setView('stock'); setTimeout(() => scrollToCard('stock', btn.dataset.id), 50); };
+  });
+}
+
+function scrollToCard(kind, id){
+  const grid = document.getElementById(kind === 'stock' ? 'stockGrid' : 'demandGrid');
+  const card = grid && grid.querySelector(`[data-id="${id}"]`);
+  if (card){
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('highlight-flash');
+    setTimeout(() => card.classList.remove('highlight-flash'), 1600);
+  }
+}
+
 function renderDashboard(){
+  renderDashboardMatches();
+
   const tbody = document.getElementById('dashboardBody');
   const empty = document.getElementById('dashboardEmpty');
   const table = document.getElementById('dashboardTable');
@@ -1305,8 +1741,9 @@ function renderDashboard(){
       <td>${thumb}</td>
       <td>
         <div class="dash-name">${escapeHtml(fp ? fpLine(fp) : (it.caption || it.filename || 'Unidentified'))}</div>
-        ${fp && fp.reference_number ? `<div class="dash-ref">${escapeHtml(fp.reference_number)}</div>` : ''}
+        ${fp ? refBadge(fp) : ''}
       </td>
+      <td>${genderBadge(fp) || '\u2014'}</td>
       <td>${fp ? escapeHtml(fp.dial_color || '\u2014') : '\u2014'}</td>
       <td>${fp ? escapeHtml(fp.case_material || '\u2014') : '\u2014'}</td>
       <td><span class="status-badge ${it.status}">${it.status}</span></td>
@@ -1430,10 +1867,11 @@ function renderResultRow(r){
 function fingerprintMini(fp){
   if (!fp) return '<p style="font-size:12px;color:var(--text-faint);">No fingerprint</p>';
   const rows = [
-    ['brand', fp.brand], ['model', fp.model_line], ['ref', fp.reference_number],
+    ['brand', fp.brand], ['model', fp.model_line],
     ['dial', fp.dial_color], ['case', fp.case_material], ['strap', fp.bracelet_or_strap]
   ];
-  return `<div class="fingerprint">${rows.map(([k,v]) => `<span class="fp-label">${k}</span><span class="fp-val${k==='ref'?' ref':''}">${escapeHtml(v || '\u2014')}</span>`).join('')}</div>`;
+  const badges = (genderBadge(fp) || refBadge(fp)) ? `<div class="card-badges">${genderBadge(fp)}${refBadge(fp)}</div>` : '';
+  return badges + `<div class="fingerprint">${rows.map(([k,v]) => `<span class="fp-label">${k}</span><span class="fp-val">${escapeHtml(v || '\u2014')}</span>`).join('')}</div>`;
 }
 
 /* ===================== event wiring ===================== */
@@ -1618,6 +2056,12 @@ function init(){
 
   document.addEventListener('paste', handlePaste);
 
+  document.getElementById('exportCatalogBtn').onclick = exportCatalog;
+  document.getElementById('importCatalogInput').onchange = (e) => {
+    if (e.target.files && e.target.files[0]) importCatalog(e.target.files[0]);
+    e.target.value = '';
+  };
+
   updateKeyBanner();
   loadStockCatalog().then(() => { renderStock(); renderDashboard(); });
   renderDemand();
@@ -1627,6 +2071,51 @@ function init(){
 function updateKeyBanner(){
   const banner = document.getElementById('keyBanner');
   banner.style.display = getApiKey() ? 'none' : '';
+}
+
+/* ===================== catalog backup / restore ===================== */
+/* Browser storage (localStorage / window.storage) can be cleared by the
+   browser itself \u2014 iOS Safari in particular limits or clears script-writable
+   storage for sites that aren't bookmarked/installed. This file-based
+   backup is the reliable fallback: it never depends on the browser
+   remembering anything, since the data lives in a file you control. */
+
+function exportCatalog(){
+  const persistable = stockItems.map(it => ({
+    id: it.id, filename: it.filename, caption: it.caption,
+    status: it.status, fingerprint: it.fingerprint || null, error: it.error || null,
+    priceOverride: it.priceOverride !== undefined ? it.priceOverride : null
+  }));
+  const blob = new Blob([JSON.stringify({ savedAt: new Date().toISOString(), stockItems: persistable }, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `stockmatch-catalog-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('Catalog backup downloaded');
+}
+
+function importCatalog(file){
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const parsed = JSON.parse(reader.result);
+      const items = Array.isArray(parsed) ? parsed : parsed.stockItems;
+      if (!Array.isArray(items)) throw new Error('not a valid catalog file');
+      stockItems = items.map(it => ({ ...it, imageData: null }));
+      saveStockCatalog();
+      renderStock();
+      renderDashboard();
+      showToast(`Restored ${items.length} stock item${items.length === 1 ? '' : 's'} from backup`);
+    }catch(e){
+      showToast('Could not read that file as a catalog backup', true);
+    }
+  };
+  reader.onerror = () => showToast('Could not read that file', true);
+  reader.readAsText(file);
 }
 
 init();
