@@ -456,6 +456,29 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
   max-height:80px;
   overflow-y:auto;
 }
+.lookup-notes{
+  margin-top:11px;
+  padding-top:11px;
+  border-top:1px solid var(--border-soft);
+}
+.lookup-notes summary{
+  font-size:10.5px;
+  text-transform:uppercase;
+  letter-spacing:0.04em;
+  color:var(--brass-dim);
+  font-family:var(--mono);
+  cursor:pointer;
+  user-select:none;
+}
+.lookup-notes summary:hover{color:var(--brass);}
+.lookup-notes p{
+  font-size:11.5px;
+  color:var(--text-dim);
+  line-height:1.55;
+  font-family:var(--sans);
+  margin-top:7px;
+  white-space:pre-wrap;
+}
 .price-row{
   margin-top:11px;
   padding-top:11px;
@@ -1180,6 +1203,11 @@ function imageMimeTypeOf(item){
   return (item && item.imageMimeType && item.imageMimeType.startsWith('image/')) ? item.imageMimeType : 'image/jpeg';
 }
 
+function lookupNotesHtml(fp){
+  if (!fp || !fp.confidence_notes) return '';
+  return `<details class="lookup-notes"><summary>Lookup details</summary><p>${escapeHtml(fp.confidence_notes)}</p></details>`;
+}
+
 function escapeHtml(str){
   if (str === null || str === undefined) return '';
   return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1310,6 +1338,7 @@ function renderStockCard(it){
       <span class="fp-label">strap</span><span class="fp-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}</span>
     </div>
     ${fp.message_text ? `<div class="msg-text"><span class="fp-label">message</span><p>${escapeHtml(fp.message_text)}</p></div>` : ''}
+    ${lookupNotesHtml(fp)}
     <div class="price-row">
       <span class="fp-label">price</span>
       <input class="price-input" type="text" placeholder="not detected" value="${escapeHtml(priceVal || '')}" data-id="${it.id}" data-field="price">
@@ -1454,7 +1483,8 @@ function renderDemandCard(it){
       <span class="fp-label">dial</span><span class="fp-val">${escapeHtml(fp.dial_color || '\u2014')}</span>
       <span class="fp-label">case</span><span class="fp-val">${escapeHtml(fp.case_material || '\u2014')}${fp.case_size ? ', ' + escapeHtml(fp.case_size) : ''}</span>
       <span class="fp-label">strap</span><span class="fp-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}</span>
-    </div>` : '';
+    </div>
+    ${lookupNotesHtml(fp)}` : '';
 
   const mediaHtml = it.type === 'image'
     ? `<div class="card-img-wrap ${it.imageData ? '' : 'no-image'}" data-action="${it.imageData ? 'lightbox' : 'readd'}" data-id="${it.id}">
@@ -1555,19 +1585,26 @@ For "message_text": transcribe any visible chat/message text in the screenshot v
 For "price": extract just the price/amount if stated anywhere in the visible text (keep currency symbol or code as shown, e.g. "PKR 450,000" or "$3,200"). If no price is stated, use null.
 Only state what is visually evident or stated in the caption. If the caption conflicts with the image or message text, prefer the image/message text but note the conflict in confidence_notes. Respond with the JSON object only.`;
 
-const REFERENCE_LOOKUP_PROMPT = `You are helping identify the exact reference number of a watch for a dealer's inventory system. You have a googleSearch tool available \u2014 use it to look up the specific reference number using the brand, model, dial, bezel, case, and bracelet details you're given (and the photo directly, if one is provided). Search real sources: the brand's official site, established dealers/marketplaces (Chrono24, WatchCharts, Bob's Watches, Crown & Caliber), or watch reference databases. Find the specific reference number whose photos/specs match what's described or shown.
+const REFERENCE_LOOKUP_PROMPT = `You are identifying the exact reference number of a watch for a dealer's inventory system. You have a googleSearch tool \u2014 use it properly, not as a single vague lookup:
+
+1. Run AT LEAST 2-3 separate, differently-worded Google searches focused specifically on finding the reference number itself \u2014 not a general "what is this watch" search. Vary the query each time, e.g. "[brand] [model] [dial color] reference number", "[brand] [model] [case material] [bracelet type] ref", site-specific variants like "[brand] [model] site:chrono24.com", etc. Use the photo (if provided) to identify distinguishing details to search with.
+2. Check real, distinct sources each time \u2014 the brand's official site, established marketplaces (Chrono24, WatchCharts, Bob's Watches, Crown & Caliber), watch reference databases, forums with verified reference threads. Do not stop after one search if the first result is weak or unconfirmed.
+3. Compare what the different searches/sources turn up. If multiple independent sources agree on the same reference number, that's your answer \u2014 treat agreement across sources as the deciding signal, not just whichever result came up first.
+4. If sources conflict or only a single weak source suggests a number, do not present it as confirmed \u2014 either keep searching with another query angle, or fall back to "inferred" per the rules below.
 
 Respond with STRICT JSON ONLY (no markdown fences, no commentary), in this exact shape:
 {
   "reference_number": string or null,
   "reference_number_source": "looked_up" or "inferred" or null,
+  "sources_agreed": number (how many independent sources/searches confirmed this same number, 0 if none),
   "confidence_notes": string or null
 }
 
 Rules:
-- If your search confidently identifies a specific matching reference number, set "reference_number" to that value, "reference_number_source" to "looked_up", and briefly note in "confidence_notes" what confirmed it (e.g. which site/listing).
-- If search comes up empty, irrelevant, or too ambiguous to confidently pick one reference number, fall back to your own trained knowledge of this brand/model's design to give your best-guess reference number instead. Set "reference_number_source" to "inferred" in that case, and note in "confidence_notes" that search didn't resolve it and what visual cues your guess is based on.
-- If you genuinely cannot narrow it down even approximately, set "reference_number" to null and "reference_number_source" to null.
+- If 2+ independent sources/searches agree on the same reference number, set "reference_number" to that value, "reference_number_source" to "looked_up", "sources_agreed" to the count, and name the agreeing sources in "confidence_notes".
+- If only one weak source or no clear agreement, but you still found something plausible, you may report it as "looked_up" with "sources_agreed": 1, but say clearly in "confidence_notes" that it's unconfirmed by a second source.
+- If search comes up empty or genuinely irrelevant after multiple attempts, fall back to your own trained knowledge of this brand/model's design to give your best-guess reference number instead. Set "reference_number_source" to "inferred", "sources_agreed" to 0, and note in "confidence_notes" that search didn't resolve it (state what you searched for) and what visual cues your guess is based on. This commonly happens for customized pieces (e.g. aftermarket diamond-setting on a factory non-diamond model) that were never sold or listed as that exact configuration \u2014 say so if that seems to be the case.
+- If you genuinely cannot narrow it down even approximately, set "reference_number" to null and "reference_number_source" to null, but still report what you searched for in "confidence_notes" so it's clear an attempt was made.
 Respond with the JSON object only \u2014 no extra commentary around it, even after using search.`;
 
 function extractRetryDelaySeconds(response, errJson){
@@ -1586,7 +1623,7 @@ function extractRetryDelaySeconds(response, errJson){
   return 15;
 }
 
-async function callGeminiWithSearch({ base64Image, mimeType, promptText }){
+async function callGeminiWithSearch({ base64Image, mimeType, promptText }, attempt = 1){
   const apiKey = getGeminiApiKey();
   if (!apiKey){
     throw new Error('No Gemini API key set \u2014 add one in settings to enable reference lookups');
@@ -1602,7 +1639,7 @@ async function callGeminiWithSearch({ base64Image, mimeType, promptText }){
     body: JSON.stringify({
       contents: [{ role: 'user', parts }],
       tools: [{ googleSearch: {} }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 1000 }
+      generationConfig: { temperature: 0.2, maxOutputTokens: 1200 }
     })
   });
 
@@ -1610,34 +1647,65 @@ async function callGeminiWithSearch({ base64Image, mimeType, promptText }){
     let errJson = null;
     try{ errJson = await response.json(); }catch(e){}
     const detail = errJson?.error?.message || '';
+
+    // Lookups now run multiple searches per call, so under concurrent
+    // analysis it's easy to transiently hit Gemini's rate limit. Retry
+    // a couple of times with backoff rather than giving up on the first
+    // 429 \u2014 this mirrors the same handling already used for Anthropic calls.
+    if (response.status === 429 && attempt <= 3){
+      const waitSeconds = extractRetryDelaySeconds(response, errJson);
+      await new Promise(r => setTimeout(r, waitSeconds * 1000));
+      return callGeminiWithSearch({ base64Image, mimeType, promptText }, attempt + 1);
+    }
+
     throw new Error('Gemini API error ' + response.status + (detail ? ': ' + detail : ''));
   }
   const data = await response.json();
   const candidate = data.candidates && data.candidates[0];
   const textParts = (candidate && candidate.content && candidate.content.parts || []).filter(p => p.text).map(p => p.text);
   if (!textParts.length) throw new Error('No text response from Gemini');
-  return textParts.join('\n');
+
+  // Surface what actually happened during grounding \u2014 the real search
+  // queries issued and the sources found \u2014 so a lookup result (or lack of
+  // one) is verifiable rather than a black box.
+  const grounding = candidate && candidate.groundingMetadata;
+  const searchQueries = (grounding && grounding.webSearchQueries) || [];
+  const sources = ((grounding && grounding.groundingChunks) || [])
+    .map(c => c.web && c.web.title)
+    .filter(Boolean);
+
+  return { text: textParts.join('\n'), searchQueries, sources };
 }
 
 async function lookupReferenceNumber(fp, base64Image, mimeType){
   // Looks up a reference number via a single Gemini call with Google Search
-  // grounding enabled. When a photo is available, Gemini sees it directly
-  // (richer signal than a templated text query). Designed to degrade
-  // gracefully: any failure here (missing key, network error, rate limit)
-  // just means the caller falls back to a pure-inference guess instead of
-  // breaking the whole item's analysis.
+  // grounding enabled, instructed to run multiple distinct searches and
+  // require cross-source agreement before reporting a confident match.
+  // When a photo is available, Gemini sees it directly (richer signal than
+  // a templated text query). Designed to degrade gracefully: any failure
+  // here (missing key, network error, rate limit) just means the caller
+  // falls back to a pure-inference guess instead of breaking the whole
+  // item's analysis.
   const detailsText = `Watch details extracted so far:\n${JSON.stringify(fp, null, 2)}`;
   const promptText = base64Image
-    ? `${detailsText}\n\nThe photo is attached. Identify the exact reference number using the photo plus a Google search, per your instructions.`
-    : `${detailsText}\n\nNo photo is available, only the description above. Identify the exact reference number using a Google search based on these details, per your instructions.`;
+    ? `${detailsText}\n\nThe photo is attached. Identify the exact reference number using the photo plus multiple Google searches, per your instructions.`
+    : `${detailsText}\n\nNo photo is available, only the description above. Identify the exact reference number using multiple Google searches based on these details, per your instructions.`;
 
   try{
-    const responseText = await callGeminiWithSearch({
+    const { text, searchQueries, sources } = await callGeminiWithSearch({
       base64Image,
       mimeType,
       promptText: REFERENCE_LOOKUP_PROMPT + '\n\n' + promptText
     });
-    return parseJsonLoose(responseText);
+    const result = parseJsonLoose(text);
+
+    // Always attach what was actually searched, even on success, so this
+    // is verifiable rather than a black box.
+    const searchSummary = searchQueries.length
+      ? `Searched: ${searchQueries.map(q => `"${q}"`).join(', ')}.${sources.length ? ' Sources seen: ' + sources.join(', ') + '.' : ''}`
+      : 'No web search was actually performed for this lookup (model answered without grounding).';
+    result.confidence_notes = result.confidence_notes ? `${result.confidence_notes} | ${searchSummary}` : searchSummary;
+    return result;
   }catch(e){
     console.warn('Reference lookup call failed, falling back to no lookup:', e.message);
     return { reference_number: null, reference_number_source: null, confidence_notes: 'Lookup step failed: ' + e.message };
