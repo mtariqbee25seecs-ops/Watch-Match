@@ -1683,6 +1683,59 @@ async function callGeminiWithSearch({ base64Image, mimeType, promptText }, attem
   return { text: textParts.join('\n'), searchQueries, sources };
 }
 
+const BRAND_OFFICIAL_SITES = {
+  'rolex': 'rolex.com',
+  'tudor': 'tudorwatch.com',
+  'patek philippe': 'patek.com',
+  'audemars piguet': 'audemarspiguet.com',
+  'omega': 'omegawatches.com',
+  'cartier': 'cartier.com',
+  'richard mille': 'richardmille.com',
+  'iwc': 'iwc.com',
+  'iwc schaffhausen': 'iwc.com',
+  'panerai': 'panerai.com',
+  'vacheron constantin': 'vacheron-constantin.com',
+  'jaeger-lecoultre': 'jaeger-lecoultre.com',
+  'jaeger lecoultre': 'jaeger-lecoultre.com',
+  'breitling': 'breitling.com',
+  'tag heuer': 'tagheuer.com',
+  'hublot': 'hublot.com',
+  'chopard': 'chopard.com',
+  'bvlgari': 'bulgari.com',
+  'bulgari': 'bulgari.com',
+  'zenith': 'zenith-watches.com',
+  'piaget': 'piaget.com',
+  'a. lange & sohne': 'alange-soehne.com',
+  'a. lange & söhne': 'alange-soehne.com',
+  'lange & sohne': 'alange-soehne.com',
+  'breguet': 'breguet.com',
+  'bell & ross': 'bellross.com',
+  'longines': 'longines.com',
+  'tissot': 'tissot.ch',
+  'seiko': 'seikowatches.com',
+  'grand seiko': 'grand-seiko.com',
+  'chanel': 'chanel.com',
+  'franck muller': 'franckmuller.com',
+  'girard-perregaux': 'girard-perregaux.com',
+  'ulysse nardin': 'ulysse-nardin.com',
+  'h. moser & cie': 'h-moser.com',
+  'rado': 'rado.com',
+  'oris': 'oris.ch',
+  'montblanc': 'montblanc.com'
+};
+
+function getOfficialSiteForBrand(brand){
+  if (!brand) return null;
+  const normalized = brand.toLowerCase().trim();
+  if (BRAND_OFFICIAL_SITES[normalized]) return BRAND_OFFICIAL_SITES[normalized];
+  // Fall back to a partial match in case of slight extraction variance
+  // (e.g. "Rolex Oyster Perpetual" vs just "Rolex").
+  for (const key in BRAND_OFFICIAL_SITES){
+    if (normalized.includes(key) || key.includes(normalized)) return BRAND_OFFICIAL_SITES[key];
+  }
+  return null;
+}
+
 async function lookupReferenceNumber(fp, base64Image, mimeType){
   // Looks up a reference number via Gemini's Google Search grounding tool.
   // Instructed to run multiple distinct searches and require cross-source
@@ -1691,10 +1744,15 @@ async function lookupReferenceNumber(fp, base64Image, mimeType){
   // text query). Designed to degrade gracefully: any failure here (no key,
   // network error, rate limit) just means the caller gets no reference
   // number rather than the whole item's analysis breaking.
+  const officialSite = getOfficialSiteForBrand(fp.brand);
+  const officialSiteInstruction = officialSite
+    ? `\n\nThe brand's official site for this watch is ${officialSite} \u2014 search "site:${officialSite}" FIRST as your top-priority source, since the manufacturer's own site is the single most authoritative confirmation of current configurations and exact reference numbers. Note: official sites usually only list currently-produced configurations, so if this looks like an older or discontinued reference, the official site may not have it \u2014 in that case fall back to your other instructed sources (Chrono24, WatchCharts, established dealers, etc.) and say so in confidence_notes.`
+    : '';
+
   const detailsText = `Watch details extracted so far:\n${JSON.stringify(fp, null, 2)}`;
   const promptText = base64Image
-    ? `${detailsText}\n\nThe photo is attached. Identify the exact reference number using the photo plus multiple Google searches, per your instructions.`
-    : `${detailsText}\n\nNo photo is available, only the description above. Identify the exact reference number using multiple Google searches based on these details, per your instructions.`;
+    ? `${detailsText}\n\nThe photo is attached. Identify the exact reference number using the photo plus multiple Google searches, per your instructions.${officialSiteInstruction}`
+    : `${detailsText}\n\nNo photo is available, only the description above. Identify the exact reference number using multiple Google searches based on these details, per your instructions.${officialSiteInstruction}`;
 
   try{
     const { text, searchQueries, sources } = await callGeminiWithSearch({
