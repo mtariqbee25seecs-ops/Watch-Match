@@ -830,7 +830,7 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
       <div class="panel-head">
         <div>
           <h2>Today's stock</h2>
-          <p class="sub">Upload watch photos. Each gets fingerprinted by Claude's vision &mdash; if the reference number isn't legible, it's looked up via Google search rather than guessed blind. <span class="paste-hint">Tip: you can also paste an image directly (Ctrl/Cmd+V).</span></p>
+          <p class="sub">Upload watch photos. Each gets fingerprinted by Claude's vision &mdash; if the reference number isn't legible, it's looked up via web search rather than guessed blind. <span class="paste-hint">Tip: you can also paste an image directly (Ctrl/Cmd+V).</span></p>
         </div>
         <div class="panel-actions">
           <label class="btn primary file-btn">
@@ -968,20 +968,15 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
 <!-- Settings / API key modal -->
 <div class="modal-overlay" id="settingsModalOverlay">
   <div class="modal">
-    <h3>API keys</h3>
+    <h3>Anthropic API key</h3>
     <p class="settings-copy">
-      This app uses Claude's vision API to read watch photos. This requires a paid Anthropic API key with billing enabled &mdash; usage is billed per request.
-      Get a key at <strong>console.anthropic.com</strong> and add some credit.
+      This app uses Claude's vision API to read watch photos, and Claude's own built-in web search to look up a reference number when it isn't legible in the photo \u2014 one account, one bill, no separate Google billing needed. This requires a paid Anthropic API key with billing enabled; usage is billed per request, plus a small extra charge per web search performed.
+      Get a key at <strong>console.anthropic.com</strong> and add some credit. Make sure <strong>web search is enabled</strong> in your Console's tool settings, or lookups will silently fall back to a best-guess estimate.
     </p>
     <input type="password" id="apiKeyInput" class="card-caption-input" placeholder="Paste your Anthropic API key" autocomplete="off" spellcheck="false">
 
-    <p class="settings-copy" style="margin-top:16px;">
-      When a reference number isn't legible, it's looked up via <strong>Gemini with Google Search</strong> &mdash; Gemini looks at the photo directly and grounds its answer in real Google results. Get a free key at <strong>aistudio.google.com/apikey</strong> (no Google Cloud project setup needed). Free for several thousand lookups/month, then a small per-lookup charge after that. Leave blank to skip lookup and fall back to a best-guess estimate instead.
-    </p>
-    <input type="password" id="geminiApiKeyInput" class="card-caption-input" placeholder="Paste your Gemini API key (optional)" autocomplete="off" spellcheck="false">
-
     <p class="settings-copy" style="margin-top:10px;font-size:11.5px;">
-      All keys are stored only in this browser, never sent anywhere except directly to Anthropic's and Google's APIs.
+      Your key is stored only in this browser, never sent anywhere except directly to Anthropic's API.
     </p>
     <div class="modal-actions">
       <button class="btn" id="settingsModalCancel">Cancel</button>
@@ -1125,15 +1120,6 @@ function setApiKey(key){
 }
 const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
-
-function getGeminiApiKey(){
-  try{ return window.localStorage.getItem('sm:gemini-api-key') || ''; }catch(e){ return ''; }
-}
-function setGeminiApiKey(key){
-  try{ window.localStorage.setItem('sm:gemini-api-key', key.trim()); }catch(e){}
-}
-const GEMINI_MODEL = 'gemini-3.5-flash';
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 /* ===================== utils ===================== */
 
@@ -1585,9 +1571,9 @@ For "message_text": transcribe any visible chat/message text in the screenshot v
 For "price": extract just the price/amount if stated anywhere in the visible text (keep currency symbol or code as shown, e.g. "PKR 450,000" or "$3,200"). If no price is stated, use null.
 Only state what is visually evident or stated in the caption. If the caption conflicts with the image or message text, prefer the image/message text but note the conflict in confidence_notes. Respond with the JSON object only.`;
 
-const REFERENCE_LOOKUP_PROMPT = `You are identifying the exact reference number of a watch for a dealer's inventory system. You have a googleSearch tool \u2014 use it properly, not as a single vague lookup:
+const REFERENCE_LOOKUP_PROMPT = `You are identifying the exact reference number of a watch for a dealer's inventory system. You have a web_search tool \u2014 use it properly, not as a single vague lookup:
 
-1. Run AT LEAST 2-3 separate, differently-worded Google searches focused specifically on finding the reference number itself \u2014 not a general "what is this watch" search. Vary the query each time, e.g. "[brand] [model] [dial color] reference number", "[brand] [model] [case material] [bracelet type] ref", site-specific variants like "[brand] [model] site:chrono24.com", etc. Use the photo (if provided) to identify distinguishing details to search with.
+1. Run AT LEAST 2-3 separate, differently-worded searches focused specifically on finding the reference number itself \u2014 not a general "what is this watch" search. Vary the query each time, e.g. "[brand] [model] [dial color] reference number", "[brand] [model] [case material] [bracelet type] ref", site-specific variants like "[brand] [model] site:chrono24.com", etc. Use the photo (if provided) to identify distinguishing details to search with.
 2. Check real, distinct sources each time \u2014 the brand's official site, established marketplaces (Chrono24, WatchCharts, Bob's Watches, Crown & Caliber), watch reference databases, forums with verified reference threads. Do not stop after one search if the first result is weak or unconfirmed.
 3. Compare what the different searches/sources turn up. If multiple independent sources agree on the same reference number, that's your answer \u2014 treat agreement across sources as the deciding signal, not just whichever result came up first.
 4. If sources conflict or only a single weak source suggests a number, do not present it as confirmed \u2014 either keep searching with another query angle, or fall back to "inferred" per the rules below.
@@ -1623,79 +1609,31 @@ function extractRetryDelaySeconds(response, errJson){
   return 15;
 }
 
-async function callGeminiWithSearch({ base64Image, mimeType, promptText }, attempt = 1){
-  const apiKey = getGeminiApiKey();
-  if (!apiKey){
-    throw new Error('No Gemini API key set \u2014 add one in settings to enable reference lookups');
-  }
-
-  const parts = [];
-  if (base64Image) parts.push({ inline_data: { mime_type: mimeType || 'image/jpeg', data: base64Image } });
-  parts.push({ text: promptText });
-
-  const response = await fetch(`${GEMINI_URL}?key=${encodeURIComponent(apiKey)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts }],
-      tools: [{ googleSearch: {} }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 1200 }
-    })
-  });
-
-  if (!response.ok){
-    let errJson = null;
-    try{ errJson = await response.json(); }catch(e){}
-    const detail = errJson?.error?.message || '';
-
-    // Lookups now run multiple searches per call, so under concurrent
-    // analysis it's easy to transiently hit Gemini's rate limit. Retry
-    // a couple of times with backoff rather than giving up on the first
-    // 429 \u2014 this mirrors the same handling already used for Anthropic calls.
-    if (response.status === 429 && attempt <= 3){
-      const waitSeconds = extractRetryDelaySeconds(response, errJson);
-      await new Promise(r => setTimeout(r, waitSeconds * 1000));
-      return callGeminiWithSearch({ base64Image, mimeType, promptText }, attempt + 1);
-    }
-
-    throw new Error('Gemini API error ' + response.status + (detail ? ': ' + detail : ''));
-  }
-  const data = await response.json();
-  const candidate = data.candidates && data.candidates[0];
-  const textParts = (candidate && candidate.content && candidate.content.parts || []).filter(p => p.text).map(p => p.text);
-  if (!textParts.length) throw new Error('No text response from Gemini');
-
-  // Surface what actually happened during grounding \u2014 the real search
-  // queries issued and the sources found \u2014 so a lookup result (or lack of
-  // one) is verifiable rather than a black box.
-  const grounding = candidate && candidate.groundingMetadata;
-  const searchQueries = (grounding && grounding.webSearchQueries) || [];
-  const sources = ((grounding && grounding.groundingChunks) || [])
-    .map(c => c.web && c.web.title)
-    .filter(Boolean);
-
-  return { text: textParts.join('\n'), searchQueries, sources };
-}
-
 async function lookupReferenceNumber(fp, base64Image, mimeType){
-  // Looks up a reference number via a single Gemini call with Google Search
-  // grounding enabled, instructed to run multiple distinct searches and
-  // require cross-source agreement before reporting a confident match.
-  // When a photo is available, Gemini sees it directly (richer signal than
-  // a templated text query). Designed to degrade gracefully: any failure
-  // here (missing key, network error, rate limit) just means the caller
-  // falls back to a pure-inference guess instead of breaking the whole
-  // item's analysis.
+  // Looks up a reference number via Anthropic's own native web search tool
+  // (Claude's API, same billing account as everything else in this app \u2014
+  // no separate Google Cloud billing needed). Instructed to run multiple
+  // distinct searches and require cross-source agreement before reporting
+  // a confident match. When a photo is available, Claude sees it directly
+  // (richer signal than a templated text query). Designed to degrade
+  // gracefully: any failure here (network error, rate limit, web search
+  // not enabled on the account) just means the caller falls back to a
+  // pure-inference guess instead of breaking the whole item's analysis.
   const detailsText = `Watch details extracted so far:\n${JSON.stringify(fp, null, 2)}`;
   const promptText = base64Image
-    ? `${detailsText}\n\nThe photo is attached. Identify the exact reference number using the photo plus multiple Google searches, per your instructions.`
-    : `${detailsText}\n\nNo photo is available, only the description above. Identify the exact reference number using multiple Google searches based on these details, per your instructions.`;
+    ? `${detailsText}\n\nThe photo is attached. Identify the exact reference number using the photo plus multiple web searches, per your instructions.`
+    : `${detailsText}\n\nNo photo is available, only the description above. Identify the exact reference number using multiple web searches based on these details, per your instructions.`;
+
+  const userParts = [];
+  if (base64Image) userParts.push({ inline_data: { mime_type: mimeType || 'image/jpeg', data: base64Image } });
+  userParts.push({ text: promptText });
 
   try{
-    const { text, searchQueries, sources } = await callGeminiWithSearch({
-      base64Image,
-      mimeType,
-      promptText: REFERENCE_LOOKUP_PROMPT + '\n\n' + promptText
+    const { text, searchQueries, sources } = await callAnthropic({
+      systemText: REFERENCE_LOOKUP_PROMPT,
+      userParts,
+      maxOutputTokens: 1200,
+      enableWebSearch: true
     });
     const result = parseJsonLoose(text);
 
@@ -1703,7 +1641,7 @@ async function lookupReferenceNumber(fp, base64Image, mimeType){
     // is verifiable rather than a black box.
     const searchSummary = searchQueries.length
       ? `Searched: ${searchQueries.map(q => `"${q}"`).join(', ')}.${sources.length ? ' Sources seen: ' + sources.join(', ') + '.' : ''}`
-      : 'No web search was actually performed for this lookup (model answered without grounding).';
+      : 'No web search was actually performed for this lookup (model answered without searching).';
     result.confidence_notes = result.confidence_notes ? `${result.confidence_notes} | ${searchSummary}` : searchSummary;
     return result;
   }catch(e){
@@ -1771,12 +1709,21 @@ async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWa
   }
   const data = await response.json();
   // With web search enabled, the response can include several block types
-  // (server_tool_use, web_search_tool_result, text) interleaved. Concatenate
-  // every text block in order rather than assuming the first one is the
-  // whole answer.
+  // (server_tool_use shows the actual query issued, web_search_tool_result
+  // shows the actual sources found, text is the final answer) interleaved.
+  // Concatenate every text block in order, and surface the search activity
+  // itself so a result is verifiable rather than a black box.
   const textParts = (data.content || []).filter(b => b.type === 'text' && b.text).map(b => b.text);
   if (!textParts.length) throw new Error('No text response from Anthropic');
-  return textParts.join('\n');
+
+  const searchQueries = (data.content || [])
+    .filter(b => b.type === 'server_tool_use' && b.name === 'web_search' && b.input && b.input.query)
+    .map(b => b.input.query);
+  const sources = (data.content || [])
+    .filter(b => b.type === 'web_search_tool_result' && Array.isArray(b.content))
+    .flatMap(b => b.content.map(r => r.title).filter(Boolean));
+
+  return { text: textParts.join('\n'), searchQueries, sources };
 }
 
 async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeType){
@@ -1785,7 +1732,7 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
     : 'No caption was provided. Rely on the image alone.';
   const effectiveMimeType = (mimeType && mimeType.startsWith('image/')) ? mimeType : 'image/jpeg';
 
-  const text = await callAnthropic({
+  const { text } = await callAnthropic({
     systemText: FINGERPRINT_SCHEMA_PROMPT,
     userParts: [
       { inline_data: { mime_type: effectiveMimeType, data: base64 } },
@@ -1814,7 +1761,7 @@ async function extractFingerprintFromText(text, onRetryWait){
     .replace('For "message_text": transcribe any visible chat/message text in the screenshot verbatim (price, description, condition notes, seller comments). If there is no visible text, use null.',
       'For "message_text": set this to the original request text verbatim.');
 
-  const responseText = await callAnthropic({
+  const { text: responseText } = await callAnthropic({
     systemText: textSystemPrompt,
     userParts: [{ text: `Customer request text: "${text}"` }],
     maxOutputTokens: 1200,
@@ -1972,7 +1919,7 @@ function refSourceRank(source){
 
 function refSourceLabel(source){
   if (source === 'visible') return 'read directly';
-  if (source === 'looked_up') return 'found via Google search';
+  if (source === 'looked_up') return 'found via web search';
   return 'guessed from visual style alone';
 }
 
@@ -2051,9 +1998,9 @@ function refBadge(fp){
   if (!fp || !fp.reference_number) return '';
   const source = fp.reference_number_source;
   const cls = source === 'visible' ? 'visible' : source === 'looked_up' ? 'looked-up' : 'inferred';
-  const label = source === 'visible' ? '' : source === 'looked_up' ? ' (Google-verified)' : ' (inferred)';
+  const label = source === 'visible' ? '' : source === 'looked_up' ? ' (web-verified)' : ' (inferred)';
   const title = source === 'visible' ? 'Read directly from the photo or message text'
-    : source === 'looked_up' ? 'Not directly legible \u2014 found via Google search against real listings/specs'
+    : source === 'looked_up' ? 'Not directly legible \u2014 found via web search against real listings/specs'
     : 'Not directly legible \u2014 best guess from visual style alone, not verified';
   return `<span class="ref-badge ${cls}" title="${title}">${escapeHtml(fp.reference_number)}${label}</span>`;
 }
@@ -2081,7 +2028,7 @@ function renderDashboardMatches(){
     const pct = Math.round(top.confidence || 0);
     const tier = confidenceTier(pct);
     const matchTypeBadge = top.referenceMatchType === 'looked_up'
-      ? '<span class="ref-badge looked-up">Google-verified match</span>'
+      ? '<span class="ref-badge looked-up">web-verified match</span>'
       : top.referenceMatchType === 'inferred'
         ? '<span class="ref-badge inferred">unverified match \u2014 confirm</span>'
         : '';
@@ -2465,7 +2412,6 @@ function init(){
 
   function openSettingsModal(){
     document.getElementById('apiKeyInput').value = getApiKey();
-    document.getElementById('geminiApiKeyInput').value = getGeminiApiKey();
     document.getElementById('settingsModalOverlay').classList.add('open');
   }
   document.getElementById('settingsBtn').onclick = openSettingsModal;
@@ -2475,12 +2421,10 @@ function init(){
   };
   document.getElementById('settingsModalSave').onclick = () => {
     const key = document.getElementById('apiKeyInput').value.trim();
-    const geminiKey = document.getElementById('geminiApiKeyInput').value.trim();
     setApiKey(key);
-    setGeminiApiKey(geminiKey);
     document.getElementById('settingsModalOverlay').classList.remove('open');
     updateKeyBanner();
-    showToast(key ? 'API keys saved' : 'Anthropic key cleared');
+    showToast(key ? 'API key saved' : 'API key cleared');
   };
 
   document.addEventListener('paste', handlePaste);
