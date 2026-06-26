@@ -807,7 +807,7 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
       <div class="panel-head">
         <div>
           <h2>Today's stock</h2>
-          <p class="sub">Upload watch photos. Each gets fingerprinted by Claude's vision &mdash; if the reference number isn't legible, Claude searches the web to verify it rather than guessing blind. <span class="paste-hint">Tip: you can also paste an image directly (Ctrl/Cmd+V).</span></p>
+          <p class="sub">Upload watch photos. Each gets fingerprinted by Claude's vision &mdash; if the reference number isn't legible, it's looked up via Google search rather than guessed blind. <span class="paste-hint">Tip: you can also paste an image directly (Ctrl/Cmd+V).</span></p>
         </div>
         <div class="panel-actions">
           <label class="btn primary file-btn">
@@ -945,15 +945,25 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
 <!-- Settings / API key modal -->
 <div class="modal-overlay" id="settingsModalOverlay">
   <div class="modal">
-    <h3>Anthropic API key</h3>
+    <h3>API keys</h3>
     <p class="settings-copy">
-      This app uses Claude's vision API to read watch photos, and can search the web to verify a reference number when it isn't directly legible. This requires a paid Anthropic API key with billing enabled &mdash; usage is billed per request, plus a small extra charge per web search performed.
-      Get a key at <strong>console.anthropic.com</strong>, add some credit, and make sure <strong>web search is enabled</strong> for your organization under the Console's tool settings &mdash; otherwise reference lookups will fail. Then paste your key below. It's stored only in this browser, never sent anywhere except directly to Anthropic's API.
+      This app uses Claude's vision API to read watch photos. This requires a paid Anthropic API key with billing enabled &mdash; usage is billed per request.
+      Get a key at <strong>console.anthropic.com</strong> and add some credit.
     </p>
     <input type="password" id="apiKeyInput" class="card-caption-input" placeholder="Paste your Anthropic API key" autocomplete="off" spellcheck="false">
+
+    <p class="settings-copy" style="margin-top:16px;">
+      When a reference number isn't legible, it looks it up via <strong>Google Custom Search</strong>. This needs its own Google Cloud API key plus a Search Engine ID (cx) from <strong>programmablesearchengine.google.com</strong> (set it to search the entire web). Free for the first 100 searches/day, then billed at $5 per 1,000. Leave blank to skip lookup and fall back to a best-guess estimate instead.
+    </p>
+    <input type="password" id="googleApiKeyInput" class="card-caption-input" placeholder="Paste your Google API key (optional)" autocomplete="off" spellcheck="false">
+    <input type="text" id="googleCseIdInput" class="card-caption-input" placeholder="Paste your Search Engine ID / cx (optional)" autocomplete="off" spellcheck="false">
+
+    <p class="settings-copy" style="margin-top:10px;font-size:11.5px;">
+      All keys are stored only in this browser, never sent anywhere except directly to Anthropic's and Google's APIs.
+    </p>
     <div class="modal-actions">
       <button class="btn" id="settingsModalCancel">Cancel</button>
-      <button class="btn primary" id="settingsModalSave">Save key</button>
+      <button class="btn primary" id="settingsModalSave">Save keys</button>
     </div>
   </div>
 </div>
@@ -1093,6 +1103,20 @@ function setApiKey(key){
 }
 const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
+
+function getGoogleApiKey(){
+  try{ return window.localStorage.getItem('sm:google-api-key') || ''; }catch(e){ return ''; }
+}
+function setGoogleApiKey(key){
+  try{ window.localStorage.setItem('sm:google-api-key', key.trim()); }catch(e){}
+}
+function getGoogleCseId(){
+  try{ return window.localStorage.getItem('sm:google-cse-id') || ''; }catch(e){ return ''; }
+}
+function setGoogleCseId(id){
+  try{ window.localStorage.setItem('sm:google-cse-id', id.trim()); }catch(e){}
+}
+const GOOGLE_SEARCH_URL = 'https://www.googleapis.com/customsearch/v1';
 
 /* ===================== utils ===================== */
 
@@ -1468,14 +1492,12 @@ function attachDemandCardHandlers(){
 
 const FINGERPRINT_SCHEMA_PROMPT = `You are inspecting a watch listing screenshot for a dealer's inventory system. The screenshot is typically a chat message (e.g. WhatsApp) containing a watch photo AND message text baked into the same image \u2014 the text may include price, description, condition, or seller notes layered over or alongside the photo. Read both the watch itself and any visible text in the image.
 
-You have a web_search tool available. Use it specifically to verify or look up the exact reference number when it is NOT legibly visible in the image or text \u2014 do not rely purely on memorized pattern-matching when a real lookup is possible.
-
 Extract a structured fingerprint as STRICT JSON ONLY (no markdown fences, no preamble, no commentary). Use null for any field you cannot determine. Fields:
 {
   "brand": string or null,
   "model_line": string or null,
   "reference_number": string or null,
-  "reference_number_source": "visible" or "looked_up" or "inferred" or null,
+  "reference_number_source": "visible" or null,
   "gender": "mens" or "ladies" or "unisex" or null,
   "gender_basis": string or null,
   "dial_color": string or null,
@@ -1489,11 +1511,7 @@ Extract a structured fingerprint as STRICT JSON ONLY (no markdown fences, no pre
   "confidence_notes": string or null
 }
 
-REFERENCE NUMBER RULES (important \u2014 follow this order):
-1. VISIBLE: if a reference number is legibly visible (engraved, printed, or stated in message text), set "reference_number" to that exact value and "reference_number_source" to "visible". This is always preferred when available \u2014 don't search if it's already legible.
-2. LOOKED UP: if no reference number is legible, use the web_search tool to actually look it up. Search using the brand, model line, and the specific visual details you can see (dial color, bezel type, case material/size, bracelet type, any distinguishing markings or text). Check real sources \u2014 the brand's official site, established dealers/marketplaces (e.g. Chrono24, WatchCharts, Bob's Watches, Crown & Caliber), or watch reference databases \u2014 and find the specific reference number whose photos/specs match what you see. If you find a confident match this way, set "reference_number" to that value and "reference_number_source" to "looked_up", and briefly note in "confidence_notes" what you searched and what confirmed the match.
-3. INFERRED: only if web search doesn't turn up a confident match (no results, ambiguous results, or the piece could be one of several close variants even after searching), fall back to your own trained knowledge of this brand/model's design to give your best-guess reference number. Set "reference_number_source" to "inferred" in this case, and note in "confidence_notes" why search didn't resolve it and what visual cues your guess is based on.
-4. If you genuinely cannot narrow it down even approximately after attempting a search, set "reference_number" to null and "reference_number_source" to null.
+REFERENCE NUMBER RULE: only set "reference_number" if it is legibly visible \u2014 engraved, printed, or stated in message text. Set "reference_number_source" to "visible" in that case. If it is NOT legible anywhere, set both "reference_number" and "reference_number_source" to null \u2014 do not guess here. A separate lookup step will handle that using the other fields you extract below, so describe the watch as precisely as possible even when the reference itself isn't visible.
 
 GENDER RULES (important, this affects matching \u2014 never blur this):
 - Set "gender" based on case size, dial design, and known model conventions (e.g. Datejust 36mm+ is typically mens, Lady-Datejust / smaller diamond-marker dials are typically ladies). Some models are unisex by design (e.g. many modern 36-41mm steel sport watches) \u2014 use "unisex" only when that's a genuine, well-known convention, not as a default when unsure.
@@ -1502,7 +1520,24 @@ GENDER RULES (important, this affects matching \u2014 never blur this):
 
 For "message_text": transcribe any visible chat/message text in the screenshot verbatim (price, description, condition notes, seller comments). If there is no visible text, use null.
 For "price": extract just the price/amount if stated anywhere in the visible text (keep currency symbol or code as shown, e.g. "PKR 450,000" or "$3,200"). If no price is stated, use null.
-Only state what is visually evident or stated in the caption. If the caption conflicts with the image or message text, prefer the image/message text but note the conflict in confidence_notes. After any web search, respond with the JSON object only \u2014 no extra commentary around it.`;
+Only state what is visually evident or stated in the caption. If the caption conflicts with the image or message text, prefer the image/message text but note the conflict in confidence_notes. Respond with the JSON object only.`;
+
+const REFERENCE_LOOKUP_PROMPT = `You are helping identify the exact reference number of a watch for a dealer's inventory system. You'll be given the visual/structured details already extracted from a photo or customer request, plus a set of real web search results that were retrieved using those details as the search query.
+
+Read the search results and determine whether any of them confidently identify the specific reference number matching the described watch. Real listings, retailer pages, or brand reference pages that match the described dial/bezel/case/bracelet combination are strong evidence; vague or unrelated results are not.
+
+Respond with STRICT JSON ONLY (no markdown fences, no commentary), in this exact shape:
+{
+  "reference_number": string or null,
+  "reference_number_source": "looked_up" or "inferred" or null,
+  "confidence_notes": string or null
+}
+
+Rules:
+- If the search results clearly identify a specific matching reference number, set "reference_number" to that value, "reference_number_source" to "looked_up", and briefly note in "confidence_notes" which result(s) confirmed it.
+- If the search results are empty, irrelevant, or too ambiguous to confidently pick one reference number, fall back to your own trained knowledge of this brand/model's design to give your best-guess reference number instead. Set "reference_number_source" to "inferred" in that case, and note in "confidence_notes" that search didn't resolve it and what visual cues your guess is based on.
+- If you genuinely cannot narrow it down even approximately, set "reference_number" to null and "reference_number_source" to null.
+Respond with the JSON object only.`;
 
 function extractRetryDelaySeconds(response, errJson){
   // Anthropic returns a Retry-After header on 429s. Fall back to a safe
@@ -1518,6 +1553,62 @@ function extractRetryDelaySeconds(response, errJson){
     if (match) return Math.ceil(parseFloat(match[1]));
   }catch(e){}
   return 15;
+}
+
+async function googleSearch(query, maxResults){
+  const apiKey = getGoogleApiKey();
+  const cx = getGoogleCseId();
+  if (!apiKey || !cx){
+    throw new Error('Google Custom Search isn\u2019t configured \u2014 add your Google API key and Search Engine ID in settings');
+  }
+  const url = `${GOOGLE_SEARCH_URL}?key=${encodeURIComponent(apiKey)}&cx=${encodeURIComponent(cx)}&q=${encodeURIComponent(query)}&num=${maxResults || 5}`;
+  const response = await fetch(url);
+  if (!response.ok){
+    let errJson = null;
+    try{ errJson = await response.json(); }catch(e){}
+    const detail = errJson?.error?.message || '';
+    throw new Error('Google Custom Search error ' + response.status + (detail ? ': ' + detail : ''));
+  }
+  const data = await response.json();
+  return (data.items || []).map(item => ({ title: item.title, snippet: item.snippet, link: item.link }));
+}
+
+function buildLookupQuery(fp){
+  const parts = [fp.brand, fp.model_line, fp.dial_color, fp.bezel, fp.case_material, fp.case_size, fp.bracelet_or_strap, 'reference number'];
+  return parts.filter(Boolean).join(' ');
+}
+
+async function lookupReferenceNumber(fp){
+  // Looks up a reference number via Google Custom Search + a follow-up
+  // Claude call that reads the raw results. Designed to degrade gracefully:
+  // any failure here (missing Google config, network error, no results)
+  // just means the caller falls back to a pure-inference guess instead of
+  // breaking the whole item's analysis.
+  const query = buildLookupQuery(fp);
+  let results = [];
+  try{
+    results = await googleSearch(query, 5);
+  }catch(e){
+    console.warn('Google lookup failed, will fall back to inference:', e.message);
+  }
+
+  const resultsText = results.length
+    ? results.map((r, i) => `${i + 1}. ${r.title}\n${r.snippet}\n${r.link}`).join('\n\n')
+    : '(no search results available)';
+
+  const userText = `Watch details extracted so far:\n${JSON.stringify(fp, null, 2)}\n\nSearch query used: "${query}"\n\nSearch results:\n${resultsText}`;
+
+  try{
+    const responseText = await callAnthropic({
+      systemText: REFERENCE_LOOKUP_PROMPT,
+      userParts: [{ text: userText }],
+      maxOutputTokens: 600
+    });
+    return parseJsonLoose(responseText);
+  }catch(e){
+    console.warn('Reference lookup synthesis call failed:', e.message);
+    return { reference_number: null, reference_number_source: null, confidence_notes: 'Lookup step failed: ' + e.message };
+  }
 }
 
 async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWait, enableWebSearch }, attempt = 1){
@@ -1598,11 +1689,20 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait){
       { inline_data: { mime_type: 'image/jpeg', data: base64 } },
       { text: userText }
     ],
-    maxOutputTokens: 2000,
-    enableWebSearch: true,
+    maxOutputTokens: 1200,
     onRetryWait
   });
-  return parseJsonLoose(text);
+  const fp = parseJsonLoose(text);
+
+  if (!fp.reference_number){
+    const lookup = await lookupReferenceNumber(fp);
+    fp.reference_number = lookup.reference_number || null;
+    fp.reference_number_source = lookup.reference_number_source || null;
+    if (lookup.confidence_notes){
+      fp.confidence_notes = fp.confidence_notes ? fp.confidence_notes + ' | ' + lookup.confidence_notes : lookup.confidence_notes;
+    }
+  }
+  return fp;
 }
 
 async function extractFingerprintFromText(text, onRetryWait){
@@ -1615,11 +1715,20 @@ async function extractFingerprintFromText(text, onRetryWait){
   const responseText = await callAnthropic({
     systemText: textSystemPrompt,
     userParts: [{ text: `Customer request text: "${text}"` }],
-    maxOutputTokens: 2000,
-    enableWebSearch: true,
+    maxOutputTokens: 1200,
     onRetryWait
   });
-  return parseJsonLoose(responseText);
+  const fp = parseJsonLoose(responseText);
+
+  if (!fp.reference_number){
+    const lookup = await lookupReferenceNumber(fp);
+    fp.reference_number = lookup.reference_number || null;
+    fp.reference_number_source = lookup.reference_number_source || null;
+    if (lookup.confidence_notes){
+      fp.confidence_notes = fp.confidence_notes ? fp.confidence_notes + ' | ' + lookup.confidence_notes : lookup.confidence_notes;
+    }
+  }
+  return fp;
 }
 
 function parseJsonLoose(text){
@@ -1761,7 +1870,7 @@ function refSourceRank(source){
 
 function refSourceLabel(source){
   if (source === 'visible') return 'read directly';
-  if (source === 'looked_up') return 'found via web search';
+  if (source === 'looked_up') return 'found via Google search';
   return 'guessed from visual style alone';
 }
 
@@ -1802,7 +1911,7 @@ function runMatching(opts){
         if (combinedRank === 2){
           reasoning = `Reference ${s.fingerprint.reference_number} read directly from both the stock photo and the demand request \u2014 exact match.`;
         } else {
-          reasoning = `Reference ${s.fingerprint.reference_number} matches \u2014 stock side ${stockLabel}, demand side ${demandLabel}. ${combinedRank === 1 ? 'At least one side is web-search-verified rather than read directly; treat as reliable but worth a quick visual confirmation.' : 'At least one side is an unverified guess rather than read or looked up; treat as a lead only \u2014 confirm the exact reference before relying on this.'}`;
+          reasoning = `Reference ${s.fingerprint.reference_number} matches \u2014 stock side ${stockLabel}, demand side ${demandLabel}. ${combinedRank === 1 ? 'At least one side is Google-search-verified rather than read directly; treat as reliable but worth a quick visual confirmation.' : 'At least one side is an unverified guess rather than read or looked up; treat as a lead only \u2014 confirm the exact reference before relying on this.'}`;
         }
         return { stockId: s.id, stockItem: s, confidence, referenceMatchType, reasoning };
       })
@@ -1840,9 +1949,9 @@ function refBadge(fp){
   if (!fp || !fp.reference_number) return '';
   const source = fp.reference_number_source;
   const cls = source === 'visible' ? 'visible' : source === 'looked_up' ? 'looked-up' : 'inferred';
-  const label = source === 'visible' ? '' : source === 'looked_up' ? ' (web-verified)' : ' (inferred)';
+  const label = source === 'visible' ? '' : source === 'looked_up' ? ' (Google-verified)' : ' (inferred)';
   const title = source === 'visible' ? 'Read directly from the photo or message text'
-    : source === 'looked_up' ? 'Not directly legible \u2014 found via live web search against real listings/specs'
+    : source === 'looked_up' ? 'Not directly legible \u2014 found via Google search against real listings/specs'
     : 'Not directly legible \u2014 best guess from visual style alone, not verified';
   return `<span class="ref-badge ${cls}" title="${title}">${escapeHtml(fp.reference_number)}${label}</span>`;
 }
@@ -1870,7 +1979,7 @@ function renderDashboardMatches(){
     const pct = Math.round(top.confidence || 0);
     const tier = confidenceTier(pct);
     const matchTypeBadge = top.referenceMatchType === 'looked_up'
-      ? '<span class="ref-badge looked-up">web-verified match</span>'
+      ? '<span class="ref-badge looked-up">Google-verified match</span>'
       : top.referenceMatchType === 'inferred'
         ? '<span class="ref-badge inferred">unverified match \u2014 confirm</span>'
         : '';
@@ -2254,6 +2363,8 @@ function init(){
 
   function openSettingsModal(){
     document.getElementById('apiKeyInput').value = getApiKey();
+    document.getElementById('googleApiKeyInput').value = getGoogleApiKey();
+    document.getElementById('googleCseIdInput').value = getGoogleCseId();
     document.getElementById('settingsModalOverlay').classList.add('open');
   }
   document.getElementById('settingsBtn').onclick = openSettingsModal;
@@ -2263,10 +2374,14 @@ function init(){
   };
   document.getElementById('settingsModalSave').onclick = () => {
     const key = document.getElementById('apiKeyInput').value.trim();
+    const googleKey = document.getElementById('googleApiKeyInput').value.trim();
+    const googleCx = document.getElementById('googleCseIdInput').value.trim();
     setApiKey(key);
+    setGoogleApiKey(googleKey);
+    setGoogleCseId(googleCx);
     document.getElementById('settingsModalOverlay').classList.remove('open');
     updateKeyBanner();
-    showToast(key ? 'API key saved' : 'API key cleared');
+    showToast(key ? 'API keys saved' : 'Anthropic key cleared');
   };
 
   document.addEventListener('paste', handlePaste);
