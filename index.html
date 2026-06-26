@@ -953,10 +953,9 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
     <input type="password" id="apiKeyInput" class="card-caption-input" placeholder="Paste your Anthropic API key" autocomplete="off" spellcheck="false">
 
     <p class="settings-copy" style="margin-top:16px;">
-      When a reference number isn't legible, it looks it up via <strong>Google Custom Search</strong>. This needs its own Google Cloud API key plus a Search Engine ID (cx) from <strong>programmablesearchengine.google.com</strong> (set it to search the entire web). Free for the first 100 searches/day, then billed at $5 per 1,000. Leave blank to skip lookup and fall back to a best-guess estimate instead.
+      When a reference number isn't legible, it's looked up via <strong>Gemini with Google Search</strong> &mdash; Gemini looks at the photo directly and grounds its answer in real Google results. Get a free key at <strong>aistudio.google.com/apikey</strong> (no Google Cloud project setup needed). Free for several thousand lookups/month, then a small per-lookup charge after that. Leave blank to skip lookup and fall back to a best-guess estimate instead.
     </p>
-    <input type="password" id="googleApiKeyInput" class="card-caption-input" placeholder="Paste your Google API key (optional)" autocomplete="off" spellcheck="false">
-    <input type="text" id="googleCseIdInput" class="card-caption-input" placeholder="Paste your Search Engine ID / cx (optional)" autocomplete="off" spellcheck="false">
+    <input type="password" id="geminiApiKeyInput" class="card-caption-input" placeholder="Paste your Gemini API key (optional)" autocomplete="off" spellcheck="false">
 
     <p class="settings-copy" style="margin-top:10px;font-size:11.5px;">
       All keys are stored only in this browser, never sent anywhere except directly to Anthropic's and Google's APIs.
@@ -1104,19 +1103,14 @@ function setApiKey(key){
 const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 
-function getGoogleApiKey(){
-  try{ return window.localStorage.getItem('sm:google-api-key') || ''; }catch(e){ return ''; }
+function getGeminiApiKey(){
+  try{ return window.localStorage.getItem('sm:gemini-api-key') || ''; }catch(e){ return ''; }
 }
-function setGoogleApiKey(key){
-  try{ window.localStorage.setItem('sm:google-api-key', key.trim()); }catch(e){}
+function setGeminiApiKey(key){
+  try{ window.localStorage.setItem('sm:gemini-api-key', key.trim()); }catch(e){}
 }
-function getGoogleCseId(){
-  try{ return window.localStorage.getItem('sm:google-cse-id') || ''; }catch(e){ return ''; }
-}
-function setGoogleCseId(id){
-  try{ window.localStorage.setItem('sm:google-cse-id', id.trim()); }catch(e){}
-}
-const GOOGLE_SEARCH_URL = 'https://www.googleapis.com/customsearch/v1';
+const GEMINI_MODEL = 'gemini-3.5-flash';
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 /* ===================== utils ===================== */
 
@@ -1522,9 +1516,7 @@ For "message_text": transcribe any visible chat/message text in the screenshot v
 For "price": extract just the price/amount if stated anywhere in the visible text (keep currency symbol or code as shown, e.g. "PKR 450,000" or "$3,200"). If no price is stated, use null.
 Only state what is visually evident or stated in the caption. If the caption conflicts with the image or message text, prefer the image/message text but note the conflict in confidence_notes. Respond with the JSON object only.`;
 
-const REFERENCE_LOOKUP_PROMPT = `You are helping identify the exact reference number of a watch for a dealer's inventory system. You'll be given the visual/structured details already extracted from a photo or customer request, plus a set of real web search results that were retrieved using those details as the search query.
-
-Read the search results and determine whether any of them confidently identify the specific reference number matching the described watch. Real listings, retailer pages, or brand reference pages that match the described dial/bezel/case/bracelet combination are strong evidence; vague or unrelated results are not.
+const REFERENCE_LOOKUP_PROMPT = `You are helping identify the exact reference number of a watch for a dealer's inventory system. You have a googleSearch tool available \u2014 use it to look up the specific reference number using the brand, model, dial, bezel, case, and bracelet details you're given (and the photo directly, if one is provided). Search real sources: the brand's official site, established dealers/marketplaces (Chrono24, WatchCharts, Bob's Watches, Crown & Caliber), or watch reference databases. Find the specific reference number whose photos/specs match what's described or shown.
 
 Respond with STRICT JSON ONLY (no markdown fences, no commentary), in this exact shape:
 {
@@ -1534,10 +1526,10 @@ Respond with STRICT JSON ONLY (no markdown fences, no commentary), in this exact
 }
 
 Rules:
-- If the search results clearly identify a specific matching reference number, set "reference_number" to that value, "reference_number_source" to "looked_up", and briefly note in "confidence_notes" which result(s) confirmed it.
-- If the search results are empty, irrelevant, or too ambiguous to confidently pick one reference number, fall back to your own trained knowledge of this brand/model's design to give your best-guess reference number instead. Set "reference_number_source" to "inferred" in that case, and note in "confidence_notes" that search didn't resolve it and what visual cues your guess is based on.
+- If your search confidently identifies a specific matching reference number, set "reference_number" to that value, "reference_number_source" to "looked_up", and briefly note in "confidence_notes" what confirmed it (e.g. which site/listing).
+- If search comes up empty, irrelevant, or too ambiguous to confidently pick one reference number, fall back to your own trained knowledge of this brand/model's design to give your best-guess reference number instead. Set "reference_number_source" to "inferred" in that case, and note in "confidence_notes" that search didn't resolve it and what visual cues your guess is based on.
 - If you genuinely cannot narrow it down even approximately, set "reference_number" to null and "reference_number_source" to null.
-Respond with the JSON object only.`;
+Respond with the JSON object only \u2014 no extra commentary around it, even after using search.`;
 
 function extractRetryDelaySeconds(response, errJson){
   // Anthropic returns a Retry-After header on 429s. Fall back to a safe
@@ -1555,58 +1547,59 @@ function extractRetryDelaySeconds(response, errJson){
   return 15;
 }
 
-async function googleSearch(query, maxResults){
-  const apiKey = getGoogleApiKey();
-  const cx = getGoogleCseId();
-  if (!apiKey || !cx){
-    throw new Error('Google Custom Search isn\u2019t configured \u2014 add your Google API key and Search Engine ID in settings');
+async function callGeminiWithSearch({ base64Image, promptText }){
+  const apiKey = getGeminiApiKey();
+  if (!apiKey){
+    throw new Error('No Gemini API key set \u2014 add one in settings to enable reference lookups');
   }
-  const url = `${GOOGLE_SEARCH_URL}?key=${encodeURIComponent(apiKey)}&cx=${encodeURIComponent(cx)}&q=${encodeURIComponent(query)}&num=${maxResults || 5}`;
-  const response = await fetch(url);
+
+  const parts = [];
+  if (base64Image) parts.push({ inline_data: { mime_type: 'image/jpeg', data: base64Image } });
+  parts.push({ text: promptText });
+
+  const response = await fetch(`${GEMINI_URL}?key=${encodeURIComponent(apiKey)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts }],
+      tools: [{ googleSearch: {} }],
+      generationConfig: { temperature: 0.2, maxOutputTokens: 1000 }
+    })
+  });
+
   if (!response.ok){
     let errJson = null;
     try{ errJson = await response.json(); }catch(e){}
     const detail = errJson?.error?.message || '';
-    throw new Error('Google Custom Search error ' + response.status + (detail ? ': ' + detail : ''));
+    throw new Error('Gemini API error ' + response.status + (detail ? ': ' + detail : ''));
   }
   const data = await response.json();
-  return (data.items || []).map(item => ({ title: item.title, snippet: item.snippet, link: item.link }));
+  const candidate = data.candidates && data.candidates[0];
+  const textParts = (candidate && candidate.content && candidate.content.parts || []).filter(p => p.text).map(p => p.text);
+  if (!textParts.length) throw new Error('No text response from Gemini');
+  return textParts.join('\n');
 }
 
-function buildLookupQuery(fp){
-  const parts = [fp.brand, fp.model_line, fp.dial_color, fp.bezel, fp.case_material, fp.case_size, fp.bracelet_or_strap, 'reference number'];
-  return parts.filter(Boolean).join(' ');
-}
-
-async function lookupReferenceNumber(fp){
-  // Looks up a reference number via Google Custom Search + a follow-up
-  // Claude call that reads the raw results. Designed to degrade gracefully:
-  // any failure here (missing Google config, network error, no results)
+async function lookupReferenceNumber(fp, base64Image){
+  // Looks up a reference number via a single Gemini call with Google Search
+  // grounding enabled. When a photo is available, Gemini sees it directly
+  // (richer signal than a templated text query). Designed to degrade
+  // gracefully: any failure here (missing key, network error, rate limit)
   // just means the caller falls back to a pure-inference guess instead of
   // breaking the whole item's analysis.
-  const query = buildLookupQuery(fp);
-  let results = [];
-  try{
-    results = await googleSearch(query, 5);
-  }catch(e){
-    console.warn('Google lookup failed, will fall back to inference:', e.message);
-  }
-
-  const resultsText = results.length
-    ? results.map((r, i) => `${i + 1}. ${r.title}\n${r.snippet}\n${r.link}`).join('\n\n')
-    : '(no search results available)';
-
-  const userText = `Watch details extracted so far:\n${JSON.stringify(fp, null, 2)}\n\nSearch query used: "${query}"\n\nSearch results:\n${resultsText}`;
+  const detailsText = `Watch details extracted so far:\n${JSON.stringify(fp, null, 2)}`;
+  const promptText = base64Image
+    ? `${detailsText}\n\nThe photo is attached. Identify the exact reference number using the photo plus a Google search, per your instructions.`
+    : `${detailsText}\n\nNo photo is available, only the description above. Identify the exact reference number using a Google search based on these details, per your instructions.`;
 
   try{
-    const responseText = await callAnthropic({
-      systemText: REFERENCE_LOOKUP_PROMPT,
-      userParts: [{ text: userText }],
-      maxOutputTokens: 600
+    const responseText = await callGeminiWithSearch({
+      base64Image,
+      promptText: REFERENCE_LOOKUP_PROMPT + '\n\n' + promptText
     });
     return parseJsonLoose(responseText);
   }catch(e){
-    console.warn('Reference lookup synthesis call failed:', e.message);
+    console.warn('Reference lookup call failed, falling back to no lookup:', e.message);
     return { reference_number: null, reference_number_source: null, confidence_notes: 'Lookup step failed: ' + e.message };
   }
 }
@@ -1695,7 +1688,7 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait){
   const fp = parseJsonLoose(text);
 
   if (!fp.reference_number){
-    const lookup = await lookupReferenceNumber(fp);
+    const lookup = await lookupReferenceNumber(fp, base64);
     fp.reference_number = lookup.reference_number || null;
     fp.reference_number_source = lookup.reference_number_source || null;
     if (lookup.confidence_notes){
@@ -2363,8 +2356,7 @@ function init(){
 
   function openSettingsModal(){
     document.getElementById('apiKeyInput').value = getApiKey();
-    document.getElementById('googleApiKeyInput').value = getGoogleApiKey();
-    document.getElementById('googleCseIdInput').value = getGoogleCseId();
+    document.getElementById('geminiApiKeyInput').value = getGeminiApiKey();
     document.getElementById('settingsModalOverlay').classList.add('open');
   }
   document.getElementById('settingsBtn').onclick = openSettingsModal;
@@ -2374,11 +2366,9 @@ function init(){
   };
   document.getElementById('settingsModalSave').onclick = () => {
     const key = document.getElementById('apiKeyInput').value.trim();
-    const googleKey = document.getElementById('googleApiKeyInput').value.trim();
-    const googleCx = document.getElementById('googleCseIdInput').value.trim();
+    const geminiKey = document.getElementById('geminiApiKeyInput').value.trim();
     setApiKey(key);
-    setGoogleApiKey(googleKey);
-    setGoogleCseId(googleCx);
+    setGeminiApiKey(geminiKey);
     document.getElementById('settingsModalOverlay').classList.remove('open');
     updateKeyBanner();
     showToast(key ? 'API keys saved' : 'Anthropic key cleared');
