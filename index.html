@@ -1144,9 +1144,2523 @@ function fileToBase64(file){
   });
 }
 
+function detectImageMimeTypeFromBytes(base64){
+  // Reads the actual file signature (magic number) from the decoded bytes,
+  // rather than trusting metadata captured at upload time. This is the
+  // reliable fix: it works even for items added before MIME tracking
+  // existed, or where the browser/clipboard never reported a useful
+  // file.type to begin with.
+  try{
+    if (!base64 || base64.length < 12) return null;
+    const binary = atob(base64.slice(0, 24));
+    const b = [];
+    for (let i = 0; i < Math.min(binary.length, 12); i++) b.push(binary.charCodeAt(i));
+
+    if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return 'image/png';
+    if (b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return 'image/jpeg';
+    if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return 'image/gif';
+    if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
+    if (b[0] === 0x42 && b[1] === 0x4D) return 'image/bmp';
+  }catch(e){
+    // malformed base64 slice or atob failure; fall through to other signals
+  }
+  return null;
+}
+
 function imageMimeTypeOf(item){
-  // Older saved items (before MIME type tracking was added) won't have this
-  // field; fall back to jpeg as a reasonable default rather than failing.
+  // Primary: sniff the real signature from the actual image bytes, since
+  // this is correct regardless of what (if anything) was recorded at
+  // upload time. Secondary: the stored upload-time type, for cases where
+  // the image isn't loaded into memory this session so there are no bytes
+  // to sniff. Last resort: jpeg, just to avoid a broken data: URL.
+  if (item && item.imageData){
+    const sniffed = detectImageMimeTypeFromBytes(item.imageData);
+    if (sniffed) return sniffed;
+  }
+  return (item && item.imageMimeType && item.imageMimeType.startsWith('image/')) ? item.imageMimeType : 'image/jpeg';
+}
+
+function escapeHtml(str){
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function fpLine(fp){
+  if (!fp) return '';
+  const parts = [fp.brand, fp.model_line].filter(Boolean);
+  return parts.join(' ') || 'unidentified';
+}
+
+/* ===================== persistence ===================== */
+/* Metadata (fingerprints, captions, prices) goes in localStore, which is
+   small and reliable. Actual image bytes go in IndexedDB via imageStore,
+   which has enough headroom for dozens of full photos. Both are written
+   together so a reload restores the full catalog, photos included. */
+
+async function saveStockCatalog(){
+  try{
+    const persistable = stockItems.map(it => ({
+      id: it.id, filename: it.filename, caption: it.caption,
+      status: it.status, fingerprint: it.fingerprint || null, error: it.error || null,
+      hasImage: !!it.imageData, imageMimeType: it.imageMimeType || null,
+      priceOverride: it.priceOverride !== undefined ? it.priceOverride : null
+    }));
+    await localStore.set('stock-catalog', JSON.stringify(persistable));
+  }catch(e){ console.error('save stock failed', e); }
+}
+
+async function saveStockImage(id, base64){
+  if (!base64) return;
+  await imageStore.set(id, base64);
+}
+
+async function loadStockCatalog(){
+  try{
+    const res = await localStore.get('stock-catalog');
+    if (res && res.value){
+      const parsed = JSON.parse(res.value);
+      stockItems = parsed.map(it => ({...it, imageData: null}));
+      // Restore actual photos from IndexedDB for items that have one saved.
+      const idsWithImages = stockItems.filter(it => it.hasImage).map(it => it.id);
+      if (idsWithImages.length){
+        const images = await imageStore.getMany(idsWithImages);
+        stockItems.forEach(it => {
+          if (images[it.id]) it.imageData = images[it.id];
+        });
+      }
+    }
+  }catch(e){
+    // key not found is normal on first run
+  }
+}
+
+async function saveDemandCatalog(){
+  try{
+    const persistable = demandItems.map(it => ({
+      id: it.id, type: it.type, filename: it.filename, caption: it.caption, text: it.text,
+      status: it.status, fingerprint: it.fingerprint || null, error: it.error || null,
+      hasImage: !!it.imageData, imageMimeType: it.imageMimeType || null
+    }));
+    await localStore.set('demand-catalog', JSON.stringify(persistable));
+  }catch(e){ console.error('save demand failed', e); }
+}
+
+async function saveDemandImage(id, base64){
+  if (!base64) return;
+  await imageStore.set('demand:' + id, base64);
+}
+
+async function loadDemandCatalog(){
+  try{
+    const res = await localStore.get('demand-catalog');
+    if (res && res.value){
+      const parsed = JSON.parse(res.value);
+      demandItems = parsed.map(it => ({...it, imageData: null}));
+      const idsWithImages = demandItems.filter(it => it.hasImage).map(it => 'demand:' + it.id);
+      if (idsWithImages.length){
+        const images = await imageStore.getMany(idsWithImages);
+        demandItems.forEach(it => {
+          if (images['demand:' + it.id]) it.imageData = images['demand:' + it.id];
+        });
+      }
+    }
+  }catch(e){
+    // key not found is normal on first run
+  }
+}
+
+/* ===================== rendering: view switching ===================== */
+
+function setView(view){
+  currentView = view;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
+}
+
+/* ===================== rendering: stock ===================== */
+
+function renderStock(){
+  const grid = document.getElementById('stockGrid');
+  const empty = document.getElementById('stockEmpty');
+  document.getElementById('stockCount').textContent = stockItems.length;
+
+  empty.style.display = stockItems.length ? 'none' : '';
+  grid.innerHTML = stockItems.map(renderStockCard).join('');
+
+  const pending = stockItems.filter(it => it.status === 'pending' || it.status === 'error').length;
+  const analyzeBtn = document.getElementById('analyzeStockBtn');
+  analyzeBtn.disabled = pending === 0;
+  analyzeBtn.textContent = pending ? `Analyze pending (${pending})` : 'Analyze pending';
+
+  updateRunMatchAvailability();
+  attachStockCardHandlers();
+}
+
+function renderStockCard(it){
+  const fp = it.fingerprint;
+  const priceVal = it.priceOverride !== undefined && it.priceOverride !== null ? it.priceOverride : (fp ? fp.price : null);
+
+  const fpHtml = fp ? `
+    ${(genderBadge(fp) || refBadge(fp)) ? `<div class="card-badges">${genderBadge(fp)}${refBadge(fp)}</div>` : ''}
+    <div class="fingerprint">
+      <span class="fp-label">brand</span><span class="fp-val">${escapeHtml(fp.brand || '\u2014')}</span>
+      <span class="fp-label">model</span><span class="fp-val">${escapeHtml(fp.model_line || '\u2014')}</span>
+      <span class="fp-label">dial</span><span class="fp-val">${escapeHtml(fp.dial_color || '\u2014')}</span>
+      <span class="fp-label">case</span><span class="fp-val">${escapeHtml(fp.case_material || '\u2014')}${fp.case_size ? ', ' + escapeHtml(fp.case_size) : ''}</span>
+      <span class="fp-label">strap</span><span class="fp-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}</span>
+    </div>
+    ${fp.message_text ? `<div class="msg-text"><span class="fp-label">message</span><p>${escapeHtml(fp.message_text)}</p></div>` : ''}
+    <div class="price-row">
+      <span class="fp-label">price</span>
+      <input class="price-input" type="text" placeholder="not detected" value="${escapeHtml(priceVal || '')}" data-id="${it.id}" data-field="price">
+    </div>` : '';
+
+  return `
+  <div class="card" data-id="${it.id}" data-kind="stock">
+    <div class="card-img-wrap ${it.imageData ? '' : 'no-image'}" data-action="${it.imageData ? 'lightbox' : 'readd'}" data-id="${it.id}">
+      ${it.imageData ? `<img src="data:${imageMimeTypeOf(it)};base64,${it.imageData}" alt="${escapeHtml(it.filename)}">` : `image not loaded this session<br>click to re-attach`}
+    </div>
+    <div class="card-body">
+      <input class="card-caption-input" type="text" placeholder="Caption / filename note"
+        value="${escapeHtml(it.caption || '')}" data-id="${it.id}" data-field="caption">
+      <div class="card-status">
+        <span class="status-badge ${it.status}">${it.status}</span>
+        <button class="card-remove" data-action="remove" data-id="${it.id}" aria-label="Remove">&times;</button>
+      </div>
+      ${it.status === 'error' ? `<p style="font-size:11px;color:var(--red);margin-top:6px;">${escapeHtml(it.error || 'analysis failed')}</p>` : ''}
+      ${fpHtml}
+      ${it.status === 'done' ? `<button class="btn small sold-btn" data-action="sold" data-id="${it.id}" style="margin-top:10px;width:100%;">Sold out</button>` : ''}
+    </div>
+  </div>`;
+}
+
+function attachStockCardHandlers(){
+  const grid = document.getElementById('stockGrid');
+  grid.querySelectorAll('[data-field="caption"]').forEach(input => {
+    input.oninput = (e) => {
+      const item = stockItems.find(s => s.id === e.target.dataset.id);
+      if (item) item.caption = e.target.value;
+    };
+    input.onblur = saveStockCatalog;
+  });
+  grid.querySelectorAll('[data-field="price"]').forEach(input => {
+    input.oninput = (e) => {
+      const item = stockItems.find(s => s.id === e.target.dataset.id);
+      if (item) item.priceOverride = e.target.value;
+    };
+    input.onblur = () => { saveStockCatalog(); renderDashboard(); };
+  });
+  grid.querySelectorAll('[data-action="remove"]').forEach(btn => {
+    btn.onclick = (e) => {
+      const removedId = e.target.dataset.id;
+      stockItems = stockItems.filter(s => s.id !== removedId);
+      imageStore.delete(removedId);
+      saveStockCatalog();
+      renderStock();
+      renderDashboard();
+    };
+  });
+  grid.querySelectorAll('[data-action="sold"]').forEach(btn => {
+    btn.onclick = (e) => markSold(e.target.dataset.id);
+  });
+  grid.querySelectorAll('[data-action="lightbox"]').forEach(el => {
+    el.onclick = (e) => {
+      const item = stockItems.find(s => s.id === el.dataset.id);
+      if (item && item.imageData) openLightbox(item.imageData, imageMimeTypeOf(item));
+    };
+  });
+  grid.querySelectorAll('[data-action="readd"]').forEach(el => {
+    el.onclick = () => triggerReattach(el.dataset.id, 'stock');
+  });
+}
+
+function markSold(id){
+  const item = stockItems.find(s => s.id === id);
+  if (!item) return;
+  if (!confirm(`Mark "${itemLabel(item)}" as sold out? It will be removed from stock.`)) return;
+  stockItems = stockItems.filter(s => s.id !== id);
+  imageStore.delete(id);
+  // Drop this item from any existing match results immediately so sold
+  // stock never lingers as a "match" in memory.
+  matchResults = matchResults.map(r => ({
+    ...r,
+    matches: r.matches.filter(m => m.stockId !== id)
+  }));
+  saveStockCatalog();
+  renderStock();
+  renderDashboard();
+  renderResults();
+  showToast('Marked sold out and removed from stock');
+}
+
+function triggerReattach(id, kind){
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = async () => {
+    if (!input.files[0]) return;
+    const file = input.files[0];
+    const base64 = await fileToBase64(file);
+    const list = kind === 'stock' ? stockItems : demandItems;
+    const item = list.find(s => s.id === id);
+    if (item){
+      item.imageData = base64;
+      item.imageMimeType = file.type;
+      item.hasImage = true;
+      if (kind === 'stock'){
+        saveStockImage(id, base64);
+        saveStockCatalog();
+      } else {
+        saveDemandImage(id, base64);
+        saveDemandCatalog();
+      }
+    }
+    kind === 'stock' ? renderStock() : renderDemand();
+  };
+  input.click();
+}
+
+function openLightbox(base64, mimeType){
+  document.getElementById('lightboxImg').src = 'data:' + (mimeType || 'image/jpeg') + ';base64,' + base64;
+  document.getElementById('lightboxOverlay').classList.add('open');
+}
+
+/* ===================== rendering: demand ===================== */
+
+function renderDemand(){
+  const grid = document.getElementById('demandGrid');
+  const empty = document.getElementById('demandEmpty');
+  document.getElementById('demandCount').textContent = demandItems.length;
+
+  empty.style.display = demandItems.length ? 'none' : '';
+  grid.innerHTML = demandItems.map(renderDemandCard).join('');
+
+  const pending = demandItems.filter(it => it.status === 'pending' || it.status === 'error').length;
+  const analyzeBtn = document.getElementById('analyzeDemandBtn');
+  analyzeBtn.disabled = pending === 0;
+  analyzeBtn.textContent = pending ? `Analyze pending (${pending})` : 'Analyze pending';
+
+  updateRunMatchAvailability();
+  attachDemandCardHandlers();
+}
+
+function renderDemandCard(it){
+  const fp = it.fingerprint;
+  const fpHtml = fp ? `
+    ${(genderBadge(fp) || refBadge(fp)) ? `<div class="card-badges">${genderBadge(fp)}${refBadge(fp)}</div>` : ''}
+    <div class="fingerprint">
+      <span class="fp-label">brand</span><span class="fp-val">${escapeHtml(fp.brand || '\u2014')}</span>
+      <span class="fp-label">model</span><span class="fp-val">${escapeHtml(fp.model_line || '\u2014')}</span>
+      <span class="fp-label">dial</span><span class="fp-val">${escapeHtml(fp.dial_color || '\u2014')}</span>
+      <span class="fp-label">case</span><span class="fp-val">${escapeHtml(fp.case_material || '\u2014')}${fp.case_size ? ', ' + escapeHtml(fp.case_size) : ''}</span>
+      <span class="fp-label">strap</span><span class="fp-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}</span>
+    </div>` : '';
+
+  const mediaHtml = it.type === 'image'
+    ? `<div class="card-img-wrap ${it.imageData ? '' : 'no-image'}" data-action="${it.imageData ? 'lightbox' : 'readd'}" data-id="${it.id}">
+        ${it.imageData ? `<img src="data:${imageMimeTypeOf(it)};base64,${it.imageData}" alt="">` : `image not loaded this session<br>click to re-attach`}
+      </div>`
+    : '';
+
+  const textHtml = it.type === 'text'
+    ? `<div class="card-body" style="padding-top:14px;">
+        <textarea class="card-caption-input" rows="3" style="resize:vertical;" placeholder="Customer request text"
+          data-id="${it.id}" data-field="text">${escapeHtml(it.text || '')}</textarea>
+      </div>`
+    : `<div class="card-body">
+        <input class="card-caption-input" type="text" placeholder="Caption / note (optional)"
+          value="${escapeHtml(it.caption || '')}" data-id="${it.id}" data-field="caption">
+      </div>`;
+
+  return `
+  <div class="card" data-id="${it.id}" data-kind="demand">
+    ${mediaHtml}
+    ${textHtml}
+    <div class="card-body" style="padding-top:0;">
+      <div class="card-status">
+        <span class="status-badge ${it.status}">${it.status}</span>
+        <button class="card-remove" data-action="remove" data-id="${it.id}" aria-label="Remove">&times;</button>
+      </div>
+      ${it.status === 'error' ? `<p style="font-size:11px;color:var(--red);margin-top:6px;">${escapeHtml(it.error || 'analysis failed')}</p>` : ''}
+      ${fpHtml}
+    </div>
+  </div>`;
+}
+
+function attachDemandCardHandlers(){
+  const grid = document.getElementById('demandGrid');
+  grid.querySelectorAll('[data-field="caption"], [data-field="text"]').forEach(input => {
+    input.oninput = (e) => {
+      const item = demandItems.find(s => s.id === e.target.dataset.id);
+      if (!item) return;
+      if (e.target.dataset.field === 'text') item.text = e.target.value;
+      else item.caption = e.target.value;
+    };
+    input.onblur = saveDemandCatalog;
+  });
+  grid.querySelectorAll('[data-action="remove"]').forEach(btn => {
+    btn.onclick = (e) => {
+      const removedId = e.target.dataset.id;
+      demandItems = demandItems.filter(s => s.id !== removedId);
+      imageStore.delete('demand:' + removedId);
+      matchResults = matchResults.filter(r => r.demandId !== removedId);
+      saveDemandCatalog();
+      renderDemand();
+      renderResults();
+      renderDashboard();
+    };
+  });
+  grid.querySelectorAll('[data-action="lightbox"]').forEach(el => {
+    el.onclick = () => {
+      const item = demandItems.find(s => s.id === el.dataset.id);
+      if (item && item.imageData) openLightbox(item.imageData, imageMimeTypeOf(item));
+    };
+  });
+  grid.querySelectorAll('[data-action="readd"]').forEach(el => {
+    el.onclick = () => triggerReattach(el.dataset.id, 'demand');
+  });
+}
+
+/* ===================== vision extraction ===================== */
+
+const FINGERPRINT_SCHEMA_PROMPT = `You are inspecting a watch listing screenshot for a dealer's inventory system. The screenshot is typically a chat message (e.g. WhatsApp) containing a watch photo AND message text baked into the same image \u2014 the text may include price, description, condition, or seller notes layered over or alongside the photo. Read both the watch itself and any visible text in the image.
+
+Extract a structured fingerprint as STRICT JSON ONLY (no markdown fences, no preamble, no commentary). Use null for any field you cannot determine. Fields:
+{
+  "brand": string or null,
+  "model_line": string or null,
+  "reference_number": string or null,
+  "reference_number_source": "visible" or null,
+  "gender": "mens" or "ladies" or "unisex" or null,
+  "gender_basis": string or null,
+  "dial_color": string or null,
+  "bezel": string or null,
+  "case_material": string or null,
+  "case_size": string or null,
+  "bracelet_or_strap": string or null,
+  "distinguishing_markings": string or null,
+  "message_text": string or null,
+  "price": string or null,
+  "confidence_notes": string or null
+}
+
+REFERENCE NUMBER RULE: only set "reference_number" if it is legibly visible \u2014 engraved, printed, or stated in message text. Set "reference_number_source" to "visible" in that case. If it is NOT legible anywhere, set both "reference_number" and "reference_number_source" to null \u2014 do not guess here. A separate lookup step will handle that using the other fields you extract below, so describe the watch as precisely as possible even when the reference itself isn't visible.
+
+GENDER RULES (important, this affects matching \u2014 never blur this):
+- Set "gender" based on case size, dial design, and known model conventions (e.g. Datejust 36mm+ is typically mens, Lady-Datejust / smaller diamond-marker dials are typically ladies). Some models are unisex by design (e.g. many modern 36-41mm steel sport watches) \u2014 use "unisex" only when that's a genuine, well-known convention, not as a default when unsure.
+- Set "gender_basis" to a short phrase explaining the signal used (e.g. "case size ~36mm + model name", "small dial with diamond hour markers", "known unisex sport model").
+- Do not guess gender from styling alone if it conflicts with known model conventions for that exact reference \u2014 model convention takes priority over surface styling.
+
+For "message_text": transcribe any visible chat/message text in the screenshot verbatim (price, description, condition notes, seller comments). If there is no visible text, use null.
+For "price": extract just the price/amount if stated anywhere in the visible text (keep currency symbol or code as shown, e.g. "PKR 450,000" or "$3,200"). If no price is stated, use null.
+Only state what is visually evident or stated in the caption. If the caption conflicts with the image or message text, prefer the image/message text but note the conflict in confidence_notes. Respond with the JSON object only.`;
+
+const REFERENCE_LOOKUP_PROMPT = `You are helping identify the exact reference number of a watch for a dealer's inventory system. You have a googleSearch tool available \u2014 use it to look up the specific reference number using the brand, model, dial, bezel, case, and bracelet details you're given (and the photo directly, if one is provided). Search real sources: the brand's official site, established dealers/marketplaces (Chrono24, WatchCharts, Bob's Watches, Crown & Caliber), or watch reference databases. Find the specific reference number whose photos/specs match what's described or shown.
+
+Respond with STRICT JSON ONLY (no markdown fences, no commentary), in this exact shape:
+{
+  "reference_number": string or null,
+  "reference_number_source": "looked_up" or "inferred" or null,
+  "confidence_notes": string or null
+}
+
+Rules:
+- If your search confidently identifies a specific matching reference number, set "reference_number" to that value, "reference_number_source" to "looked_up", and briefly note in "confidence_notes" what confirmed it (e.g. which site/listing).
+- If search comes up empty, irrelevant, or too ambiguous to confidently pick one reference number, fall back to your own trained knowledge of this brand/model's design to give your best-guess reference number instead. Set "reference_number_source" to "inferred" in that case, and note in "confidence_notes" that search didn't resolve it and what visual cues your guess is based on.
+- If you genuinely cannot narrow it down even approximately, set "reference_number" to null and "reference_number_source" to null.
+Respond with the JSON object only \u2014 no extra commentary around it, even after using search.`;
+
+function extractRetryDelaySeconds(response, errJson){
+  // Anthropic returns a Retry-After header on 429s. Fall back to a safe
+  // default if it's missing or unparsable.
+  try{
+    const headerVal = response && response.headers && response.headers.get && response.headers.get('retry-after');
+    if (headerVal){
+      const n = parseFloat(headerVal);
+      if (!isNaN(n)) return Math.ceil(n);
+    }
+    const msg = errJson?.error?.message || '';
+    const match = msg.match(/([\d.]+)\s*s(econds)?/i);
+    if (match) return Math.ceil(parseFloat(match[1]));
+  }catch(e){}
+  return 15;
+}
+
+async function callGeminiWithSearch({ base64Image, mimeType, promptText }){
+  const apiKey = getGeminiApiKey();
+  if (!apiKey){
+    throw new Error('No Gemini API key set \u2014 add one in settings to enable reference lookups');
+  }
+
+  const parts = [];
+  if (base64Image) parts.push({ inline_data: { mime_type: mimeType || 'image/jpeg', data: base64Image } });
+  parts.push({ text: promptText });
+
+  const response = await fetch(`${GEMINI_URL}?key=${encodeURIComponent(apiKey)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts }],
+      tools: [{ googleSearch: {} }],
+      generationConfig: { temperature: 0.2, maxOutputTokens: 1000 }
+    })
+  });
+
+  if (!response.ok){
+    let errJson = null;
+    try{ errJson = await response.json(); }catch(e){}
+    const detail = errJson?.error?.message || '';
+    throw new Error('Gemini API error ' + response.status + (detail ? ': ' + detail : ''));
+  }
+  const data = await response.json();
+  const candidate = data.candidates && data.candidates[0];
+  const textParts = (candidate && candidate.content && candidate.content.parts || []).filter(p => p.text).map(p => p.text);
+  if (!textParts.length) throw new Error('No text response from Gemini');
+  return textParts.join('\n');
+}
+
+async function lookupReferenceNumber(fp, base64Image, mimeType){
+  // Looks up a reference number via a single Gemini call with Google Search
+  // grounding enabled. When a photo is available, Gemini sees it directly
+  // (richer signal than a templated text query). Designed to degrade
+  // gracefully: any failure here (missing key, network error, rate limit)
+  // just means the caller falls back to a pure-inference guess instead of
+  // breaking the whole item's analysis.
+  const detailsText = `Watch details extracted so far:\n${JSON.stringify(fp, null, 2)}`;
+  const promptText = base64Image
+    ? `${detailsText}\n\nThe photo is attached. Identify the exact reference number using the photo plus a Google search, per your instructions.`
+    : `${detailsText}\n\nNo photo is available, only the description above. Identify the exact reference number using a Google search based on these details, per your instructions.`;
+
+  try{
+    const responseText = await callGeminiWithSearch({
+      base64Image,
+      mimeType,
+      promptText: REFERENCE_LOOKUP_PROMPT + '\n\n' + promptText
+    });
+    return parseJsonLoose(responseText);
+  }catch(e){
+    console.warn('Reference lookup call failed, falling back to no lookup:', e.message);
+    return { reference_number: null, reference_number_source: null, confidence_notes: 'Lookup step failed: ' + e.message };
+  }
+}
+
+async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWait, enableWebSearch }, attempt = 1){
+  const key = getApiKey();
+  if (!key){
+    throw new Error('No Anthropic API key set \u2014 click the settings (gear) icon to add one');
+  }
+
+  // userParts use a { text } / { inline_data } shape kept consistent across
+  // call sites; convert to Anthropic's native content block format.
+  const content = userParts.map(p => {
+    if (p.text !== undefined) return { type: 'text', text: p.text };
+    if (p.inline_data) return { type: 'image', source: { type: 'base64', media_type: p.inline_data.mime_type, data: p.inline_data.data } };
+    return null;
+  }).filter(Boolean);
+
+  const body = {
+    model: ANTHROPIC_MODEL,
+    max_tokens: maxOutputTokens || 1000,
+    system: systemText,
+    messages: [{ role: 'user', content }]
+  };
+  if (enableWebSearch){
+    // Lets Claude look up the exact reference number from real watch
+    // reference/retailer sites when it isn't legible in the photo or text,
+    // instead of relying purely on trained pattern recognition. Capped to
+    // keep latency and cost bounded per item.
+    body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }];
+  }
+
+  const response = await fetch(ANTHROPIC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok){
+    let errJson = null;
+    try{ errJson = await response.json(); }catch(e){}
+    const detail = errJson?.error?.message || '';
+
+    if (response.status === 429 && attempt <= 4){
+      const waitSeconds = extractRetryDelaySeconds(response, errJson);
+      if (onRetryWait) onRetryWait(waitSeconds, attempt);
+      await new Promise(r => setTimeout(r, waitSeconds * 1000));
+      return callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWait, enableWebSearch }, attempt + 1);
+    }
+
+    if (enableWebSearch && /web.?search/i.test(detail)){
+      throw new Error('Web search tool isn\u2019t enabled for this API key \u2014 enable it in the Anthropic Console under your organization\u2019s tool settings, or this feature won\u2019t work. (' + detail + ')');
+    }
+
+    throw new Error('Anthropic API error ' + response.status + (detail ? ': ' + detail : ''));
+  }
+  const data = await response.json();
+  // With web search enabled, the response can include several block types
+  // (server_tool_use, web_search_tool_result, text) interleaved. Concatenate
+  // every text block in order rather than assuming the first one is the
+  // whole answer.
+  const textParts = (data.content || []).filter(b => b.type === 'text' && b.text).map(b => b.text);
+  if (!textParts.length) throw new Error('No text response from Anthropic');
+  return textParts.join('\n');
+}
+
+async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeType){
+  const userText = caption
+    ? `Caption / filename provided by the dealer: "${caption}". Use this as supporting signal alongside the image.`
+    : 'No caption was provided. Rely on the image alone.';
+  const effectiveMimeType = (mimeType && mimeType.startsWith('image/')) ? mimeType : 'image/jpeg';
+
+  const text = await callAnthropic({
+    systemText: FINGERPRINT_SCHEMA_PROMPT,
+    userParts: [
+      { inline_data: { mime_type: effectiveMimeType, data: base64 } },
+      { text: userText }
+    ],
+    maxOutputTokens: 1200,
+    onRetryWait
+  });
+  const fp = parseJsonLoose(text);
+
+  if (!fp.reference_number){
+    const lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType);
+    fp.reference_number = lookup.reference_number || null;
+    fp.reference_number_source = lookup.reference_number_source || null;
+    if (lookup.confidence_notes){
+      fp.confidence_notes = fp.confidence_notes ? fp.confidence_notes + ' | ' + lookup.confidence_notes : lookup.confidence_notes;
+    }
+  }
+  return fp;
+}
+
+async function extractFingerprintFromText(text, onRetryWait){
+  const textSystemPrompt = FINGERPRINT_SCHEMA_PROMPT
+    .replace('You are inspecting a watch listing screenshot for a dealer\'s inventory system. The screenshot is typically a chat message (e.g. WhatsApp) containing a watch photo AND message text baked into the same image \u2014 the text may include price, description, condition, or seller notes layered over or alongside the photo. Read both the watch itself and any visible text in the image.',
+      'You are parsing a free-text customer demand request describing a watch they want. There is no image \u2014 work only from the text.')
+    .replace('For "message_text": transcribe any visible chat/message text in the screenshot verbatim (price, description, condition notes, seller comments). If there is no visible text, use null.',
+      'For "message_text": set this to the original request text verbatim.');
+
+  const responseText = await callAnthropic({
+    systemText: textSystemPrompt,
+    userParts: [{ text: `Customer request text: "${text}"` }],
+    maxOutputTokens: 1200,
+    onRetryWait
+  });
+  const fp = parseJsonLoose(responseText);
+
+  if (!fp.reference_number){
+    const lookup = await lookupReferenceNumber(fp);
+    fp.reference_number = lookup.reference_number || null;
+    fp.reference_number_source = lookup.reference_number_source || null;
+    if (lookup.confidence_notes){
+      fp.confidence_notes = fp.confidence_notes ? fp.confidence_notes + ' | ' + lookup.confidence_notes : lookup.confidence_notes;
+    }
+  }
+  return fp;
+}
+
+function parseJsonLoose(text){
+  let cleaned = text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '');
+  try{
+    return JSON.parse(cleaned);
+  }catch(e){
+    // Model sometimes adds stray prose before/after the JSON despite
+    // instructions not to, or the fence isn't at the exact string boundary.
+    // Fall back to extracting the outermost {...} block by bracket matching.
+    const start = cleaned.indexOf('{');
+    if (start === -1) throw e;
+    let depth = 0;
+    for (let i = start; i < cleaned.length; i++){
+      if (cleaned[i] === '{') depth++;
+      else if (cleaned[i] === '}'){
+        depth--;
+        if (depth === 0){
+          const candidate = cleaned.slice(start, i + 1);
+          try{ return JSON.parse(candidate); }catch(e2){ throw e; }
+        }
+      }
+    }
+    throw e;
+  }
+}
+
+/* ===================== batch analysis with progress ===================== */
+
+async function analyzeBatch(items, kind, renderFn){
+  const toProcess = items.filter(it => it.status === 'pending' || it.status === 'error');
+  if (!toProcess.length) return;
+
+  const btn = document.getElementById(kind === 'stock' ? 'analyzeStockBtn' : 'analyzeDemandBtn');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+
+  let done = 0;
+  const total = toProcess.length;
+  // Paid Anthropic API tiers have generous rate limits, so we can run several
+  // requests concurrently. callAnthropic's built-in retry still handles any
+  // occasional 429s gracefully.
+  const CONCURRENCY = 4;
+  let idx = 0;
+  let rateLimitNotice = '';
+
+  function updateProgress(){
+    const pct = Math.round(done / total * 100);
+    btn.innerHTML = `<span class="progress-wrap">${rateLimitNotice || 'Analyzing'} <span class="progress-track"><span class="progress-fill" style="width:${pct}%"></span></span> ${done}/${total}</span>`;
+  }
+  updateProgress();
+
+  async function worker(){
+    while (idx < toProcess.length){
+      const item = toProcess[idx++];
+      item.status = 'analyzing';
+      renderFn();
+      try{
+        let fp;
+        const onRetryWait = (waitSeconds) => {
+          rateLimitNotice = `Rate limited, waiting ${waitSeconds}s\u2026`;
+          updateProgress();
+        };
+        if (item.type === 'image'){
+          if (!item.imageData) throw new Error('image not attached this session');
+          fp = await extractFingerprintFromImage(item.imageData, item.caption, onRetryWait, imageMimeTypeOf(item));
+        } else {
+          fp = await extractFingerprintFromText(item.text || '', onRetryWait);
+        }
+        item.fingerprint = fp;
+        item.status = 'done';
+        item.error = null;
+      }catch(e){
+        item.status = 'error';
+        item.error = e.message || 'analysis failed';
+      }
+      rateLimitNotice = '';
+      done++;
+      updateProgress();
+      renderFn();
+      if (kind === 'stock') renderDashboard();
+    }
+  }
+
+  const workers = Array.from({length: Math.min(CONCURRENCY, toProcess.length)}, worker);
+  await Promise.all(workers);
+
+  btn.disabled = false;
+  btn.textContent = originalText;
+  if (kind === 'stock') { saveStockCatalog(); renderDashboard(); }
+  else { saveDemandCatalog(); }
+  renderFn();
+
+  const failed = toProcess.filter(it => it.status === 'error').length;
+  if (failed) showToast(`${failed} item${failed > 1 ? 's' : ''} failed to analyze`, true);
+  else showToast(`Analyzed ${total} item${total > 1 ? 's' : ''}`);
+
+  if (kind === 'stock' && !failed && !window._backupNudgeShown){
+    window._backupNudgeShown = true;
+    setTimeout(() => showToast('Tip: use "Backup catalog" on the Dashboard tab to save this analysis to a file'), 3500);
+  }
+
+  // Memory behavior: as soon as new demand is analyzed, automatically check
+  // it against current stock rather than requiring a separate manual click.
+  // Likewise, new stock should be checked against any demand already on file.
+  if (kind === 'demand' && stockItems.some(it => it.status === 'done')){
+    runMatching({ silent: true });
+  } else if (kind === 'stock' && demandItems.some(it => it.status === 'done')){
+    runMatching({ silent: true });
+  }
+}
+
+/* ===================== matching ===================== */
+
+function updateRunMatchAvailability(){
+  const stockReady = stockItems.some(it => it.status === 'done');
+  const demandReady = demandItems.some(it => it.status === 'done');
+  document.getElementById('runMatchBtn').disabled = !(stockReady && demandReady);
+}
+
+/* Matching is now deterministic, not another AI call. Claude's job is to
+   read or infer each watch's reference number during extraction (already
+   done above); the actual "is this the same reference" decision is plain
+   string comparison here. This is the only signal used \u2014 dial, case,
+   strap, bezel, and gender are no longer matching criteria. This also
+   means matching can never fail with a JSON parsing error, since there's
+   no second AI response to parse. */
+
+function normalizeRefNumber(ref){
+  if (!ref) return '';
+  return String(ref).toUpperCase().replace(/[\s\-_.]/g, '');
+}
+
+function refSourceRank(source){
+  if (source === 'visible') return 2;
+  if (source === 'looked_up') return 1;
+  return 0; // 'inferred' or null/unknown
+}
+
+function refSourceLabel(source){
+  if (source === 'visible') return 'read directly';
+  if (source === 'looked_up') return 'found via Google search';
+  return 'guessed from visual style alone';
+}
+
+function runMatching(opts){
+  const silent = opts && opts.silent;
+  const stockReady = stockItems.filter(it => it.status === 'done' && it.fingerprint && it.fingerprint.reference_number);
+  const demandReady = demandItems.filter(it => it.status === 'done' && it.fingerprint && it.fingerprint.reference_number);
+
+  const stockMissingRef = stockItems.filter(it => it.status === 'done' && it.fingerprint && !it.fingerprint.reference_number).length;
+  const demandMissingRef = demandItems.filter(it => it.status === 'done' && it.fingerprint && !it.fingerprint.reference_number).length;
+
+  if (!stockReady.length || !demandReady.length){
+    if (!silent) showToast('Need at least one analyzed stock item and one analyzed demand item, each with a reference number', true);
+    matchResults = [];
+    renderResults();
+    renderDashboard();
+    return;
+  }
+
+  matchResults = demandReady.map(d => {
+    const demandRefNorm = normalizeRefNumber(d.fingerprint.reference_number);
+    const demandRank = refSourceRank(d.fingerprint.reference_number_source);
+    const demandLabel = refSourceLabel(d.fingerprint.reference_number_source);
+
+    const matches = stockReady
+      .filter(s => normalizeRefNumber(s.fingerprint.reference_number) === demandRefNorm)
+      .map(s => {
+        const stockRank = refSourceRank(s.fingerprint.reference_number_source);
+        const stockLabel = refSourceLabel(s.fingerprint.reference_number_source);
+        const combinedRank = Math.min(demandRank, stockRank);
+
+        let confidence, referenceMatchType;
+        if (combinedRank === 2){ confidence = 97; referenceMatchType = 'visible_exact'; }
+        else if (combinedRank === 1){ confidence = 82; referenceMatchType = 'looked_up'; }
+        else { confidence = 60; referenceMatchType = 'inferred'; }
+
+        let reasoning;
+        if (combinedRank === 2){
+          reasoning = `Reference ${s.fingerprint.reference_number} read directly from both the stock photo and the demand request \u2014 exact match.`;
+        } else {
+          reasoning = `Reference ${s.fingerprint.reference_number} matches \u2014 stock side ${stockLabel}, demand side ${demandLabel}. ${combinedRank === 1 ? 'At least one side is Google-search-verified rather than read directly; treat as reliable but worth a quick visual confirmation.' : 'At least one side is an unverified guess rather than read or looked up; treat as a lead only \u2014 confirm the exact reference before relying on this.'}`;
+        }
+        return { stockId: s.id, stockItem: s, confidence, referenceMatchType, reasoning };
+      })
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, 3);
+
+    return { demandId: d.id, demandItem: d, matches };
+  });
+
+  renderResults();
+  renderDashboard();
+
+  if (!silent){
+    setView('results');
+    const totalMatched = matchResults.filter(r => r.matches.length).length;
+    let msg = `Matching complete \u2014 ${totalMatched} of ${demandReady.length} demand item${demandReady.length === 1 ? '' : 's'} matched on reference number`;
+    if (demandMissingRef || stockMissingRef){
+      msg += ` (${demandMissingRef} demand / ${stockMissingRef} stock item${(demandMissingRef + stockMissingRef) === 1 ? '' : 's'} skipped \u2014 no reference number found)`;
+    }
+    showToast(msg);
+  }
+  updateRunMatchAvailability();
+}
+
+/* ===================== rendering: dashboard ===================== */
+
+function genderBadge(fp){
+  if (!fp || !fp.gender) return '';
+  const label = fp.gender === 'mens' ? 'Mens' : fp.gender === 'ladies' ? 'Ladies' : 'Unisex';
+  const cls = fp.gender === 'mens' ? 'mens' : fp.gender === 'ladies' ? 'ladies' : 'unisex';
+  return `<span class="gender-badge ${cls}" title="${escapeHtml(fp.gender_basis || '')}">${label}</span>`;
+}
+
+function refBadge(fp){
+  if (!fp || !fp.reference_number) return '';
+  const source = fp.reference_number_source;
+  const cls = source === 'visible' ? 'visible' : source === 'looked_up' ? 'looked-up' : 'inferred';
+  const label = source === 'visible' ? '' : source === 'looked_up' ? ' (Google-verified)' : ' (inferred)';
+  const title = source === 'visible' ? 'Read directly from the photo or message text'
+    : source === 'looked_up' ? 'Not directly legible \u2014 found via Google search against real listings/specs'
+    : 'Not directly legible \u2014 best guess from visual style alone, not verified';
+  return `<span class="ref-badge ${cls}" title="${title}">${escapeHtml(fp.reference_number)}${label}</span>`;
+}
+
+function renderDashboardMatches(){
+  const wrap = document.getElementById('dashboardMatches');
+  const label = document.getElementById('matchesSectionLabel');
+  const stockLabel = document.getElementById('stockSectionLabel');
+
+  const withMatches = matchResults.filter(r => r.matches && r.matches.length && r.matches[0].stockItem);
+  if (!withMatches.length){
+    wrap.innerHTML = '';
+    label.style.display = 'none';
+    stockLabel.style.display = stockItems.length ? '' : 'none';
+    return;
+  }
+
+  label.style.display = '';
+  stockLabel.style.display = stockItems.length ? '' : 'none';
+
+  wrap.innerHTML = withMatches.map(r => {
+    const demandItem = r.demandItem;
+    const top = r.matches[0];
+    const stockItem = top.stockItem;
+    const pct = Math.round(top.confidence || 0);
+    const tier = confidenceTier(pct);
+    const matchTypeBadge = top.referenceMatchType === 'looked_up'
+      ? '<span class="ref-badge looked-up">Google-verified match</span>'
+      : top.referenceMatchType === 'inferred'
+        ? '<span class="ref-badge inferred">unverified match \u2014 confirm</span>'
+        : '';
+
+    return `
+    <div class="match-pair-card">
+      <div class="match-pair-photos">
+        <button class="match-photo-btn" data-action="goto-demand" data-id="${demandItem.id}" title="Open this demand request">
+          ${thumbHtml(demandItem, 64)}
+          <span class="match-photo-label">Demand</span>
+        </button>
+        <span class="match-pair-arrow">&harr;</span>
+        <button class="match-photo-btn" data-action="goto-stock" data-id="${stockItem.id}" title="Open this stock item">
+          ${thumbHtml(stockItem, 64)}
+          <span class="match-photo-label">Stock</span>
+        </button>
+      </div>
+      <div class="match-pair-info">
+        <div class="match-pair-title">${escapeHtml(itemLabel(demandItem))} <span class="match-pair-sep">matched</span> ${escapeHtml(itemLabel(stockItem))}</div>
+        <div class="match-pair-badges">
+          ${genderBadge(stockItem.fingerprint)}
+          ${refBadge(stockItem.fingerprint)}
+          ${matchTypeBadge}
+        </div>
+        <div class="match-pair-reasoning">${escapeHtml(top.reasoning || '')}</div>
+      </div>
+      <div class="confidence">
+        <span class="confidence-label">confidence</span>
+        <div class="confidence-meter"><div class="confidence-fill ${tier}" style="width:${pct}%"></div></div>
+        <span class="confidence-pct">${pct}%</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  wrap.querySelectorAll('[data-action="goto-demand"]').forEach(btn => {
+    btn.onclick = () => { setView('demand'); setTimeout(() => scrollToCard('demand', btn.dataset.id), 50); };
+  });
+  wrap.querySelectorAll('[data-action="goto-stock"]').forEach(btn => {
+    btn.onclick = () => { setView('stock'); setTimeout(() => scrollToCard('stock', btn.dataset.id), 50); };
+  });
+}
+
+function scrollToCard(kind, id){
+  const grid = document.getElementById(kind === 'stock' ? 'stockGrid' : 'demandGrid');
+  const card = grid && grid.querySelector(`[data-id="${id}"]`);
+  if (card){
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('highlight-flash');
+    setTimeout(() => card.classList.remove('highlight-flash'), 1600);
+  }
+}
+
+function renderDashboard(){
+  renderDashboardMatches();
+
+  const tbody = document.getElementById('dashboardBody');
+  const empty = document.getElementById('dashboardEmpty');
+  const table = document.getElementById('dashboardTable');
+  document.getElementById('dashboardCount').textContent = stockItems.length;
+
+  if (!stockItems.length){
+    empty.style.display = '';
+    table.style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none';
+  table.style.display = '';
+
+  tbody.innerHTML = stockItems.map(it => {
+    const fp = it.fingerprint;
+    const priceVal = it.priceOverride !== undefined && it.priceOverride !== null && it.priceOverride !== '' ? it.priceOverride : (fp ? fp.price : null);
+    const thumb = it.imageData
+      ? `<img class="dash-thumb" src="data:${imageMimeTypeOf(it)};base64,${it.imageData}" alt="">`
+      : `<div class="dash-thumb placeholder">no img</div>`;
+    return `
+    <tr data-id="${it.id}">
+      <td>${thumb}</td>
+      <td>
+        <div class="dash-name">${escapeHtml(fp ? fpLine(fp) : (it.caption || it.filename || 'Unidentified'))}</div>
+        ${fp ? refBadge(fp) : ''}
+      </td>
+      <td>${genderBadge(fp) || '\u2014'}</td>
+      <td>${fp ? escapeHtml(fp.dial_color || '\u2014') : '\u2014'}</td>
+      <td>${fp ? escapeHtml(fp.case_material || '\u2014') : '\u2014'}</td>
+      <td><span class="status-badge ${it.status}">${it.status}</span></td>
+      <td>
+        <input class="dash-price-input" type="text" placeholder="\u2014" value="${escapeHtml(priceVal || '')}" data-id="${it.id}" data-field="dashprice">
+      </td>
+      <td class="dash-actions">
+        <button class="btn small" data-action="dashsold" data-id="${it.id}">Sold out</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  tbody.querySelectorAll('[data-field="dashprice"]').forEach(input => {
+    input.oninput = (e) => {
+      const item = stockItems.find(s => s.id === e.target.dataset.id);
+      if (item) item.priceOverride = e.target.value;
+    };
+    input.onblur = () => { saveStockCatalog(); renderStock(); };
+  });
+  tbody.querySelectorAll('[data-action="dashsold"]').forEach(btn => {
+    btn.onclick = (e) => markSold(e.target.dataset.id);
+  });
+}
+
+
+
+function confidenceTier(pct){
+  if (pct >= 70) return 'high';
+  if (pct >= 40) return 'medium';
+  return 'low';
+}
+
+function thumbHtml(item, size){
+  if (item && item.type === 'image' && item.imageData){
+    return `<img class="thumb" style="width:${size}px;height:${size}px;" src="data:${imageMimeTypeOf(item)};base64,${item.imageData}" alt="">`;
+  }
+  const label = item ? (item.fingerprint ? fpLine(item.fingerprint).slice(0,3).toUpperCase() : 'TXT') : '?';
+  return `<div class="thumb placeholder" style="width:${size}px;height:${size}px;">${escapeHtml(label)}</div>`;
+}
+
+function itemLabel(item){
+  if (!item) return 'Unknown';
+  if (item.fingerprint){
+    const line = fpLine(item.fingerprint);
+    return line !== 'unidentified' ? line : (item.caption || item.filename || (item.type === 'text' ? item.text?.slice(0,40) : 'Unidentified'));
+  }
+  return item.caption || item.filename || 'Unidentified';
+}
+
+function renderResults(){
+  const list = document.getElementById('resultsList');
+  const empty = document.getElementById('resultsEmpty');
+  document.getElementById('resultsCount').textContent = matchResults.length;
+
+  empty.style.display = matchResults.length ? 'none' : '';
+  list.innerHTML = matchResults.map(renderResultRow).join('');
+
+  list.querySelectorAll('.result-summary').forEach(el => {
+    el.onclick = () => {
+      el.closest('.result-row').classList.toggle('expanded');
+    };
+  });
+}
+
+function renderResultRow(r){
+  const demandItem = r.demandItem;
+  const top = r.matches[0];
+  const pct = top ? Math.round(top.confidence) : 0;
+  const tier = confidenceTier(pct);
+
+  const altMatches = r.matches.slice(1).map(m => `
+    <div class="alt-match-item">
+      ${thumbHtml(m.stockItem, 30)}
+      <span>${escapeHtml(itemLabel(m.stockItem))} &middot; ${Math.round(m.confidence)}%</span>
+    </div>
+  `).join('');
+
+  return `
+  <div class="result-row" data-demand-id="${r.demandId}">
+    <div class="result-summary">
+      <div class="result-thumbs">
+        ${thumbHtml(demandItem, 46)}
+        ${top ? `<span style="color:var(--text-faint);font-size:13px;">&rarr;</span>${thumbHtml(top.stockItem, 46)}` : ''}
+      </div>
+      <span class="result-arrow">&#9656;</span>
+      <div class="result-text">
+        <div class="demand-name">${escapeHtml(itemLabel(demandItem))}</div>
+        ${top
+          ? `<div class="match-name">matched: ${escapeHtml(itemLabel(top.stockItem))}</div>`
+          : `<div class="no-match">no confident match in current stock</div>`}
+      </div>
+      ${top ? `
+      <div class="confidence">
+        <span class="confidence-label">confidence</span>
+        <div class="confidence-meter"><div class="confidence-fill ${tier}" style="width:${pct}%"></div></div>
+        <span class="confidence-pct">${pct}%</span>
+      </div>` : ''}
+    </div>
+    <div class="result-detail">
+      ${top ? `
+      <div class="compare-grid">
+        <div class="compare-col">
+          <h4>Demand</h4>
+          ${fingerprintMini(demandItem.fingerprint)}
+        </div>
+        <div class="compare-col">
+          <h4>Matched stock</h4>
+          ${fingerprintMini(top.stockItem.fingerprint)}
+        </div>
+      </div>
+      <div class="reasoning-block">
+        <div class="rb-label">Reasoning</div>
+        <p>${escapeHtml(top.reasoning || '')}</p>
+      </div>
+      ${altMatches ? `<div class="alt-matches"><h4>Other possible matches</h4>${altMatches}</div>` : ''}
+      ` : `<p style="font-size:12.5px;color:var(--text-faint);padding-top:14px;">No stock item shared enough identifying detail with this request to surface as a match.</p>`}
+    </div>
+  </div>`;
+}
+
+function fingerprintMini(fp){
+  if (!fp) return '<p style="font-size:12px;color:var(--text-faint);">No fingerprint</p>';
+  const rows = [
+    ['brand', fp.brand], ['model', fp.model_line],
+    ['dial', fp.dial_color], ['case', fp.case_material], ['strap', fp.bracelet_or_strap]
+  ];
+  const badges = (genderBadge(fp) || refBadge(fp)) ? `<div class="card-badges">${genderBadge(fp)}${refBadge(fp)}</div>` : '';
+  return badges + `<div class="fingerprint">${rows.map(([k,v]) => `<span class="fp-label">${k}</span><span class="fp-val">${escapeHtml(v || '\u2014')}</span>`).join('')}</div>`;
+}
+
+/* ===================== event wiring ===================== */
+
+async function handleStockFiles(fileList){
+  const files = Array.from(fileList || []);
+  if (!files.length){
+    showToast('No images were received from the picker \u2014 try selecting again', true);
+    return;
+  }
+  showToast(`Loading ${files.length} image${files.length > 1 ? 's' : ''}\u2026`);
+  let added = 0, failed = 0;
+  for (const file of files){
+    try{
+      if (!file.type || !file.type.startsWith('image/')){
+        failed++;
+        continue;
+      }
+      const base64 = await fileToBase64(file);
+      const newId = uid();
+      stockItems.push({
+        id: newId, type: 'image', filename: file.name || 'untitled', caption: '',
+        imageData: base64, imageMimeType: file.type, hasImage: true, status: 'pending', fingerprint: null, error: null
+      });
+      saveStockImage(newId, base64);
+      added++;
+      // render incrementally so progress is visible on slow mobile reads
+      renderStock();
+    }catch(e){
+      failed++;
+      console.error('failed to read file', file && file.name, e);
+    }
+  }
+  saveStockCatalog();
+  renderDashboard();
+  if (added && !failed) showToast(`Added ${added} image${added > 1 ? 's' : ''} to stock`);
+  else if (added && failed) showToast(`Added ${added}, ${failed} failed to load`, true);
+  else showToast('Could not load any of the selected images', true);
+}
+
+async function handleDemandFiles(fileList){
+  const files = Array.from(fileList || []);
+  if (!files.length){
+    showToast('No images were received from the picker \u2014 try selecting again', true);
+    return;
+  }
+  showToast(`Loading ${files.length} image${files.length > 1 ? 's' : ''}\u2026`);
+  let added = 0, failed = 0;
+  for (const file of files){
+    try{
+      if (!file.type || !file.type.startsWith('image/')){
+        failed++;
+        continue;
+      }
+      const base64 = await fileToBase64(file);
+      const newId = uid();
+      demandItems.push({
+        id: newId, type: 'image', filename: file.name || 'untitled', caption: '',
+        imageData: base64, imageMimeType: file.type, hasImage: true, status: 'pending', fingerprint: null, error: null
+      });
+      saveDemandImage(newId, base64);
+      added++;
+      renderDemand();
+    }catch(e){
+      failed++;
+      console.error('failed to read file', file && file.name, e);
+    }
+  }
+  saveDemandCatalog();
+  if (added && !failed) showToast(`Added ${added} image${added > 1 ? 's' : ''} to demand`);
+  else if (added && failed) showToast(`Added ${added}, ${failed} failed to load`, true);
+  else showToast('Could not load any of the selected images', true);
+}
+
+function handlePaste(e){
+  // Only act if a relevant tab is active and no modal is open
+  if (document.getElementById('textModalOverlay').classList.contains('open')) return;
+  if (currentView !== 'stock' && currentView !== 'demand') return;
+
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+
+  const imageFiles = [];
+  for (const item of items){
+    if (item.type && item.type.startsWith('image/')){
+      const file = item.getAsFile();
+      if (file) imageFiles.push(file);
+    }
+  }
+  if (!imageFiles.length) return;
+
+  e.preventDefault();
+  if (currentView === 'stock'){
+    handleStockFiles(imageFiles);
+    showToast(`Pasted ${imageFiles.length} image${imageFiles.length > 1 ? 's' : ''} into stock`);
+  } else {
+    handleDemandFiles(imageFiles);
+    showToast(`Pasted ${imageFiles.length} image${imageFiles.length > 1 ? 's' : ''} into demand`);
+  }
+}
+
+function wireFileInput(inputId, handlerFn){
+  const input = document.getElementById(inputId);
+  let lastHandledAt = 0;
+
+  function handle(e){
+    const fl = (e.target && e.target.files) || input.files;
+    if (!fl || !fl.length) return;
+    // change and input can both fire for the same selection; collapse duplicates
+    // that land within a short window of each other
+    const now = Date.now();
+    if (now - lastHandledAt < 600) return;
+    lastHandledAt = now;
+    handlerFn(fl);
+    // delay clearing the input value so iOS WebKit has finished handing off
+    // file blobs before we reset it (clearing too early can orphan the FileList
+    // in some mobile WebKit/iframe combinations)
+    setTimeout(() => { input.value = ''; }, 500);
+  }
+
+  input.addEventListener('change', handle, false);
+  input.addEventListener('input', handle, false);
+
+  // Fallback: if neither event fires within a few seconds of the input
+  // losing focus (picker closed) but files are present, handle them anyway.
+  input.addEventListener('blur', () => {
+    setTimeout(() => {
+      if (input.files && input.files.length && Date.now() - lastHandledAt > 600){
+        lastHandledAt = Date.now();
+        handlerFn(input.files);
+        setTimeout(() => { input.value = ''; }, 500);
+      }
+    }, 700);
+  }, false);
+}
+
+function init(){
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.onclick = () => setView(tab.dataset.view);
+  });
+
+  wireFileInput('stockFileInput', handleStockFiles);
+  wireFileInput('demandFileInput', handleDemandFiles);
+
+  document.getElementById('analyzeStockBtn').onclick = () => analyzeBatch(stockItems, 'stock', renderStock);
+  document.getElementById('analyzeDemandBtn').onclick = () => analyzeBatch(demandItems, 'demand', renderDemand);
+  document.getElementById('runMatchBtn').onclick = runMatching;
+
+  document.getElementById('addTextDemandBtn').onclick = () => {
+    document.getElementById('textDemandInput').value = '';
+    document.getElementById('textModalOverlay').classList.add('open');
+  };
+  document.getElementById('textModalCancel').onclick = () => {
+    document.getElementById('textModalOverlay').classList.remove('open');
+  };
+  document.getElementById('textModalSave').onclick = () => {
+    const text = document.getElementById('textDemandInput').value.trim();
+    if (!text){ showToast('Enter some text first', true); return; }
+    demandItems.push({
+      id: uid(), type: 'text', filename: null, caption: '', text,
+      imageData: null, status: 'pending', fingerprint: null, error: null
+    });
+    saveDemandCatalog();
+    document.getElementById('textModalOverlay').classList.remove('open');
+    renderDemand();
+  };
+
+  document.getElementById('lightboxOverlay').onclick = (e) => {
+    if (e.target.id === 'lightboxOverlay') e.target.classList.remove('open');
+  };
+
+  function openSettingsModal(){
+    document.getElementById('apiKeyInput').value = getApiKey();
+    document.getElementById('geminiApiKeyInput').value = getGeminiApiKey();
+    document.getElementById('settingsModalOverlay').classList.add('open');
+  }
+  document.getElementById('settingsBtn').onclick = openSettingsModal;
+  document.getElementById('keyBannerBtn').onclick = openSettingsModal;
+  document.getElementById('settingsModalCancel').onclick = () => {
+    document.getElementById('settingsModalOverlay').classList.remove('open');
+  };
+  document.getElementById('settingsModalSave').onclick = () => {
+    const key = document.getElementById('apiKeyInput').value.trim();
+    const geminiKey = document.getElementById('geminiApiKeyInput').value.trim();
+    setApiKey(key);
+    setGeminiApiKey(geminiKey);
+    document.getElementById('settingsModalOverlay').classList.remove('open');
+    updateKeyBanner();
+    showToast(key ? 'API keys saved' : 'Anthropic key cleared');
+  };
+
+  document.addEventListener('paste', handlePaste);
+
+  document.getElementById('exportCatalogBtn').onclick = exportCatalog;
+  document.getElementById('importCatalogInput').onchange = (e) => {
+    if (e.target.files && e.target.files[0]) importCatalog(e.target.files[0]);
+    e.target.value = '';
+  };
+
+  updateKeyBanner();
+  loadStockCatalog().then(() => { renderStock(); renderDashboard(); });
+  loadDemandCatalog().then(() => { renderDemand(); });
+  renderResults();
+}
+
+function updateKeyBanner(){
+  const banner = document.getElementById('keyBanner');
+  banner.style.display = getApiKey() ? 'none' : '';
+}
+
+/* ===================== catalog backup / restore ===================== */
+/* Browser storage (localStorage / window.storage) can be cleared by the
+   browser itself \u2014 iOS Safari in particular limits or clears script-writable
+   storage for sites that aren't bookmarked/installed. This file-based
+   backup is the reliable fallback: it never depends on the browser
+   remembering anything, since the data lives in a file you control. */
+
+function exportCatalog(){
+  const persistable = stockItems.map(it => ({
+    id: it.id, filename: it.filename, caption: it.caption,
+    status: it.status, fingerprint: it.fingerprint || null, error: it.error || null,
+    priceOverride: it.priceOverride !== undefined ? it.priceOverride : null
+  }));
+  const blob = new Blob([JSON.stringify({ savedAt: new Date().toISOString(), stockItems: persistable }, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `stockmatch-catalog-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('Catalog backup downloaded');
+}
+
+function importCatalog(file){
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const parsed = JSON.parse(reader.result);
+      const items = Array.isArray(parsed) ? parsed : parsed.stockItems;
+      if (!Array.isArray(items)) throw new Error('not a valid catalog file');
+      stockItems = items.map(it => ({ ...it, imageData: null }));
+      saveStockCatalog();
+      renderStock();
+      renderDashboard();
+      showToast(`Restored ${items.length} stock item${items.length === 1 ? '' : 's'} from backup`);
+    }catch(e){
+      showToast('Could not read that file as a catalog backup', true);
+    }
+  };
+  reader.onerror = () => showToast('Could not read that file', true);
+  reader.readAsText(file);
+}
+
+init();
+</script>
+</body>
+</html><!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+/* ============================================================
+   STOCKMATCH — instrument-panel design system
+   Inspired by the inside of a fine watch movement: gunmetal,
+   bronze, brushed steel, jewel-bearing indicators.
+   ============================================================ */
+
+:root{
+  /* surfaces */
+  --bg: #0f0e0c;
+  --bg-raised: #181511;
+  --bg-raised-2: #211d16;
+  --bg-raised-3: #2a2419;
+  --border: #3d3527;
+  --border-soft: #2a2419;
+  --border-bright: #54462e;
+
+  /* movement gold (primary accent) */
+  --brass: #d4a84b;
+  --brass-dim: #97793a;
+  --brass-bright: #f0c668;
+  --brass-glow: rgba(212,168,75,0.35);
+
+  /* steel blue (mens / cool data) */
+  --steel: #5a8fb0;
+  --steel-bright: #8fc1e0;
+
+  /* rose gold (ladies) */
+  --rose: #b8638a;
+  --rose-bright: #e0a0c0;
+
+  /* jewel states */
+  --jade: #6fae5f;
+  --jade-bright: #97d985;
+  --ruby: #c75450;
+  --ruby-bright: #e88884;
+
+  /* text */
+  --text: #f2ede0;
+  --text-dim: #aaa392;
+  --text-faint: #756c5a;
+
+  /* type */
+  --display: 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --serif: 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --mono: 'SF Mono', 'IBM Plex Mono', 'Courier New', monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+}
+
+*{box-sizing:border-box;margin:0;padding:0;}
+
+#app{
+  background:
+    radial-gradient(ellipse 1200px 600px at 50% -10%, rgba(212,168,75,0.06), transparent),
+    var(--bg);
+  color:var(--text);
+  font-family:var(--sans);
+  min-height:100vh;
+  width:100%;
+  font-size:14px;
+  line-height:1.5;
+}
+
+/* ---------- topbar ---------- */
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:16px;
+  padding:22px 28px;
+  border-bottom:1px solid var(--border-soft);
+  background:linear-gradient(180deg, var(--bg-raised-2) 0%, var(--bg-raised) 100%);
+  box-shadow:0 1px 0 rgba(212,168,75,0.08) inset, 0 4px 20px rgba(0,0,0,0.4);
+  position:relative;
+}
+.topbar::after{
+  content:'';
+  position:absolute;
+  left:0; right:0; bottom:-1px;
+  height:1px;
+  background:linear-gradient(90deg, transparent, var(--brass-dim) 20%, var(--brass) 50%, var(--brass-dim) 80%, transparent);
+  opacity:0.5;
+}
+.brand{display:flex;align-items:center;gap:14px;}
+.brand-mark{
+  font-size:30px;
+  color:var(--brass);
+  line-height:1;
+  filter:drop-shadow(0 0 8px var(--brass-glow));
+  animation:slowSpin 40s linear infinite;
+  display:inline-block;
+}
+@keyframes slowSpin{ from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
+.brand-text h1{
+  font-family:var(--display);
+  font-size:21px;
+  font-weight:600;
+  letter-spacing:0.015em;
+  color:var(--text);
+  background:linear-gradient(90deg, var(--text) 60%, var(--brass-bright));
+  -webkit-background-clip:text;
+  background-clip:text;
+}
+.brand-text p{
+  font-size:10.5px;
+  color:var(--text-faint);
+  letter-spacing:0.08em;
+  text-transform:uppercase;
+  margin-top:3px;
+}
+.tabs{
+  display:flex;
+  gap:4px;
+  background:var(--bg);
+  border:1px solid var(--border-soft);
+  border-radius:10px;
+  padding:4px;
+  box-shadow:0 2px 8px rgba(0,0,0,0.35) inset;
+}
+.tab{
+  background:transparent;
+  border:none;
+  color:var(--text-dim);
+  font-size:13px;
+  font-family:var(--sans);
+  font-weight:500;
+  padding:9px 15px;
+  border-radius:7px;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  transition:background 0.18s, color 0.18s, box-shadow 0.18s;
+}
+.tab:hover{color:var(--text);}
+.tab.active{
+  background:linear-gradient(180deg, var(--bg-raised-3), var(--bg-raised-2));
+  color:var(--brass-bright);
+  box-shadow:0 1px 0 rgba(255,255,255,0.05) inset, 0 2px 6px rgba(0,0,0,0.3);
+}
+.tab .count{
+  font-family:var(--mono);
+  font-size:11px;
+  background:var(--border-soft);
+  color:var(--text-dim);
+  padding:1px 7px;
+  border-radius:10px;
+  min-width:16px;
+  text-align:center;
+}
+.tab.active .count{background:var(--brass-glow);color:var(--brass-bright);}
+
+.settings-btn{
+  font-size:17px;
+  padding:9px 13px;
+  flex-shrink:0;
+  border-radius:10px;
+}
+.key-banner{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  flex-wrap:wrap;
+  background:linear-gradient(90deg, rgba(199,84,80,0.14), rgba(199,84,80,0.06));
+  border-bottom:1px solid rgba(199,84,80,0.25);
+  padding:11px 28px;
+  font-size:12.5px;
+  color:var(--ruby-bright);
+}
+
+/* ---------- layout ---------- */
+main{padding:30px 28px;max-width:1140px;margin:0 auto;}
+.view{display:none;}
+.view.active{display:block;animation:fadeIn 0.25s ease-out;}
+@keyframes fadeIn{ from{opacity:0;transform:translateY(4px);} to{opacity:1;transform:translateY(0);} }
+
+.panel-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:20px;
+  flex-wrap:wrap;
+  margin-bottom:26px;
+}
+.panel-head h2{
+  font-family:var(--display);
+  font-size:21px;
+  font-weight:600;
+  color:var(--text);
+  margin-bottom:7px;
+  position:relative;
+  display:inline-block;
+}
+.panel-head h2::after{
+  content:'';
+  position:absolute;
+  left:0; bottom:-6px;
+  width:32px; height:2px;
+  background:linear-gradient(90deg, var(--brass), transparent);
+  border-radius:2px;
+}
+.panel-head .sub{
+  font-size:12.5px;
+  color:var(--text-dim);
+  max-width:540px;
+  line-height:1.6;
+}
+.paste-hint{color:var(--text-faint);font-style:italic;}
+.panel-actions{display:flex;gap:9px;flex-wrap:wrap;}
+
+/* ---------- buttons ---------- */
+.btn{
+  background:linear-gradient(180deg, var(--bg-raised-3), var(--bg-raised-2));
+  border:1px solid var(--border);
+  color:var(--text);
+  font-size:12.5px;
+  font-family:var(--sans);
+  font-weight:500;
+  padding:10px 17px;
+  border-radius:9px;
+  cursor:pointer;
+  white-space:nowrap;
+  box-shadow:0 1px 0 rgba(255,255,255,0.04) inset, 0 2px 6px rgba(0,0,0,0.3);
+  transition:background 0.16s,border-color 0.16s,opacity 0.16s,transform 0.12s,box-shadow 0.16s;
+}
+.btn:hover:not(:disabled){
+  border-color:var(--brass-dim);
+  transform:translateY(-1.5px);
+  box-shadow:0 1px 0 rgba(255,255,255,0.06) inset, 0 6px 16px rgba(0,0,0,0.4);
+}
+.btn:active:not(:disabled){transform:translateY(0px);}
+.btn:disabled{opacity:0.38;cursor:not-allowed;}
+.btn.primary{
+  background:linear-gradient(180deg, var(--brass-bright), var(--brass));
+  border-color:var(--brass);
+  color:#1a1206;
+  font-weight:700;
+  box-shadow:0 1px 0 rgba(255,255,255,0.35) inset, 0 3px 12px var(--brass-glow);
+}
+.btn.primary:hover:not(:disabled){
+  background:linear-gradient(180deg, #f7da8c, var(--brass-bright));
+  box-shadow:0 1px 0 rgba(255,255,255,0.4) inset, 0 6px 20px var(--brass-glow);
+}
+.btn.small{padding:6px 11px;font-size:11.5px;border-radius:7px;}
+.btn.danger-text{color:var(--ruby-bright);}
+.file-btn{display:inline-flex;align-items:center;justify-content:center;}
+
+.sold-btn{
+  border-color:rgba(199,84,80,0.4);
+  color:var(--ruby-bright);
+  background:linear-gradient(180deg, rgba(199,84,80,0.1), rgba(199,84,80,0.04));
+}
+.sold-btn:hover{
+  background:linear-gradient(180deg, rgba(199,84,80,0.18), rgba(199,84,80,0.08));
+  border-color:var(--ruby);
+}
+
+/* ---------- jewel-bearing status indicators ---------- */
+.status-badge{
+  font-size:10px;
+  letter-spacing:0.04em;
+  text-transform:uppercase;
+  padding:4px 9px 4px 20px;
+  border-radius:20px;
+  font-family:var(--mono);
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+}
+.status-badge::before{
+  content:'';
+  position:absolute;
+  left:7px; top:50%;
+  width:7px; height:7px;
+  border-radius:50%;
+  transform:translateY(-50%);
+  box-shadow:0 0 0 2px rgba(0,0,0,0.2) inset;
+}
+.status-badge.pending{background:rgba(170,163,146,0.1);color:var(--text-dim);}
+.status-badge.pending::before{background:radial-gradient(circle at 35% 30%, #cfc9b8, var(--text-faint));}
+.status-badge.analyzing{background:rgba(212,168,75,0.12);color:var(--brass-bright);}
+.status-badge.analyzing::before{background:radial-gradient(circle at 35% 30%, var(--brass-bright), var(--brass-dim));animation:pulseGlow 1.1s ease-in-out infinite;}
+.status-badge.done{background:rgba(111,174,95,0.12);color:var(--jade-bright);}
+.status-badge.done::before{background:radial-gradient(circle at 35% 30%, var(--jade-bright), var(--jade));}
+.status-badge.error{background:rgba(199,84,80,0.12);color:var(--ruby-bright);}
+.status-badge.error::before{background:radial-gradient(circle at 35% 30%, var(--ruby-bright), var(--ruby));}
+@keyframes pulseGlow{ 0%,100%{box-shadow:0 0 0 0 var(--brass-glow), 0 0 0 2px rgba(0,0,0,0.2) inset;} 50%{box-shadow:0 0 0 4px transparent, 0 0 0 2px rgba(0,0,0,0.2) inset;} }
+
+/* ---------- gender / reference badges ---------- */
+.gender-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  font-size:10.5px;
+  font-family:var(--mono);
+  text-transform:uppercase;
+  letter-spacing:0.03em;
+  padding:4px 9px;
+  border-radius:20px;
+  cursor:default;
+}
+.gender-badge::before{content:'';width:6px;height:6px;border-radius:50%;}
+.gender-badge.mens{background:rgba(90,143,176,0.16);color:var(--steel-bright);}
+.gender-badge.mens::before{background:radial-gradient(circle at 35% 30%, var(--steel-bright), var(--steel));}
+.gender-badge.ladies{background:rgba(184,99,138,0.16);color:var(--rose-bright);}
+.gender-badge.ladies::before{background:radial-gradient(circle at 35% 30%, var(--rose-bright), var(--rose));}
+.gender-badge.unisex{background:rgba(170,163,146,0.14);color:var(--text-dim);}
+.gender-badge.unisex::before{background:var(--text-faint);}
+
+.ref-badge{
+  display:inline-flex;
+  align-items:center;
+  font-size:10.5px;
+  font-family:var(--mono);
+  padding:4px 9px;
+  border-radius:6px;
+  margin-top:4px;
+  cursor:default;
+}
+.ref-badge.visible{background:rgba(111,174,95,0.14);color:var(--jade-bright);}
+.ref-badge.looked-up{background:rgba(90,143,176,0.16);color:var(--steel-bright);}
+.ref-badge.inferred{background:rgba(212,168,75,0.14);color:var(--brass-bright);}
+
+.card-badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px;}
+
+/* ---------- empty state ---------- */
+.empty-state{
+  text-align:center;
+  padding:70px 20px;
+  color:var(--text-faint);
+  border:1px dashed var(--border);
+  border-radius:var(--radius);
+  background:radial-gradient(ellipse at 50% 0%, rgba(212,168,75,0.04), transparent);
+}
+.empty-icon{
+  font-size:32px;
+  color:var(--brass-dim);
+  margin-bottom:16px;
+  opacity:0.6;
+}
+.empty-state p{font-size:13.5px;color:var(--text-dim);margin-bottom:4px;}
+.empty-state p.sub{font-size:12px;color:var(--text-faint);max-width:380px;margin:6px auto 0;line-height:1.55;}
+
+/* ---------- grid of item cards ---------- */
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(225px,1fr));
+  gap:16px;
+}
+.card{
+  background:linear-gradient(165deg, var(--bg-raised-2), var(--bg-raised));
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius);
+  overflow:hidden;
+  position:relative;
+  transition:border-color 0.2s, box-shadow 0.2s;
+}
+.card:hover{
+  border-color:var(--border-bright);
+  box-shadow:0 6px 22px rgba(0,0,0,0.35);
+}
+.card-img-wrap{
+  width:100%;
+  aspect-ratio:1/1;
+  background:var(--bg);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  overflow:hidden;
+  position:relative;
+}
+.card-img-wrap::after{
+  content:'';
+  position:absolute;
+  inset:0;
+  background:linear-gradient(180deg, transparent 60%, rgba(0,0,0,0.25));
+  pointer-events:none;
+}
+.card-img-wrap img{width:100%;height:100%;object-fit:cover;display:block;transition:transform 0.3s;}
+.card-img-wrap:hover img{transform:scale(1.035);}
+.card-img-wrap.no-image{
+  color:var(--text-faint);
+  font-size:11px;
+  text-align:center;
+  padding:20px;
+  cursor:default;
+}
+.card-body{padding:14px 15px;}
+.card-caption-input{
+  width:100%;
+  background:var(--bg);
+  border:1px solid var(--border-soft);
+  color:var(--text);
+  font-size:12px;
+  font-family:var(--sans);
+  padding:8px 10px;
+  border-radius:var(--radius-sm);
+  margin-bottom:9px;
+  transition:border-color 0.15s;
+}
+.card-caption-input:focus{border-color:var(--brass-dim);outline:none;}
+.card-caption-input::placeholder{color:var(--text-faint);}
+.card-status{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+.card-remove{
+  background:none;border:none;color:var(--text-faint);cursor:pointer;font-size:17px;line-height:1;padding:2px 4px;
+  transition:color 0.15s;
+}
+.card-remove:hover{color:var(--ruby-bright);}
+
+.highlight-flash{animation:flashHighlight 1.6s ease-out;}
+@keyframes flashHighlight{
+  0%{box-shadow:0 0 0 3px var(--brass-bright);}
+  100%{box-shadow:0 0 0 0px transparent;}
+}
+
+.fingerprint{
+  margin-top:11px;
+  padding-top:11px;
+  border-top:1px solid var(--border-soft);
+  font-family:var(--mono);
+  font-size:11px;
+  color:var(--text-dim);
+  display:grid;
+  grid-template-columns:auto 1fr;
+  gap:4px 10px;
+}
+.fingerprint .fp-label{color:var(--text-faint);}
+.fingerprint .fp-val{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+.msg-text{
+  margin-top:11px;
+  padding-top:11px;
+  border-top:1px solid var(--border-soft);
+}
+.msg-text p{
+  font-size:12px;
+  color:var(--text-dim);
+  line-height:1.55;
+  font-family:var(--sans);
+  white-space:pre-wrap;
+  max-height:80px;
+  overflow-y:auto;
+}
+.price-row{
+  margin-top:11px;
+  padding-top:11px;
+  border-top:1px solid var(--border-soft);
+  display:flex;
+  align-items:center;
+  gap:9px;
+}
+.price-row .fp-label{font-family:var(--mono);font-size:11px;color:var(--text-faint);flex-shrink:0;}
+.price-input{
+  flex:1;
+  background:var(--bg);
+  border:1px solid var(--border-soft);
+  color:var(--brass-bright);
+  font-family:var(--mono);
+  font-weight:600;
+  font-size:12.5px;
+  padding:7px 10px;
+  border-radius:var(--radius-sm);
+}
+.price-input:focus{border-color:var(--brass-dim);outline:none;}
+
+/* ---------- results ---------- */
+#resultsList{display:flex;flex-direction:column;gap:11px;}
+.result-row{
+  background:linear-gradient(165deg, var(--bg-raised-2), var(--bg-raised));
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius);
+  overflow:hidden;
+  transition:border-color 0.2s;
+}
+.result-row:hover{border-color:var(--border-bright);}
+.result-summary{
+  display:flex;
+  align-items:center;
+  gap:16px;
+  padding:15px 19px;
+  cursor:pointer;
+}
+.result-thumbs{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.thumb{width:46px;height:46px;border-radius:8px;background:var(--bg);object-fit:cover;border:1px solid var(--border-soft);}
+.thumb.placeholder{display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:9px;font-family:var(--mono);}
+.result-arrow{color:var(--brass-dim);font-size:13px;flex-shrink:0;transition:transform 0.2s;}
+.result-text{flex:1;min-width:0;}
+.result-text .demand-name{font-size:13.5px;color:var(--text);font-weight:600;}
+.result-text .match-name{font-size:12.5px;color:var(--text-dim);margin-top:2px;}
+.result-text .no-match{font-size:12.5px;color:var(--text-faint);font-style:italic;margin-top:2px;}
+
+.confidence{
+  flex-shrink:0;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:4px;
+  min-width:90px;
+}
+.confidence-label{font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-faint);font-family:var(--mono);}
+.confidence-meter{width:84px;height:5px;background:var(--border-soft);border-radius:3px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.3) inset;}
+.confidence-fill{height:100%;border-radius:3px;}
+.confidence-fill.high{background:linear-gradient(90deg, var(--jade), var(--jade-bright));}
+.confidence-fill.medium{background:linear-gradient(90deg, var(--brass), var(--brass-bright));}
+.confidence-fill.low{background:linear-gradient(90deg, var(--ruby), var(--ruby-bright));}
+.confidence-pct{font-family:var(--mono);font-size:12.5px;color:var(--text);font-weight:600;}
+
+.result-detail{
+  display:none;
+  padding:0 19px 19px;
+  border-top:1px solid var(--border-soft);
+}
+.result-row.expanded .result-detail{display:block;animation:fadeIn 0.2s ease-out;}
+.result-row.expanded .result-arrow{transform:rotate(90deg);color:var(--brass-bright);}
+.reasoning-block{
+  margin-top:15px;
+  padding:13px 15px;
+  background:var(--bg);
+  border-radius:var(--radius-sm);
+  border:1px solid var(--border-soft);
+}
+.reasoning-block .rb-label{font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;color:var(--brass);font-family:var(--mono);margin-bottom:7px;}
+.reasoning-block p{font-size:13px;color:var(--text-dim);line-height:1.6;}
+.compare-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-top:15px;}
+.compare-col h4{font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-faint);margin-bottom:9px;font-family:var(--mono);}
+.alt-matches{margin-top:15px;}
+.alt-matches h4{font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-faint);margin-bottom:9px;font-family:var(--mono);}
+.alt-match-item{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:12px;color:var(--text-dim);}
+.alt-match-item .thumb{width:30px;height:30px;}
+
+/* ---------- dashboard sections ---------- */
+.dash-section-label{
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:0.08em;
+  color:var(--brass-dim);
+  font-family:var(--mono);
+  margin:28px 0 14px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.dash-section-label:first-of-type{margin-top:0;}
+.dash-section-label::after{
+  content:'';
+  flex:1;
+  height:1px;
+  background:linear-gradient(90deg, var(--border-bright), transparent);
+}
+
+.match-pair-card{
+  display:flex;
+  align-items:center;
+  gap:18px;
+  background:linear-gradient(165deg, var(--bg-raised-2), var(--bg-raised));
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius);
+  padding:15px 19px;
+  margin-bottom:11px;
+  flex-wrap:wrap;
+  transition:border-color 0.2s, box-shadow 0.2s;
+}
+.match-pair-card:hover{border-color:var(--brass-dim);box-shadow:0 6px 20px rgba(0,0,0,0.3);}
+.match-pair-photos{
+  display:flex;
+  align-items:center;
+  gap:11px;
+  flex-shrink:0;
+}
+.match-photo-btn{
+  background:none;
+  border:none;
+  cursor:pointer;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:5px;
+  padding:0;
+}
+.match-photo-btn img, .match-photo-btn .thumb{
+  border-radius:9px;
+  border:2px solid var(--border-soft);
+  transition:border-color 0.15s, transform 0.15s;
+}
+.match-photo-btn:hover img, .match-photo-btn:hover .thumb{
+  border-color:var(--brass);
+  transform:scale(1.05);
+}
+.match-photo-label{
+  font-size:9.5px;
+  text-transform:uppercase;
+  letter-spacing:0.05em;
+  color:var(--text-faint);
+  font-family:var(--mono);
+}
+.match-pair-arrow{color:var(--brass-dim);font-size:17px;flex-shrink:0;}
+.match-pair-info{flex:1;min-width:200px;}
+.match-pair-title{font-size:13px;color:var(--text);font-weight:600;line-height:1.4;}
+.match-pair-sep{color:var(--text-faint);font-weight:400;font-style:italic;font-size:11.5px;}
+.match-pair-badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px;}
+.match-pair-reasoning{font-size:11.5px;color:var(--text-dim);margin-top:7px;line-height:1.55;}
+
+/* ---------- dashboard table ---------- */
+.dash-table{
+  width:100%;
+  border-collapse:collapse;
+  background:var(--bg-raised);
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius);
+  overflow:hidden;
+}
+.dash-table thead th{
+  text-align:left;
+  font-size:10.5px;
+  text-transform:uppercase;
+  letter-spacing:0.05em;
+  color:var(--text-faint);
+  font-family:var(--mono);
+  font-weight:400;
+  padding:12px 15px;
+  background:var(--bg-raised-3);
+  border-bottom:1px solid var(--border-bright);
+}
+.dash-table tbody tr{border-bottom:1px solid var(--border-soft);transition:background 0.15s;}
+.dash-table tbody tr:hover{background:rgba(212,168,75,0.03);}
+.dash-table tbody tr:last-child{border-bottom:none;}
+.dash-table td{padding:11px 15px;vertical-align:middle;font-size:13px;}
+.dash-thumb{width:44px;height:44px;border-radius:7px;object-fit:cover;display:block;border:1px solid var(--border-soft);}
+.dash-thumb.placeholder{
+  display:flex;align-items:center;justify-content:center;
+  background:var(--bg);color:var(--text-faint);font-size:9px;font-family:var(--mono);
+  border:1px solid var(--border-soft);
+}
+.dash-name{font-weight:600;color:var(--text);}
+.dash-ref{font-family:var(--mono);font-size:11px;color:var(--brass-bright);margin-top:2px;}
+.dash-price-input{
+  width:135px;
+  background:var(--bg);
+  border:1px solid var(--border-soft);
+  color:var(--brass-bright);
+  font-family:var(--mono);
+  font-weight:600;
+  font-size:12px;
+  padding:7px 9px;
+  border-radius:var(--radius-sm);
+}
+.dash-price-input:focus{border-color:var(--brass-dim);outline:none;}
+.dash-actions{text-align:right;}
+
+/* ---------- settings copy ---------- */
+.settings-copy{
+  font-size:12.5px;
+  color:var(--text-dim);
+  line-height:1.6;
+  margin-bottom:15px;
+}
+.settings-copy strong{color:var(--brass-bright);font-family:var(--mono);font-weight:400;}
+
+/* ---------- modal ---------- */
+.modal-overlay{
+  display:none;
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.65);
+  backdrop-filter:blur(3px);
+  align-items:center;
+  justify-content:center;
+  z-index:100;
+  padding:20px;
+}
+.modal-overlay.open{display:flex;animation:fadeIn 0.2s ease-out;}
+.modal{
+  background:linear-gradient(165deg, var(--bg-raised-2), var(--bg-raised));
+  border:1px solid var(--border-bright);
+  border-radius:var(--radius);
+  padding:22px;
+  width:100%;
+  max-width:430px;
+  box-shadow:0 20px 60px rgba(0,0,0,0.5);
+}
+.modal h3{font-family:var(--display);font-size:17px;margin-bottom:13px;color:var(--text);}
+.modal textarea{
+  width:100%;
+  min-height:100px;
+  background:var(--bg);
+  border:1px solid var(--border-soft);
+  color:var(--text);
+  font-size:13px;
+  font-family:var(--sans);
+  padding:11px;
+  border-radius:var(--radius-sm);
+  resize:vertical;
+}
+.modal textarea:focus{border-color:var(--brass-dim);outline:none;}
+.modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:16px;}
+
+.lightbox{max-width:90vw;max-height:90vh;}
+.lightbox img{max-width:90vw;max-height:90vh;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,0.6);}
+
+/* ---------- toast ---------- */
+.toast{
+  position:fixed;
+  bottom:26px;
+  left:50%;
+  transform:translateX(-50%) translateY(20px);
+  background:linear-gradient(165deg, var(--bg-raised-3), var(--bg-raised-2));
+  border:1px solid var(--border-bright);
+  color:var(--text);
+  padding:12px 22px;
+  border-radius:10px;
+  font-size:12.5px;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity 0.2s, transform 0.2s;
+  z-index:200;
+  max-width:80vw;
+  box-shadow:0 10px 30px rgba(0,0,0,0.45);
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.toast.error{border-color:var(--ruby);color:var(--ruby-bright);}
+
+/* progress bar within analyze button area */
+.progress-wrap{
+  display:flex;
+  align-items:center;
+  gap:9px;
+  font-size:11.5px;
+  color:var(--text-dim);
+  font-family:var(--mono);
+}
+.progress-track{width:80px;height:5px;background:var(--border-soft);border-radius:3px;overflow:hidden;}
+.progress-fill{height:100%;background:linear-gradient(90deg, var(--brass), var(--brass-bright));border-radius:3px;transition:width 0.2s;}
+
+/* ---------- catalog file import/export ---------- */
+.catalog-io{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+
+@media (max-width:640px){
+  .topbar{padding:16px;gap:12px;}
+  .brand{flex:1;min-width:0;}
+  .brand-text h1{font-size:18px;}
+  .brand-text p{font-size:9.5px;}
+  .tabs{
+    order:3;
+    width:100%;
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    justify-content:flex-start;
+    scrollbar-width:none;
+  }
+  .tabs::-webkit-scrollbar{display:none;}
+  .tab{flex-shrink:0;}
+  main{padding:20px 16px;}
+  .panel-head{flex-direction:column;}
+  .compare-grid{grid-template-columns:1fr;}
+  .dash-table{display:block;overflow-x:auto;}
+  .match-pair-card{padding:14px;}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">&#9678;</span>
+      <div class="brand-text">
+        <h1>Stockmatch</h1>
+        <p>Inventory fingerprinting &amp; demand matching</p>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-view="stock">Today's stock <span class="count" id="stockCount">0</span></button>
+      <button class="tab" data-view="demand">Demand <span class="count" id="demandCount">0</span></button>
+      <button class="tab" data-view="results">Results <span class="count" id="resultsCount">0</span></button>
+      <button class="tab" data-view="dashboard">Dashboard <span class="count" id="dashboardCount">0</span></button>
+    </nav>
+    <button class="btn settings-btn" id="settingsBtn" title="API key settings">&#9881;</button>
+  </header>
+
+  <div class="key-banner" id="keyBanner" style="display:none;">
+    <span>No Anthropic API key set &mdash; analysis won't work until you add one.</span>
+    <button class="btn small primary" id="keyBannerBtn">Add API key</button>
+  </div>
+
+  <main id="views">
+
+    <!-- STOCK VIEW -->
+    <section class="view active" id="view-stock">
+      <div class="panel-head">
+        <div>
+          <h2>Today's stock</h2>
+          <p class="sub">Upload watch photos. Each gets fingerprinted by Claude's vision &mdash; if the reference number isn't legible, it's looked up via Google search rather than guessed blind. <span class="paste-hint">Tip: you can also paste an image directly (Ctrl/Cmd+V).</span></p>
+        </div>
+        <div class="panel-actions">
+          <label class="btn primary file-btn">
+            Add images
+            <input type="file" id="stockFileInput" accept="image/*" multiple hidden>
+          </label>
+          <button class="btn" id="analyzeStockBtn" disabled>Analyze pending</button>
+        </div>
+      </div>
+
+      <div class="empty-state" id="stockEmpty">
+        <div class="empty-icon">&#9676;</div>
+        <p>No stock yet.</p>
+        <p class="sub">Add images to start building today's catalog. You can attach a caption or filename note to each before analyzing.</p>
+      </div>
+
+      <div class="grid" id="stockGrid"></div>
+    </section>
+
+    <!-- DEMAND VIEW -->
+    <section class="view" id="view-demand">
+      <div class="panel-head">
+        <div>
+          <h2>Demand</h2>
+          <p class="sub">Add a request &mdash; an image, free text, or both. Text gets parsed into the same fingerprint fields as stock. <span class="paste-hint">Tip: you can also paste an image directly (Ctrl/Cmd+V).</span></p>
+        </div>
+        <div class="panel-actions">
+          <button class="btn" id="addTextDemandBtn">Add text request</button>
+          <label class="btn primary file-btn">
+            Add image request
+            <input type="file" id="demandFileInput" accept="image/*" multiple hidden>
+          </label>
+          <button class="btn" id="analyzeDemandBtn" disabled>Analyze pending</button>
+        </div>
+      </div>
+
+      <div class="empty-state" id="demandEmpty">
+        <div class="empty-icon">&#9676;</div>
+        <p>No demand requests yet.</p>
+        <p class="sub">Add a customer request as a photo, a typed description, or both.</p>
+      </div>
+
+      <div class="grid" id="demandGrid"></div>
+    </section>
+
+    <!-- RESULTS VIEW -->
+    <section class="view" id="view-results">
+      <div class="panel-head">
+        <div>
+          <h2>Match results</h2>
+          <p class="sub">Matching is based on reference number only &mdash; if a stock item's reference number matches a demand request's reference number (read directly or inferred by Claude), it's a match. Nothing else factors in.</p>
+        </div>
+        <div class="panel-actions">
+          <button class="btn primary" id="runMatchBtn" disabled>Run matching</button>
+        </div>
+      </div>
+
+      <div class="empty-state" id="resultsEmpty">
+        <div class="empty-icon">&#9676;</div>
+        <p>No results yet.</p>
+        <p class="sub">Fingerprint your stock and demand first, then run matching.</p>
+      </div>
+
+      <div id="resultsList"></div>
+    </section>
+
+    <!-- DASHBOARD VIEW -->
+    <section class="view" id="view-dashboard">
+      <div class="panel-head">
+        <div>
+          <h2>Dashboard</h2>
+          <p class="sub">Confirmed matches at the top, full stock list below &mdash; price, dial, gender, and analysis status. Mark items sold to remove them, or update price inline.</p>
+        </div>
+        <div class="panel-actions catalog-io">
+          <button class="btn small" id="exportCatalogBtn" title="Save your analyzed catalog to a file as a backup">Backup catalog</button>
+          <label class="btn small file-btn" title="Restore a previously saved catalog backup">
+            Restore catalog
+            <input type="file" id="importCatalogInput" accept="application/json" hidden>
+          </label>
+        </div>
+      </div>
+
+      <div class="dash-section-label" id="matchesSectionLabel" style="display:none;">Matches found</div>
+      <div id="dashboardMatches"></div>
+
+      <div class="dash-section-label" id="stockSectionLabel" style="display:none;">All stock</div>
+
+      <div class="empty-state" id="dashboardEmpty">
+        <div class="empty-icon">&#9676;</div>
+        <p>No stock yet.</p>
+        <p class="sub">Add items in the Today's stock tab and they'll appear here.</p>
+      </div>
+
+      <table class="dash-table" id="dashboardTable" style="display:none;">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Item</th>
+            <th>Gender</th>
+            <th>Dial</th>
+            <th>Case</th>
+            <th>Status</th>
+            <th>Price</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="dashboardBody"></tbody>
+      </table>
+    </section>
+
+  </main>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<!-- Text demand modal -->
+<div class="modal-overlay" id="textModalOverlay">
+  <div class="modal">
+    <h3>Add text request</h3>
+    <textarea id="textDemandInput" placeholder="e.g. Looking for a steel Daytona, panda dial, box and papers preferred"></textarea>
+    <div class="modal-actions">
+      <button class="btn" id="textModalCancel">Cancel</button>
+      <button class="btn primary" id="textModalSave">Add request</button>
+    </div>
+  </div>
+</div>
+
+<!-- Image lightbox -->
+<div class="modal-overlay" id="lightboxOverlay">
+  <div class="lightbox">
+    <img id="lightboxImg" src="" alt="">
+  </div>
+</div>
+
+<!-- Settings / API key modal -->
+<div class="modal-overlay" id="settingsModalOverlay">
+  <div class="modal">
+    <h3>API keys</h3>
+    <p class="settings-copy">
+      This app uses Claude's vision API to read watch photos. This requires a paid Anthropic API key with billing enabled &mdash; usage is billed per request.
+      Get a key at <strong>console.anthropic.com</strong> and add some credit.
+    </p>
+    <input type="password" id="apiKeyInput" class="card-caption-input" placeholder="Paste your Anthropic API key" autocomplete="off" spellcheck="false">
+
+    <p class="settings-copy" style="margin-top:16px;">
+      When a reference number isn't legible, it's looked up via <strong>Gemini with Google Search</strong> &mdash; Gemini looks at the photo directly and grounds its answer in real Google results. Get a free key at <strong>aistudio.google.com/apikey</strong> (no Google Cloud project setup needed). Free for several thousand lookups/month, then a small per-lookup charge after that. Leave blank to skip lookup and fall back to a best-guess estimate instead.
+    </p>
+    <input type="password" id="geminiApiKeyInput" class="card-caption-input" placeholder="Paste your Gemini API key (optional)" autocomplete="off" spellcheck="false">
+
+    <p class="settings-copy" style="margin-top:10px;font-size:11.5px;">
+      All keys are stored only in this browser, never sent anywhere except directly to Anthropic's and Google's APIs.
+    </p>
+    <div class="modal-actions">
+      <button class="btn" id="settingsModalCancel">Cancel</button>
+      <button class="btn primary" id="settingsModalSave">Save keys</button>
+    </div>
+  </div>
+</div>
+<script>
+/* ===================== state ===================== */
+
+let stockItems = [];   // {id, type:'image', filename, caption, imageData(base64,session-only), status, fingerprint, error}
+let demandItems = [];  // {id, type:'image'|'text', filename, caption, text, imageData, status, fingerprint, error}
+let matchResults = []; // {demandId, demandLabel, demandThumb, matches:[{stockId,label,thumb,confidence,reasoning}], topConfidence}
+
+let currentView = 'stock';
+
+/* ===================== IndexedDB image store ===================== */
+/* localStorage caps out around 5-10MB total, nowhere near enough for dozens
+   of full-resolution watch photos. IndexedDB has a much higher practical
+   ceiling (typically hundreds of MB, browser-dependent), so it's the only
+   realistic way to keep photos themselves persisted across reloads. This
+   wraps it in a tiny promise-based API so the rest of the app can just
+   call imageStore.get(id) / imageStore.set(id, base64) / imageStore.delete(id). */
+
+const IMAGE_DB_NAME = 'stockmatch-images';
+const IMAGE_DB_VERSION = 1;
+const IMAGE_STORE_NAME = 'images';
+let _imageDbPromise = null;
+
+function openImageDb(){
+  if (_imageDbPromise) return _imageDbPromise;
+  _imageDbPromise = new Promise((resolve, reject) => {
+    if (!window.indexedDB){ reject(new Error('IndexedDB not available in this browser')); return; }
+    const req = window.indexedDB.open(IMAGE_DB_NAME, IMAGE_DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(IMAGE_STORE_NAME)){
+        db.createObjectStore(IMAGE_STORE_NAME);
+      }
+    };
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = (e) => reject(e.target.error || new Error('failed to open image database'));
+  });
+  return _imageDbPromise;
+}
+
+const imageStore = {
+  async set(id, base64){
+    try{
+      const db = await openImageDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(IMAGE_STORE_NAME, 'readwrite');
+        tx.objectStore(IMAGE_STORE_NAME).put(base64, id);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      });
+    }catch(e){ console.error('imageStore.set failed', e); return false; }
+  },
+  async get(id){
+    try{
+      const db = await openImageDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(IMAGE_STORE_NAME, 'readonly');
+        const req = tx.objectStore(IMAGE_STORE_NAME).get(id);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+      });
+    }catch(e){ console.error('imageStore.get failed', e); return null; }
+  },
+  async delete(id){
+    try{
+      const db = await openImageDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(IMAGE_STORE_NAME, 'readwrite');
+        tx.objectStore(IMAGE_STORE_NAME).delete(id);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      });
+    }catch(e){ console.error('imageStore.delete failed', e); return false; }
+  },
+  async getMany(ids){
+    try{
+      const db = await openImageDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(IMAGE_STORE_NAME, 'readonly');
+        const store = tx.objectStore(IMAGE_STORE_NAME);
+        const results = {};
+        let remaining = ids.length;
+        if (!remaining){ resolve(results); return; }
+        ids.forEach(id => {
+          const req = store.get(id);
+          req.onsuccess = () => {
+            results[id] = req.result || null;
+            remaining--;
+            if (remaining === 0) resolve(results);
+          };
+          req.onerror = () => {
+            results[id] = null;
+            remaining--;
+            if (remaining === 0) resolve(results);
+          };
+        });
+      });
+    }catch(e){ console.error('imageStore.getMany failed', e); return {}; }
+  }
+};
+
+/* ===================== local storage shim ===================== */
+/* This app needs a paid Anthropic API key (billing enabled at
+   console.anthropic.com) since it's hosted standalone rather than inside
+   Claude.ai. It uses window.storage when available (Claude.ai artifact
+   viewer) and falls back to real browser localStorage when run standalone,
+   e.g. on GitHub Pages, so the catalog persists either way. */
+
+const localStore = {
+  async get(key){
+    if (window.storage && typeof window.storage.get === 'function'){
+      try{ return await window.storage.get(key, false); }catch(e){ return null; }
+    }
+    try{
+      const raw = window.localStorage.getItem('sm:' + key);
+      return raw === null ? null : { key, value: raw, shared: false };
+    }catch(e){ return null; }
+  },
+  async set(key, value){
+    if (window.storage && typeof window.storage.set === 'function'){
+      try{ return await window.storage.set(key, value, false); }catch(e){ return null; }
+    }
+    try{
+      window.localStorage.setItem('sm:' + key, value);
+      return { key, value, shared: false };
+    }catch(e){ return null; }
+  }
+};
+
+function getApiKey(){
+  try{ return window.localStorage.getItem('sm:anthropic-api-key') || ''; }catch(e){ return ''; }
+}
+function setApiKey(key){
+  try{ window.localStorage.setItem('sm:anthropic-api-key', key.trim()); }catch(e){}
+}
+const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
+const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
+
+function getGeminiApiKey(){
+  try{ return window.localStorage.getItem('sm:gemini-api-key') || ''; }catch(e){ return ''; }
+}
+function setGeminiApiKey(key){
+  try{ window.localStorage.setItem('sm:gemini-api-key', key.trim()); }catch(e){}
+}
+const GEMINI_MODEL = 'gemini-3.5-flash';
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
+/* ===================== utils ===================== */
+
+function uid(){
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+function showToast(msg, isError){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.className = 'toast'; }, 3200);
+}
+
+function fileToBase64(file){
+  return new Promise((resolve, reject) => {
+    if (!file){ reject(new Error('no file')); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (!result || typeof result !== 'string' || !result.includes(',')){
+        reject(new Error('empty read result'));
+        return;
+      }
+      resolve(result.split(',')[1]);
+    };
+    reader.onerror = () => reject(reader.error || new Error('file read error'));
+    reader.onabort = () => reject(new Error('file read aborted'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function detectImageMimeTypeFromBytes(base64){
+  // Reads the actual file signature (magic number) from the decoded bytes,
+  // rather than trusting metadata captured at upload time. This is the
+  // reliable fix: it works even for items added before MIME tracking
+  // existed, or where the browser/clipboard never reported a useful
+  // file.type to begin with.
+  try{
+    if (!base64 || base64.length < 12) return null;
+    const binary = atob(base64.slice(0, 24));
+    const b = [];
+    for (let i = 0; i < Math.min(binary.length, 12); i++) b.push(binary.charCodeAt(i));
+
+    if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return 'image/png';
+    if (b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return 'image/jpeg';
+    if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return 'image/gif';
+    if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
+    if (b[0] === 0x42 && b[1] === 0x4D) return 'image/bmp';
+  }catch(e){
+    // malformed base64 slice or atob failure; fall through to other signals
+  }
+  return null;
+}
+
+function imageMimeTypeOf(item){
+  // Primary: sniff the real signature from the actual image bytes, since
+  // this is correct regardless of what (if anything) was recorded at
+  // upload time. Secondary: the stored upload-time type, for cases where
+  // the image isn't loaded into memory this session so there are no bytes
+  // to sniff. Last resort: jpeg, just to avoid a broken data: URL.
+  if (item && item.imageData){
+    const sniffed = detectImageMimeTypeFromBytes(item.imageData);
+    if (sniffed) return sniffed;
+  }
   return (item && item.imageMimeType && item.imageMimeType.startsWith('image/')) ? item.imageMimeType : 'image/jpeg';
 }
 
