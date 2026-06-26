@@ -857,7 +857,7 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
       <div class="panel-head">
         <div>
           <h2>Match results</h2>
-          <p class="sub">Each demand item against its best stock match, weighted toward hard identifiers &mdash; reference numbers and confirmed brand + model &mdash; over loose visual similarity.</p>
+          <p class="sub">Matching is based on reference number only &mdash; if a stock item's reference number matches a demand request's reference number (read directly or inferred by Claude), it's a match. Nothing else factors in.</p>
         </div>
         <div class="panel-actions">
           <button class="btn primary" id="runMatchBtn" disabled>Run matching</button>
@@ -1715,102 +1715,77 @@ function updateRunMatchAvailability(){
   document.getElementById('runMatchBtn').disabled = !(stockReady && demandReady);
 }
 
-const MATCH_SYSTEM_PROMPT = `You are matching customer watch demand requests against a dealer's current stock, using structured fingerprints extracted from photos and text. Each fingerprint may include a "gender" field (mens/ladies/unisex) and a "reference_number_source" field (visible/inferred).
+/* Matching is now deterministic, not another AI call. Claude's job is to
+   read or infer each watch's reference number during extraction (already
+   done above); the actual "is this the same reference" decision is plain
+   string comparison here. This is the only signal used \u2014 dial, case,
+   strap, bezel, and gender are no longer matching criteria. This also
+   means matching can never fail with a JSON parsing error, since there's
+   no second AI response to parse. */
 
-HARD RULES \u2014 these are gates, not soft preferences. Violating either means the pair is NOT a match, regardless of how similar anything else looks:
-1. GENDER: if both items have a known gender ("mens" or "ladies", not unisex and not null) and they differ, this is NEVER a match, even if brand, model name, or photos look similar. A men's and a women's watch are never the same item. "unisex" can match against "mens", "ladies", or "unisex". If gender is null/unknown on either side, don't use it as a blocker, but don't claim it as confirmed either.
-2. REFERENCE NUMBER: if both items have a reference_number, normalize both before comparing \u2014 ignore spacing, dashes, capitalization, and leading zeros, and treat OCR-style noise as equivalent (e.g. "0" vs "O", "1" vs "I", a missing or extra trailing bracelet/dial suffix letter). If the normalized core reference number is the same, treat it as a match even if the raw strings differ slightly \u2014 minor transcription variance between two photos of the same physical watch is expected and common, not a reason to reject the match. Only treat reference numbers as a genuine mismatch when they clearly identify different references after normalization (e.g. "126610" vs "116610" \u2014 different core numbers, not just noisy formatting of the same one). When in doubt between "noisy transcription of the same ref" and "actually different ref," prefer treating close numeric matches (off by reformatting, not by digits) as the same reference, and explain the normalization you applied in the reasoning.
-
-CONFIDENCE SCORING:
-- Both reference numbers present, source "visible" on both sides, and they match (after normalization) \u2192 highest confidence (90-100).
-- Reference numbers match (after normalization) but one or both sides have reference_number_source "inferred" (i.e. Claude guessed it from visual style rather than reading it off the piece) \u2192 cap confidence around 55-75, and say explicitly in the reasoning that the reference was inferred, not read, so it should be treated as a strong lead rather than a certainty.
-- No reference number available on one or both sides, but brand + model line + dial + case all align and gender doesn't conflict \u2192 moderate confidence (35-55), and say explicitly that this is a similarity match without a confirmed reference number.
-- Otherwise weight dial color, case material/size, bracelet type, and markings as moderate corroborating signals; bezel and markings are supporting detail. Generic similarity (just "same brand", vague styling, photo conditions) should NOT produce a high confidence score on its own.
-
-Only include a stock item as a match if there is genuine overlap in identifying fields and neither hard rule is violated. If nothing in stock plausibly matches a demand item, return an empty matches array for it rather than forcing a weak match. But before excluding a pair, double-check you're not rejecting a real match purely over formatting noise in the reference number \u2014 that's the single most common false negative, so resolve it in favor of matching when the core identifying digits agree.
-
-Return STRICT JSON ONLY, no markdown fences, no commentary, in this exact shape:
-{
-  "results": [
-    {
-      "demand_id": "string, must match the demand_id given in input",
-      "matches": [
-        {
-          "stock_id": "string, must match a stock_id given in input",
-          "confidence": number from 0 to 100,
-          "reference_match_type": "visible_exact" or "inferred" or "none",
-          "reasoning": "one or two sentences explaining the match using specific field values, e.g. which reference number, dial, or marking matched or conflicted, and explicitly noting if the reference was inferred rather than read"
-        }
-      ]
-    }
-  ]
+function normalizeRefNumber(ref){
+  if (!ref) return '';
+  return String(ref).toUpperCase().replace(/[\s\-_.]/g, '');
 }
-Order matches within each demand item from highest to lowest confidence. Include at most 3 matches per demand item. If no plausible match exists for a demand item, return "matches": [].`;
 
-async function runMatching(opts){
+function runMatching(opts){
   const silent = opts && opts.silent;
-  const stockReady = stockItems.filter(it => it.status === 'done' && it.fingerprint);
-  const demandReady = demandItems.filter(it => it.status === 'done' && it.fingerprint);
+  const stockReady = stockItems.filter(it => it.status === 'done' && it.fingerprint && it.fingerprint.reference_number);
+  const demandReady = demandItems.filter(it => it.status === 'done' && it.fingerprint && it.fingerprint.reference_number);
+
+  const stockMissingRef = stockItems.filter(it => it.status === 'done' && it.fingerprint && !it.fingerprint.reference_number).length;
+  const demandMissingRef = demandItems.filter(it => it.status === 'done' && it.fingerprint && !it.fingerprint.reference_number).length;
 
   if (!stockReady.length || !demandReady.length){
-    if (!silent) showToast('Need at least one analyzed stock item and one analyzed demand item', true);
+    if (!silent) showToast('Need at least one analyzed stock item and one analyzed demand item, each with a reference number', true);
+    matchResults = [];
+    renderResults();
+    renderDashboard();
     return;
   }
 
-  const btn = document.getElementById('runMatchBtn');
-  const originalText = btn.textContent;
+  matchResults = demandReady.map(d => {
+    const demandRefNorm = normalizeRefNumber(d.fingerprint.reference_number);
+    const demandInferred = d.fingerprint.reference_number_source === 'inferred';
+
+    const matches = stockReady
+      .filter(s => normalizeRefNumber(s.fingerprint.reference_number) === demandRefNorm)
+      .map(s => {
+        const stockInferred = s.fingerprint.reference_number_source === 'inferred';
+        const bothVisible = !demandInferred && !stockInferred;
+        const confidence = bothVisible ? 97 : 65;
+        const referenceMatchType = bothVisible ? 'visible_exact' : 'inferred';
+        let reasoning;
+        if (bothVisible){
+          reasoning = `Reference ${s.fingerprint.reference_number} read directly from both the stock photo and the demand request \u2014 exact match.`;
+        } else if (demandInferred && stockInferred){
+          reasoning = `Reference ${s.fingerprint.reference_number} matches, but it was inferred from visual style on both sides rather than read directly \u2014 treat as a strong lead, verify before confirming.`;
+        } else if (demandInferred){
+          reasoning = `Reference ${s.fingerprint.reference_number} is confirmed visible on the stock item, but inferred from style on the demand side \u2014 treat as a strong lead, verify the demand request's exact reference before confirming.`;
+        } else {
+          reasoning = `Reference ${s.fingerprint.reference_number} is confirmed visible on the demand request, but inferred from style on the stock item \u2014 treat as a strong lead, verify the stock piece's exact reference before confirming.`;
+        }
+        return { stockId: s.id, stockItem: s, confidence, referenceMatchType, reasoning };
+      })
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, 3);
+
+    return { demandId: d.id, demandItem: d, matches };
+  });
+
+  renderResults();
+  renderDashboard();
+
   if (!silent){
-    btn.disabled = true;
-    btn.textContent = 'Matching\u2026';
-  }
-
-  const stockPayload = stockReady.map(it => ({ stock_id: it.id, fingerprint: it.fingerprint }));
-  const demandPayload = demandReady.map(it => ({ demand_id: it.id, fingerprint: it.fingerprint }));
-
-  try{
-    const responseText = await callAnthropic({
-      systemText: MATCH_SYSTEM_PROMPT,
-      userParts: [{ text: `STOCK:\n${JSON.stringify(stockPayload, null, 2)}\n\nDEMAND:\n${JSON.stringify(demandPayload, null, 2)}` }],
-      maxOutputTokens: 8000,
-      onRetryWait: (waitSeconds) => { if (!silent) btn.textContent = `Rate limited, waiting ${waitSeconds}s\u2026`; }
-    });
-    let parsed;
-    try{
-      parsed = parseJsonLoose(responseText);
-    }catch(parseErr){
-      console.error('Matching response was not valid JSON. Raw response:', responseText);
-      throw new Error('Claude\'s matching response could not be read as JSON (' + parseErr.message + '). This usually means the response got cut off \u2014 try matching a smaller batch at a time.');
+    setView('results');
+    const totalMatched = matchResults.filter(r => r.matches.length).length;
+    let msg = `Matching complete \u2014 ${totalMatched} of ${demandReady.length} demand item${demandReady.length === 1 ? '' : 's'} matched on reference number`;
+    if (demandMissingRef || stockMissingRef){
+      msg += ` (${demandMissingRef} demand / ${stockMissingRef} stock item${(demandMissingRef + stockMissingRef) === 1 ? '' : 's'} skipped \u2014 no reference number found)`;
     }
-
-    matchResults = (parsed.results || []).map(r => {
-      const demandItem = demandItems.find(d => d.id === r.demand_id);
-      const matches = (r.matches || []).map(m => {
-        const stockItem = stockItems.find(s => s.id === m.stock_id);
-        return {
-          stockId: m.stock_id,
-          stockItem,
-          confidence: m.confidence,
-          referenceMatchType: m.reference_match_type || null,
-          reasoning: m.reasoning
-        };
-      }).filter(m => m.stockItem);
-      return { demandId: r.demand_id, demandItem, matches };
-    }).filter(r => r.demandItem);
-
-    renderResults();
-    renderDashboard();
-    if (!silent){
-      setView('results');
-      showToast('Matching complete');
-    }
-  }catch(e){
-    if (!silent) showToast('Matching failed: ' + (e.message || 'unknown error'), true);
-    else console.error('silent matching failed', e);
-  }finally{
-    btn.disabled = false;
-    btn.textContent = originalText;
-    updateRunMatchAvailability();
+    showToast(msg);
   }
+  updateRunMatchAvailability();
 }
 
 /* ===================== rendering: dashboard ===================== */
