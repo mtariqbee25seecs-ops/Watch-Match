@@ -1144,6 +1144,12 @@ function fileToBase64(file){
   });
 }
 
+function imageMimeTypeOf(item){
+  // Older saved items (before MIME type tracking was added) won't have this
+  // field; fall back to jpeg as a reasonable default rather than failing.
+  return (item && item.imageMimeType && item.imageMimeType.startsWith('image/')) ? item.imageMimeType : 'image/jpeg';
+}
+
 function escapeHtml(str){
   if (str === null || str === undefined) return '';
   return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1166,7 +1172,8 @@ async function saveStockCatalog(){
     const persistable = stockItems.map(it => ({
       id: it.id, filename: it.filename, caption: it.caption,
       status: it.status, fingerprint: it.fingerprint || null, error: it.error || null,
-      hasImage: !!it.imageData, priceOverride: it.priceOverride !== undefined ? it.priceOverride : null
+      hasImage: !!it.imageData, imageMimeType: it.imageMimeType || null,
+      priceOverride: it.priceOverride !== undefined ? it.priceOverride : null
     }));
     await localStore.set('stock-catalog', JSON.stringify(persistable));
   }catch(e){ console.error('save stock failed', e); }
@@ -1202,7 +1209,7 @@ async function saveDemandCatalog(){
     const persistable = demandItems.map(it => ({
       id: it.id, type: it.type, filename: it.filename, caption: it.caption, text: it.text,
       status: it.status, fingerprint: it.fingerprint || null, error: it.error || null,
-      hasImage: !!it.imageData
+      hasImage: !!it.imageData, imageMimeType: it.imageMimeType || null
     }));
     await localStore.set('demand-catalog', JSON.stringify(persistable));
   }catch(e){ console.error('save demand failed', e); }
@@ -1281,7 +1288,7 @@ function renderStockCard(it){
   return `
   <div class="card" data-id="${it.id}" data-kind="stock">
     <div class="card-img-wrap ${it.imageData ? '' : 'no-image'}" data-action="${it.imageData ? 'lightbox' : 'readd'}" data-id="${it.id}">
-      ${it.imageData ? `<img src="data:image/jpeg;base64,${it.imageData}" alt="${escapeHtml(it.filename)}">` : `image not loaded this session<br>click to re-attach`}
+      ${it.imageData ? `<img src="data:${imageMimeTypeOf(it)};base64,${it.imageData}" alt="${escapeHtml(it.filename)}">` : `image not loaded this session<br>click to re-attach`}
     </div>
     <div class="card-body">
       <input class="card-caption-input" type="text" placeholder="Caption / filename note"
@@ -1329,7 +1336,7 @@ function attachStockCardHandlers(){
   grid.querySelectorAll('[data-action="lightbox"]').forEach(el => {
     el.onclick = (e) => {
       const item = stockItems.find(s => s.id === el.dataset.id);
-      if (item && item.imageData) openLightbox(item.imageData);
+      if (item && item.imageData) openLightbox(item.imageData, imageMimeTypeOf(item));
     };
   });
   grid.querySelectorAll('[data-action="readd"]').forEach(el => {
@@ -1362,11 +1369,13 @@ function triggerReattach(id, kind){
   input.accept = 'image/*';
   input.onchange = async () => {
     if (!input.files[0]) return;
-    const base64 = await fileToBase64(input.files[0]);
+    const file = input.files[0];
+    const base64 = await fileToBase64(file);
     const list = kind === 'stock' ? stockItems : demandItems;
     const item = list.find(s => s.id === id);
     if (item){
       item.imageData = base64;
+      item.imageMimeType = file.type;
       item.hasImage = true;
       if (kind === 'stock'){
         saveStockImage(id, base64);
@@ -1381,8 +1390,8 @@ function triggerReattach(id, kind){
   input.click();
 }
 
-function openLightbox(base64){
-  document.getElementById('lightboxImg').src = 'data:image/jpeg;base64,' + base64;
+function openLightbox(base64, mimeType){
+  document.getElementById('lightboxImg').src = 'data:' + (mimeType || 'image/jpeg') + ';base64,' + base64;
   document.getElementById('lightboxOverlay').classList.add('open');
 }
 
@@ -1419,7 +1428,7 @@ function renderDemandCard(it){
 
   const mediaHtml = it.type === 'image'
     ? `<div class="card-img-wrap ${it.imageData ? '' : 'no-image'}" data-action="${it.imageData ? 'lightbox' : 'readd'}" data-id="${it.id}">
-        ${it.imageData ? `<img src="data:image/jpeg;base64,${it.imageData}" alt="">` : `image not loaded this session<br>click to re-attach`}
+        ${it.imageData ? `<img src="data:${imageMimeTypeOf(it)};base64,${it.imageData}" alt="">` : `image not loaded this session<br>click to re-attach`}
       </div>`
     : '';
 
@@ -1474,7 +1483,7 @@ function attachDemandCardHandlers(){
   grid.querySelectorAll('[data-action="lightbox"]').forEach(el => {
     el.onclick = () => {
       const item = demandItems.find(s => s.id === el.dataset.id);
-      if (item && item.imageData) openLightbox(item.imageData);
+      if (item && item.imageData) openLightbox(item.imageData, imageMimeTypeOf(item));
     };
   });
   grid.querySelectorAll('[data-action="readd"]').forEach(el => {
@@ -1547,14 +1556,14 @@ function extractRetryDelaySeconds(response, errJson){
   return 15;
 }
 
-async function callGeminiWithSearch({ base64Image, promptText }){
+async function callGeminiWithSearch({ base64Image, mimeType, promptText }){
   const apiKey = getGeminiApiKey();
   if (!apiKey){
     throw new Error('No Gemini API key set \u2014 add one in settings to enable reference lookups');
   }
 
   const parts = [];
-  if (base64Image) parts.push({ inline_data: { mime_type: 'image/jpeg', data: base64Image } });
+  if (base64Image) parts.push({ inline_data: { mime_type: mimeType || 'image/jpeg', data: base64Image } });
   parts.push({ text: promptText });
 
   const response = await fetch(`${GEMINI_URL}?key=${encodeURIComponent(apiKey)}`, {
@@ -1580,7 +1589,7 @@ async function callGeminiWithSearch({ base64Image, promptText }){
   return textParts.join('\n');
 }
 
-async function lookupReferenceNumber(fp, base64Image){
+async function lookupReferenceNumber(fp, base64Image, mimeType){
   // Looks up a reference number via a single Gemini call with Google Search
   // grounding enabled. When a photo is available, Gemini sees it directly
   // (richer signal than a templated text query). Designed to degrade
@@ -1595,6 +1604,7 @@ async function lookupReferenceNumber(fp, base64Image){
   try{
     const responseText = await callGeminiWithSearch({
       base64Image,
+      mimeType,
       promptText: REFERENCE_LOOKUP_PROMPT + '\n\n' + promptText
     });
     return parseJsonLoose(responseText);
@@ -1671,15 +1681,16 @@ async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWa
   return textParts.join('\n');
 }
 
-async function extractFingerprintFromImage(base64, caption, onRetryWait){
+async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeType){
   const userText = caption
     ? `Caption / filename provided by the dealer: "${caption}". Use this as supporting signal alongside the image.`
     : 'No caption was provided. Rely on the image alone.';
+  const effectiveMimeType = (mimeType && mimeType.startsWith('image/')) ? mimeType : 'image/jpeg';
 
   const text = await callAnthropic({
     systemText: FINGERPRINT_SCHEMA_PROMPT,
     userParts: [
-      { inline_data: { mime_type: 'image/jpeg', data: base64 } },
+      { inline_data: { mime_type: effectiveMimeType, data: base64 } },
       { text: userText }
     ],
     maxOutputTokens: 1200,
@@ -1688,7 +1699,7 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait){
   const fp = parseJsonLoose(text);
 
   if (!fp.reference_number){
-    const lookup = await lookupReferenceNumber(fp, base64);
+    const lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType);
     fp.reference_number = lookup.reference_number || null;
     fp.reference_number_source = lookup.reference_number_source || null;
     if (lookup.confidence_notes){
@@ -1787,7 +1798,7 @@ async function analyzeBatch(items, kind, renderFn){
         };
         if (item.type === 'image'){
           if (!item.imageData) throw new Error('image not attached this session');
-          fp = await extractFingerprintFromImage(item.imageData, item.caption, onRetryWait);
+          fp = await extractFingerprintFromImage(item.imageData, item.caption, onRetryWait, imageMimeTypeOf(item));
         } else {
           fp = await extractFingerprintFromText(item.text || '', onRetryWait);
         }
@@ -2045,7 +2056,7 @@ function renderDashboard(){
     const fp = it.fingerprint;
     const priceVal = it.priceOverride !== undefined && it.priceOverride !== null && it.priceOverride !== '' ? it.priceOverride : (fp ? fp.price : null);
     const thumb = it.imageData
-      ? `<img class="dash-thumb" src="data:image/jpeg;base64,${it.imageData}" alt="">`
+      ? `<img class="dash-thumb" src="data:${imageMimeTypeOf(it)};base64,${it.imageData}" alt="">`
       : `<div class="dash-thumb placeholder">no img</div>`;
     return `
     <tr data-id="${it.id}">
@@ -2089,7 +2100,7 @@ function confidenceTier(pct){
 
 function thumbHtml(item, size){
   if (item && item.type === 'image' && item.imageData){
-    return `<img class="thumb" style="width:${size}px;height:${size}px;" src="data:image/jpeg;base64,${item.imageData}" alt="">`;
+    return `<img class="thumb" style="width:${size}px;height:${size}px;" src="data:${imageMimeTypeOf(item)};base64,${item.imageData}" alt="">`;
   }
   const label = item ? (item.fingerprint ? fpLine(item.fingerprint).slice(0,3).toUpperCase() : 'TXT') : '?';
   return `<div class="thumb placeholder" style="width:${size}px;height:${size}px;">${escapeHtml(label)}</div>`;
@@ -2205,7 +2216,7 @@ async function handleStockFiles(fileList){
       const newId = uid();
       stockItems.push({
         id: newId, type: 'image', filename: file.name || 'untitled', caption: '',
-        imageData: base64, hasImage: true, status: 'pending', fingerprint: null, error: null
+        imageData: base64, imageMimeType: file.type, hasImage: true, status: 'pending', fingerprint: null, error: null
       });
       saveStockImage(newId, base64);
       added++;
@@ -2241,7 +2252,7 @@ async function handleDemandFiles(fileList){
       const newId = uid();
       demandItems.push({
         id: newId, type: 'image', filename: file.name || 'untitled', caption: '',
-        imageData: base64, hasImage: true, status: 'pending', fingerprint: null, error: null
+        imageData: base64, imageMimeType: file.type, hasImage: true, status: 'pending', fingerprint: null, error: null
       });
       saveDemandImage(newId, base64);
       added++;
