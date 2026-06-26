@@ -881,7 +881,7 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
       <div class="panel-head">
         <div>
           <h2>Match results</h2>
-          <p class="sub">Matching is based on reference number only &mdash; if a stock item's reference number matches a demand request's reference number (read directly or inferred by Claude), it's a match. Nothing else factors in.</p>
+          <p class="sub">Matching is based on reference number only &mdash; if a stock item's reference number matches a demand request's reference number (read directly or confirmed via web search), it's a match. Nothing else factors in.</p>
         </div>
         <div class="panel-actions">
           <button class="btn primary" id="runMatchBtn" disabled>Run matching</button>
@@ -1562,6 +1562,8 @@ Extract a structured fingerprint as STRICT JSON ONLY (no markdown fences, no pre
 
 REFERENCE NUMBER RULE: only set "reference_number" if it is legibly visible \u2014 engraved, printed, or stated in message text. Set "reference_number_source" to "visible" in that case. If it is NOT legible anywhere, set both "reference_number" and "reference_number_source" to null \u2014 do not guess here. A separate lookup step will handle that using the other fields you extract below, so describe the watch as precisely as possible even when the reference itself isn't visible.
 
+CASE MATERIAL CAUTION: platinum and white gold are visually almost indistinguishable in a photo \u2014 both appear as bright white/silvery metal. If you cannot find a hallmark, engraving, or stated material confirming which one it is, name your best guess but add a note in "confidence_notes" that it could plausibly be either, so a later step can search both possibilities rather than treating your guess as certain.
+
 GENDER RULES (important, this affects matching \u2014 never blur this):
 - Set "gender" based on case size, dial design, and known model conventions (e.g. Datejust 36mm+ is typically mens, Lady-Datejust / smaller diamond-marker dials are typically ladies). Some models are unisex by design (e.g. many modern 36-41mm steel sport watches) \u2014 use "unisex" only when that's a genuine, well-known convention, not as a default when unsure.
 - Set "gender_basis" to a short phrase explaining the signal used (e.g. "case size ~36mm + model name", "small dial with diamond hour markers", "known unisex sport model").
@@ -1573,28 +1575,29 @@ Only state what is visually evident or stated in the caption. If the caption con
 
 const REFERENCE_LOOKUP_PROMPT = `You are identifying the exact reference number of a watch for a dealer's inventory system. You have a web_search tool \u2014 use it properly, not as a single vague lookup:
 
-1. Run AT LEAST 2-3 separate, differently-worded searches focused specifically on finding the reference number itself \u2014 not a general "what is this watch" search. Vary the query each time, e.g. "[brand] [model] [dial color] reference number", "[brand] [model] [case material] [bracelet type] ref", site-specific variants like "[brand] [model] site:chrono24.com", etc. Use the photo (if provided) to identify distinguishing details to search with.
-2. Check real, distinct sources each time \u2014 the brand's official site, established marketplaces (Chrono24, WatchCharts, Bob's Watches, Crown & Caliber), watch reference databases, forums with verified reference threads. Do not stop after one search if the first result is weak or unconfirmed.
+1. Run AT LEAST 3-4 separate, differently-worded searches focused specifically on finding the reference number itself \u2014 not a general "what is this watch" search. Vary the query each time, e.g. "[brand] [model] [dial color] reference number", "[brand] [model] [case material] [bracelet type] ref", site-specific variants like "[brand] [model] site:chrono24.com", etc. Use the photo (if provided) to identify distinguishing details to search with.
+2. Check real, distinct sources each time \u2014 the brand's official site (the single most reliable source \u2014 search it specifically, e.g. "site:rolex.com" or "site:patek.com"), established marketplaces (Chrono24, WatchCharts, Bob's Watches, Crown & Caliber), watch reference databases, forums with verified reference threads. Do not stop after one search if the first result is weak or unconfirmed.
 3. Compare what the different searches/sources turn up. If multiple independent sources agree on the same reference number, that's your answer \u2014 treat agreement across sources as the deciding signal, not just whichever result came up first.
-4. If sources conflict or only a single weak source suggests a number, do not present it as confirmed \u2014 either keep searching with another query angle, or fall back to "inferred" per the rules below.
+4. If sources conflict or only a single weak source suggests a number, do not present it as confirmed \u2014 keep searching with another query angle instead. If you still can't resolve it after genuinely trying multiple angles, return null \u2014 see the rules below. Do not guess.
 
 CRITICAL \u2014 a common failure mode to avoid: do NOT override a reference number that appears repeatedly and consistently across your OWN search results in favor of a more "specific-sounding" sub-reference you're merely guessing at, especially one you cannot point to a single source actually confirming. If your searches keep surfacing the same base reference number across many independent listings, that repetition IS strong evidence \u2014 trust it over an invented-sounding variant name, even if that variant name feels like it better matches every visual detail.
+
+CRITICAL \u2014 visually near-identical metals and generations: precious white metals (platinum vs. white gold/steel) often look identical in a photo and cannot be told apart by color alone \u2014 if the case material in the extracted details is platinum, white gold, or steel, treat that as provisional and explicitly search variants in more than one of these metals rather than assuming the extracted guess is correct. Likewise, many models have been through generational reference updates (an older and a newer reference number sharing nearly identical looks, e.g. after a manufacturer-wide case/bracelet refresh) \u2014 when your searches surface more than one closely related candidate reference for what otherwise looks like the same watch, search specifically for what visually distinguishes those generations (clasp design, crown guards, bracelet attachment, dial text changes) and say in "confidence_notes" if you genuinely cannot distinguish them from the photo alone, rather than picking one arbitrarily.
 
 This matters most for heavily customized pieces: if the watch has added gemstones (especially a diamond-set bezel, lugs, or crown guards) that don't match official catalog photos for any reference your search turns up, the most likely explanation is that this is a standard factory reference that a third-party jeweler customized with added stones AFTER it left the brand \u2014 this is extremely common in the secondary watch market. In that case, do not invent a plausible-sounding "diamond sub-reference" that no source actually confirms. Instead, identify and report the BASE reference (the closest standard catalog match, ignoring the added bezel/lug stones) using whatever reference number your searches consistently surface, and say explicitly in "confidence_notes" that the bezel/lug stones appear to be a likely aftermarket addition on top of that base reference.
 
 Respond with STRICT JSON ONLY (no markdown fences, no commentary), in this exact shape:
 {
   "reference_number": string or null,
-  "reference_number_source": "looked_up" or "inferred" or null,
+  "reference_number_source": "looked_up" or null,
   "sources_agreed": number (how many independent sources/searches confirmed this same number, 0 if none),
   "confidence_notes": string or null
 }
 
 Rules:
 - If 2+ independent sources/searches agree on the same reference number, set "reference_number" to that value, "reference_number_source" to "looked_up", "sources_agreed" to the count, and name the agreeing sources in "confidence_notes".
-- If only one weak source or no clear agreement, but you still found something plausible, you may report it as "looked_up" with "sources_agreed": 1, but say clearly in "confidence_notes" that it's unconfirmed by a second source.
-- If search comes up empty or genuinely irrelevant after multiple attempts, fall back to your own trained knowledge of this brand/model's design to give your best-guess reference number instead. Set "reference_number_source" to "inferred", "sources_agreed" to 0, and note in "confidence_notes" that search didn't resolve it (state what you searched for) and what visual cues your guess is based on.
-- If you genuinely cannot narrow it down even approximately, set "reference_number" to null and "reference_number_source" to null, but still report what you searched for in "confidence_notes" so it's clear an attempt was made.
+- If only one weak source or no clear agreement, but you still found something plausible, you may report it as "looked_up" with "sources_agreed": 1, but say clearly in "confidence_notes" that it's unconfirmed by a second source, and what specifically remains uncertain (e.g. "could be this metal or its near-identical sibling, couldn't confirm which from the photo").
+- There is no fallback guess. If search genuinely cannot confirm even a single plausible reference after multiple distinct attempts, set "reference_number" to null and "reference_number_source" to null \u2014 do not invent one from memory. Still report what you searched for and why it didn't resolve in "confidence_notes", so it's clear a real attempt was made.
 Respond with the JSON object only \u2014 no extra commentary around it, even after using search.`;
 
 function extractRetryDelaySeconds(response, errJson){
@@ -1918,13 +1921,14 @@ function normalizeRefNumber(ref){
 function refSourceRank(source){
   if (source === 'visible') return 2;
   if (source === 'looked_up') return 1;
-  return 0; // 'inferred' or null/unknown
+  return 0; // null/unknown \u2014 shouldn't normally occur since items without a
+            // confirmed reference no longer carry a reference_number at all
 }
 
 function refSourceLabel(source){
   if (source === 'visible') return 'read directly';
   if (source === 'looked_up') return 'found via web search';
-  return 'guessed from visual style alone';
+  return 'unconfirmed';
 }
 
 function runMatching(opts){
@@ -1955,16 +1959,14 @@ function runMatching(opts){
         const stockLabel = refSourceLabel(s.fingerprint.reference_number_source);
         const combinedRank = Math.min(demandRank, stockRank);
 
-        let confidence, referenceMatchType;
-        if (combinedRank === 2){ confidence = 97; referenceMatchType = 'visible_exact'; }
-        else if (combinedRank === 1){ confidence = 82; referenceMatchType = 'looked_up'; }
-        else { confidence = 60; referenceMatchType = 'inferred'; }
+        const confidence = combinedRank === 2 ? 97 : 82;
+        const referenceMatchType = combinedRank === 2 ? 'visible_exact' : 'looked_up';
 
         let reasoning;
         if (combinedRank === 2){
           reasoning = `Reference ${s.fingerprint.reference_number} read directly from both the stock photo and the demand request \u2014 exact match.`;
         } else {
-          reasoning = `Reference ${s.fingerprint.reference_number} matches \u2014 stock side ${stockLabel}, demand side ${demandLabel}. ${combinedRank === 1 ? 'At least one side is Google-search-verified rather than read directly; treat as reliable but worth a quick visual confirmation.' : 'At least one side is an unverified guess rather than read or looked up; treat as a lead only \u2014 confirm the exact reference before relying on this.'}`;
+          reasoning = `Reference ${s.fingerprint.reference_number} matches \u2014 stock side ${stockLabel}, demand side ${demandLabel}. At least one side is web-search-verified rather than read directly; treat as reliable but worth a quick visual confirmation.`;
         }
         return { stockId: s.id, stockItem: s, confidence, referenceMatchType, reasoning };
       })
@@ -2001,11 +2003,10 @@ function genderBadge(fp){
 function refBadge(fp){
   if (!fp || !fp.reference_number) return '';
   const source = fp.reference_number_source;
-  const cls = source === 'visible' ? 'visible' : source === 'looked_up' ? 'looked-up' : 'inferred';
-  const label = source === 'visible' ? '' : source === 'looked_up' ? ' (web-verified)' : ' (inferred)';
+  const cls = source === 'visible' ? 'visible' : 'looked-up';
+  const label = source === 'visible' ? '' : ' (web-verified)';
   const title = source === 'visible' ? 'Read directly from the photo or message text'
-    : source === 'looked_up' ? 'Not directly legible \u2014 found via web search against real listings/specs'
-    : 'Not directly legible \u2014 best guess from visual style alone, not verified';
+    : 'Not directly legible \u2014 confirmed via web search against real listings/specs';
   return `<span class="ref-badge ${cls}" title="${title}">${escapeHtml(fp.reference_number)}${label}</span>`;
 }
 
@@ -2033,9 +2034,7 @@ function renderDashboardMatches(){
     const tier = confidenceTier(pct);
     const matchTypeBadge = top.referenceMatchType === 'looked_up'
       ? '<span class="ref-badge looked-up">web-verified match</span>'
-      : top.referenceMatchType === 'inferred'
-        ? '<span class="ref-badge inferred">unverified match \u2014 confirm</span>'
-        : '';
+      : '';
 
     return `
     <div class="match-pair-card">
