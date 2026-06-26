@@ -1656,10 +1656,16 @@ async function callGeminiWithSearch({ base64Image, mimeType, promptText }, attem
     const detail = errJson?.error?.message || '';
 
     // Lookups run multiple searches per call, so under concurrent analysis
-    // it's easy to transiently hit Gemini's rate limit. Retry a couple of
-    // times with backoff rather than giving up on the first 429.
-    if (response.status === 429 && attempt <= 3){
-      const waitSeconds = extractRetryDelaySeconds(response, errJson);
+    // it's easy to transiently hit Gemini's rate limit (429). Separately,
+    // Gemini occasionally returns 503/500/502 when the model itself is
+    // temporarily overloaded \u2014 genuinely transient and worth a short
+    // retry rather than giving up immediately, since the error message
+    // itself says to try again. Use a flat backoff for these since there's
+    // no Retry-After header to read, unlike 429.
+    const isRateLimit = response.status === 429;
+    const isTransientServerError = [500, 502, 503, 504].includes(response.status);
+    if ((isRateLimit || isTransientServerError) && attempt <= 4){
+      const waitSeconds = isRateLimit ? extractRetryDelaySeconds(response, errJson) : (attempt * 3);
       await new Promise(r => setTimeout(r, waitSeconds * 1000));
       return callGeminiWithSearch({ base64Image, mimeType, promptText }, attempt + 1);
     }
@@ -1819,8 +1825,10 @@ async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWa
     try{ errJson = await response.json(); }catch(e){}
     const detail = errJson?.error?.message || '';
 
-    if (response.status === 429 && attempt <= 4){
-      const waitSeconds = extractRetryDelaySeconds(response, errJson);
+    const isRateLimit = response.status === 429;
+    const isTransientServerError = [500, 502, 503, 504].includes(response.status);
+    if ((isRateLimit || isTransientServerError) && attempt <= 4){
+      const waitSeconds = isRateLimit ? extractRetryDelaySeconds(response, errJson) : (attempt * 3);
       if (onRetryWait) onRetryWait(waitSeconds, attempt);
       await new Promise(r => setTimeout(r, waitSeconds * 1000));
       return callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWait, enableWebSearch }, attempt + 1);
