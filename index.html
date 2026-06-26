@@ -1594,11 +1594,15 @@ const REFERENCE_LOOKUP_PROMPT = `You are identifying the exact reference number 
 3. Compare what the different searches/sources turn up. If multiple independent sources agree on the same reference number, that's your answer \u2014 treat agreement across sources as the deciding signal, not just whichever result came up first.
 4. If sources conflict or only a single weak source suggests a number, do not present it as confirmed \u2014 keep searching with another query angle instead. If you still can't resolve it after genuinely trying multiple angles, return null \u2014 see the rules below. Do not guess.
 
+CRITICAL \u2014 the reference number itself must come from a real source you found, never from visual reasoning alone: looking at the photo is only for forming good search queries and for cross-checking that a candidate reference's known photos genuinely match what you see. It is NOT a basis for the final answer on its own. Phrases like "consistent with the warm rose-gold tone" or "looks like Everose gold based on color" describe what you see, not what a website confirmed \u2014 never let that kind of visual impression alone produce a reference_number. Only set "reference_number" to a value that a specific search result/page actually stated as that watch's reference. If your searches only get you to "this looks like brand X's style" without any source actually naming a number, that is not enough \u2014 keep searching with sharper, more specific queries, or return null.
+
 CRITICAL \u2014 a common failure mode to avoid: do NOT override a reference number that appears repeatedly and consistently across your OWN search results in favor of a more "specific-sounding" sub-reference you're merely guessing at, especially one you cannot point to a single source actually confirming. If your searches keep surfacing the same base reference number across many independent listings, that repetition IS strong evidence \u2014 trust it over an invented-sounding variant name, even if that variant name feels like it better matches every visual detail.
 
 CRITICAL \u2014 visually near-identical metals and generations: precious white metals (platinum vs. white gold/steel) often look identical in a photo and cannot be told apart by color alone \u2014 if the case material in the extracted details is platinum, white gold, or steel, treat that as provisional and explicitly search variants in more than one of these metals rather than assuming the extracted guess is correct. Likewise, many models have been through generational reference updates (an older and a newer reference number sharing nearly identical looks, e.g. after a manufacturer-wide case/bracelet refresh) \u2014 when your searches surface more than one closely related candidate reference for what otherwise looks like the same watch, search specifically for what visually distinguishes those generations (clasp design, crown guards, bracelet attachment, dial text changes) and say in "confidence_notes" if you genuinely cannot distinguish them from the photo alone, rather than picking one arbitrarily.
 
 This matters most for heavily customized pieces: if the watch has added gemstones (especially a diamond-set bezel, lugs, or crown guards) that don't match official catalog photos for any reference your search turns up, the most likely explanation is that this is a standard factory reference that a third-party jeweler customized with added stones AFTER it left the brand \u2014 this is extremely common in the secondary watch market. In that case, do not invent a plausible-sounding "diamond sub-reference" that no source actually confirms. Instead, identify and report the BASE reference (the closest standard catalog match, ignoring the added bezel/lug stones) using whatever reference number your searches consistently surface, and say explicitly in "confidence_notes" that the bezel/lug stones appear to be a likely aftermarket addition on top of that base reference.
+
+Keep "confidence_notes" SHORT \u2014 2-3 sentences maximum, naming sources tersely (e.g. "rolex.com, Chrono24"). Do not write long explanations; a brief, direct note is all that's needed, and overly long notes risk being cut off.
 
 Respond with STRICT JSON ONLY (no markdown fences, no commentary), in this exact shape:
 {
@@ -1609,9 +1613,9 @@ Respond with STRICT JSON ONLY (no markdown fences, no commentary), in this exact
 }
 
 Rules:
-- If 2+ independent sources/searches agree on the same reference number, set "reference_number" to that value, "reference_number_source" to "looked_up", "sources_agreed" to the count, and name the agreeing sources in "confidence_notes".
-- If only one weak source or no clear agreement, but you still found something plausible, you may report it as "looked_up" with "sources_agreed": 1, but say clearly in "confidence_notes" that it's unconfirmed by a second source, and what specifically remains uncertain (e.g. "could be this metal or its near-identical sibling, couldn't confirm which from the photo").
-- There is no fallback guess. If search genuinely cannot confirm even a single plausible reference after multiple distinct attempts, set "reference_number" to null and "reference_number_source" to null \u2014 do not invent one from memory. Still report what you searched for and why it didn't resolve in "confidence_notes", so it's clear a real attempt was made.
+- If 2+ independent sources/searches agree on the same reference number, set "reference_number" to that value, "reference_number_source" to "looked_up", "sources_agreed" to the count, and name the agreeing sources briefly in "confidence_notes".
+- If only one weak source or no clear agreement, but you still found a source that explicitly stated a number, you may report it as "looked_up" with "sources_agreed": 1, but say briefly in "confidence_notes" that it's unconfirmed by a second source.
+- There is no fallback guess. If search genuinely cannot confirm even a single plausible reference \u2014 actually stated by a real source \u2014 after multiple distinct attempts, set "reference_number" to null and "reference_number_source" to null. Do not invent one from memory or from visual impression. Still briefly report what you searched for in "confidence_notes", so it's clear a real attempt was made.
 Respond with the JSON object only \u2014 no extra commentary around it, even after using search.`;
 
 function extractRetryDelaySeconds(response, errJson){
@@ -1646,7 +1650,7 @@ async function callGeminiWithSearch({ base64Image, mimeType, promptText }, attem
     body: JSON.stringify({
       contents: [{ role: 'user', parts }],
       tools: [{ googleSearch: {} }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 1200 }
+      generationConfig: { temperature: 0.2, maxOutputTokens: 2500 }
     })
   });
 
@@ -1766,7 +1770,30 @@ async function lookupReferenceNumber(fp, base64Image, mimeType){
       mimeType,
       promptText: REFERENCE_LOOKUP_PROMPT + '\n\n' + promptText
     });
-    const result = parseJsonLoose(text);
+
+    let result;
+    try{
+      result = parseJsonLoose(text);
+    }catch(parseErr){
+      // confidence_notes is always the last field, so a token-limit cutoff
+      // typically lands mid-way through it, leaving the earlier fields
+      // (reference_number, reference_number_source, sources_agreed) intact
+      // and parseable on their own. Recover those rather than discarding
+      // a perfectly good answer just because the trailing note got cut off.
+      const refMatch = text.match(/"reference_number"\s*:\s*(null|"((?:[^"\\]|\\.)*)")/);
+      const sourceMatch = text.match(/"reference_number_source"\s*:\s*(null|"((?:[^"\\]|\\.)*)")/);
+      const agreedMatch = text.match(/"sources_agreed"\s*:\s*(\d+)/);
+      if (refMatch){
+        result = {
+          reference_number: refMatch[1] === 'null' ? null : refMatch[2],
+          reference_number_source: sourceMatch ? (sourceMatch[1] === 'null' ? null : sourceMatch[2]) : null,
+          sources_agreed: agreedMatch ? parseInt(agreedMatch[1], 10) : 0,
+          confidence_notes: '(notes were cut off, but the reference itself was recovered)'
+        };
+      } else {
+        throw parseErr;
+      }
+    }
 
     // Always attach what was actually searched, even on success, so this
     // is verifiable rather than a black box.
