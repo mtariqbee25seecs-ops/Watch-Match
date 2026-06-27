@@ -838,6 +838,7 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
             <input type="file" id="stockFileInput" accept="image/*" multiple hidden>
           </label>
           <button class="btn" id="analyzeStockBtn" disabled>Analyze pending</button>
+          <button class="btn danger-text" id="clearStockBtn">Clear all</button>
         </div>
       </div>
 
@@ -864,6 +865,7 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
             <input type="file" id="demandFileInput" accept="image/*" multiple hidden>
           </label>
           <button class="btn" id="analyzeDemandBtn" disabled>Analyze pending</button>
+          <button class="btn danger-text" id="clearDemandBtn">Clear all</button>
         </div>
       </div>
 
@@ -885,6 +887,7 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
         </div>
         <div class="panel-actions">
           <button class="btn primary" id="runMatchBtn" disabled>Run matching</button>
+          <button class="btn danger-text" id="clearResultsBtn">Clear all</button>
         </div>
       </div>
 
@@ -983,12 +986,34 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
     <p class="settings-copy" style="margin-top:10px;font-size:11.5px;">
       Both keys are stored only in this browser, never sent anywhere except directly to Anthropic's and Google's APIs.
     </p>
+
+    <p class="settings-copy" style="margin-top:16px;">
+      <strong>Cross-device sync (optional):</strong> by default everything you analyze stays only on this device. To see the same stock/demand on your phone and your PC, fill in both pieces below and use the exact same values on every device you want synced. Leave both blank to keep this device-only.
+    </p>
+    <p class="settings-copy" style="font-size:11.5px;">
+      <strong>1. Catalog data</strong> (free, no card) &mdash; paste a Firebase config from <strong>console.firebase.google.com</strong> (create a project, add a Web app, enable Firestore in test mode).
+    </p>
+    <textarea id="firebaseConfigInput" class="card-caption-input" rows="3" style="resize:vertical;font-family:var(--mono);font-size:11px;" placeholder='Paste your Firebase config, e.g. {"apiKey":"...","projectId":"...",...}' autocomplete="off" spellcheck="false"></textarea>
+    <p class="settings-copy" style="font-size:11.5px;margin-top:10px;">
+      <strong>2. Images</strong> (free, no card) &mdash; Firebase Storage now requires a paid plan, so images use <strong>Supabase</strong> instead. Create a free project at <strong>supabase.com</strong>, make a Storage bucket named exactly <strong>stockmatch-images</strong> (set it Public), then paste its Project URL and anon/public API key (both found in Project Settings &rarr; API).
+    </p>
+    <input type="text" id="supabaseUrlInput" class="card-caption-input" placeholder="Supabase Project URL (e.g. https://xyzcompany.supabase.co)" autocomplete="off" spellcheck="false">
+    <input type="password" id="supabaseAnonKeyInput" class="card-caption-input" placeholder="Supabase anon/public API key" autocomplete="off" spellcheck="false">
+    <p class="settings-copy" style="font-size:11.5px;margin-top:10px;">
+      <strong>3. Sync ID</strong> &mdash; any name you choose, used to keep your data separate from anyone else using the same Firebase/Supabase project.
+    </p>
+    <input type="text" id="syncIdInput" class="card-caption-input" placeholder="Choose a Sync ID (use the same one on every device)" autocomplete="off" spellcheck="false">
+
     <div class="modal-actions">
       <button class="btn" id="settingsModalCancel">Cancel</button>
       <button class="btn primary" id="settingsModalSave">Save keys</button>
     </div>
   </div>
 </div>
+
+<script src="https://www.gstatic.com/firebasejs/12.15.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* ===================== state ===================== */
 
@@ -1089,6 +1114,151 @@ const imageStore = {
   }
 };
 
+/* ===================== cloud sync (Firestore + Supabase) ===================== */
+/* Optional layer for genuine cross-device sync. Local storage and
+   IndexedDB above are per-browser, per-device -- they can never show the
+   same data on a phone and a PC, since there's no server in this static
+   app to hold a shared copy. When configured in settings, this layer
+   reads/writes a real cloud backend instead, so any device using the
+   same sync ID sees the same data. Falls back to local-only behavior
+   automatically when not configured.
+
+   Split across two free services on purpose: Firestore (Firebase) holds
+   the catalog metadata -- it's free on the Spark plan, no card needed.
+   Supabase Storage holds the actual images -- Firebase Storage now
+   requires the paid Blaze plan even for small usage, while Supabase's
+   free tier includes 1GB of file storage with no card required at all. */
+
+let _firebaseApp = null;
+let _firestoreDb = null;
+let _firebaseInitError = null;
+let _supabaseClient = null;
+let _supabaseInitError = null;
+
+function firebaseSyncConfigured(){
+  return !!(getFirebaseConfigRaw() && getSyncId());
+}
+function supabaseSyncConfigured(){
+  return !!(getSupabaseUrl() && getSupabaseAnonKey() && getSyncId());
+}
+
+function ensureFirebaseInit(){
+  if (_firebaseApp || _firebaseInitError) return !_firebaseInitError;
+  try{
+    const raw = getFirebaseConfigRaw();
+    if (!raw) throw new Error('no config set');
+    const config = JSON.parse(raw);
+    if (!window.firebase || !window.firebase.initializeApp){
+      throw new Error('Firebase SDK did not load');
+    }
+    _firebaseApp = window.firebase.initializeApp(config);
+    _firestoreDb = window.firebase.firestore();
+    return true;
+  }catch(e){
+    console.error('Firebase init failed:', e);
+    _firebaseInitError = e;
+    return false;
+  }
+}
+
+function ensureSupabaseInit(){
+  if (_supabaseClient || _supabaseInitError) return !_supabaseInitError;
+  try{
+    const url = getSupabaseUrl();
+    const key = getSupabaseAnonKey();
+    if (!url || !key) throw new Error('no Supabase config set');
+    if (!window.supabase || !window.supabase.createClient){
+      throw new Error('Supabase SDK did not load');
+    }
+    _supabaseClient = window.supabase.createClient(url, key);
+    return true;
+  }catch(e){
+    console.error('Supabase init failed:', e);
+    _supabaseInitError = e;
+    return false;
+  }
+}
+
+function base64ToBlob(base64, mimeType){
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mimeType || 'application/octet-stream' });
+}
+
+const SUPABASE_BUCKET = 'stockmatch-images';
+
+const cloudSync = {
+  async saveCatalog(key, jsonString){
+    if (!firebaseSyncConfigured() || !ensureFirebaseInit()) return false;
+    try{
+      const syncId = getSyncId();
+      await _firestoreDb.collection('stockmatch').doc(syncId).set({ [key]: jsonString }, { merge: true });
+      return true;
+    }catch(e){ console.error('cloudSync.saveCatalog failed', e); return false; }
+  },
+  async loadCatalog(key){
+    if (!firebaseSyncConfigured() || !ensureFirebaseInit()) return null;
+    try{
+      const syncId = getSyncId();
+      const doc = await _firestoreDb.collection('stockmatch').doc(syncId).get();
+      if (!doc.exists) return null;
+      const data = doc.data();
+      return data && data[key] !== undefined ? data[key] : null;
+    }catch(e){ console.error('cloudSync.loadCatalog failed', e); return null; }
+  },
+  async clearAll(){
+    if (!firebaseSyncConfigured() || !ensureFirebaseInit()) return false;
+    try{
+      const syncId = getSyncId();
+      await _firestoreDb.collection('stockmatch').doc(syncId).delete();
+      return true;
+    }catch(e){ console.error('cloudSync.clearAll failed', e); return false; }
+  },
+  async saveImage(id, base64, mimeType){
+    if (!supabaseSyncConfigured() || !ensureSupabaseInit()) return false;
+    try{
+      const syncId = getSyncId();
+      const blob = base64ToBlob(base64, mimeType);
+      const { error } = await _supabaseClient.storage
+        .from(SUPABASE_BUCKET)
+        .upload(`${syncId}/${id}`, blob, { contentType: mimeType || 'application/octet-stream', upsert: true });
+      if (error) throw error;
+      return true;
+    }catch(e){ console.error('cloudSync.saveImage failed', e); return false; }
+  },
+  async getImage(id){
+    if (!supabaseSyncConfigured() || !ensureSupabaseInit()) return null;
+    try{
+      const syncId = getSyncId();
+      const { data, error } = await _supabaseClient.storage
+        .from(SUPABASE_BUCKET)
+        .download(`${syncId}/${id}`);
+      if (error || !data) return null;
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(data);
+      });
+    }catch(e){ return null; } // not found is normal, not an error worth logging
+  },
+  async getImages(ids){
+    const results = {};
+    await Promise.all(ids.map(async (id) => { results[id] = await cloudSync.getImage(id); }));
+    return results;
+  },
+  async deleteImage(id){
+    if (!supabaseSyncConfigured() || !ensureSupabaseInit()) return false;
+    try{
+      const syncId = getSyncId();
+      const { error } = await _supabaseClient.storage.from(SUPABASE_BUCKET).remove([`${syncId}/${id}`]);
+      if (error) throw error;
+      return true;
+    }catch(e){ return false; } // fine if it never existed
+  }
+};
+
 /* ===================== local storage shim ===================== */
 /* This app needs a paid Anthropic API key (billing enabled at
    console.anthropic.com) since it's hosted standalone rather than inside
@@ -1125,6 +1295,31 @@ function setApiKey(key){
 }
 const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
+
+function getFirebaseConfigRaw(){
+  try{ return window.localStorage.getItem('sm:firebase-config') || ''; }catch(e){ return ''; }
+}
+function setFirebaseConfigRaw(raw){
+  try{ window.localStorage.setItem('sm:firebase-config', raw.trim()); }catch(e){}
+}
+function getSyncId(){
+  try{ return window.localStorage.getItem('sm:sync-id') || ''; }catch(e){ return ''; }
+}
+function setSyncId(id){
+  try{ window.localStorage.setItem('sm:sync-id', id.trim()); }catch(e){}
+}
+function getSupabaseUrl(){
+  try{ return window.localStorage.getItem('sm:supabase-url') || ''; }catch(e){ return ''; }
+}
+function setSupabaseUrl(url){
+  try{ window.localStorage.setItem('sm:supabase-url', url.trim()); }catch(e){}
+}
+function getSupabaseAnonKey(){
+  try{ return window.localStorage.getItem('sm:supabase-anon-key') || ''; }catch(e){ return ''; }
+}
+function setSupabaseAnonKey(key){
+  try{ window.localStorage.setItem('sm:supabase-anon-key', key.trim()); }catch(e){}
+}
 
 function getGeminiApiKey(){
   try{ return window.localStorage.getItem('sm:gemini-api-key') || ''; }catch(e){ return ''; }
@@ -1233,25 +1428,37 @@ async function saveStockCatalog(){
       hasImage: !!it.imageData, imageMimeType: it.imageMimeType || null,
       priceOverride: it.priceOverride !== undefined ? it.priceOverride : null
     }));
-    await localStore.set('stock-catalog', JSON.stringify(persistable));
+    const json = JSON.stringify(persistable);
+    await localStore.set('stock-catalog', json); // always keep a fast local cache too
+    if (firebaseSyncConfigured()) await cloudSync.saveCatalog('stockCatalog', json);
   }catch(e){ console.error('save stock failed', e); }
 }
 
-async function saveStockImage(id, base64){
+async function saveStockImage(id, base64, mimeType){
   if (!base64) return;
-  await imageStore.set(id, base64);
+  await imageStore.set(id, base64); // local cache, works even offline
+  if (supabaseSyncConfigured()) await cloudSync.saveImage(id, base64, mimeType);
 }
 
 async function loadStockCatalog(){
   try{
-    const res = await localStore.get('stock-catalog');
-    if (res && res.value){
-      const parsed = JSON.parse(res.value);
+    // Cloud is the source of truth when configured, since the whole point
+    // is seeing the same catalog on every device -- prefer it over the
+    // local cache, but don't fail the load if cloud is unreachable.
+    let json = null;
+    if (firebaseSyncConfigured()) json = await cloudSync.loadCatalog('stockCatalog');
+    if (!json){
+      const res = await localStore.get('stock-catalog');
+      json = res && res.value;
+    }
+    if (json){
+      const parsed = JSON.parse(json);
       stockItems = parsed.map(it => ({...it, imageData: null}));
-      // Restore actual photos from IndexedDB for items that have one saved.
       const idsWithImages = stockItems.filter(it => it.hasImage).map(it => it.id);
       if (idsWithImages.length){
-        const images = await imageStore.getMany(idsWithImages);
+        const images = supabaseSyncConfigured()
+          ? await cloudSync.getImages(idsWithImages)
+          : await imageStore.getMany(idsWithImages);
         stockItems.forEach(it => {
           if (images[it.id]) it.imageData = images[it.id];
         });
@@ -1269,27 +1476,42 @@ async function saveDemandCatalog(){
       status: it.status, fingerprint: it.fingerprint || null, error: it.error || null,
       hasImage: !!it.imageData, imageMimeType: it.imageMimeType || null
     }));
-    await localStore.set('demand-catalog', JSON.stringify(persistable));
+    const json = JSON.stringify(persistable);
+    await localStore.set('demand-catalog', json);
+    if (firebaseSyncConfigured()) await cloudSync.saveCatalog('demandCatalog', json);
   }catch(e){ console.error('save demand failed', e); }
 }
 
-async function saveDemandImage(id, base64){
+async function saveDemandImage(id, base64, mimeType){
   if (!base64) return;
   await imageStore.set('demand:' + id, base64);
+  if (supabaseSyncConfigured()) await cloudSync.saveImage('demand_' + id, base64, mimeType);
 }
 
 async function loadDemandCatalog(){
   try{
-    const res = await localStore.get('demand-catalog');
-    if (res && res.value){
-      const parsed = JSON.parse(res.value);
+    let json = null;
+    if (firebaseSyncConfigured()) json = await cloudSync.loadCatalog('demandCatalog');
+    if (!json){
+      const res = await localStore.get('demand-catalog');
+      json = res && res.value;
+    }
+    if (json){
+      const parsed = JSON.parse(json);
       demandItems = parsed.map(it => ({...it, imageData: null}));
-      const idsWithImages = demandItems.filter(it => it.hasImage).map(it => 'demand:' + it.id);
+      const idsWithImages = demandItems.filter(it => it.hasImage).map(it => it.id);
       if (idsWithImages.length){
-        const images = await imageStore.getMany(idsWithImages);
-        demandItems.forEach(it => {
-          if (images['demand:' + it.id]) it.imageData = images['demand:' + it.id];
-        });
+        if (supabaseSyncConfigured()){
+          const images = await cloudSync.getImages(idsWithImages.map(id => 'demand_' + id));
+          demandItems.forEach(it => {
+            if (images['demand_' + it.id]) it.imageData = images['demand_' + it.id];
+          });
+        } else {
+          const images = await imageStore.getMany(idsWithImages.map(id => 'demand:' + id));
+          demandItems.forEach(it => {
+            if (images['demand:' + it.id]) it.imageData = images['demand:' + it.id];
+          });
+        }
       }
     }
   }catch(e){
@@ -1388,6 +1610,7 @@ function attachStockCardHandlers(){
       const removedId = e.target.dataset.id;
       stockItems = stockItems.filter(s => s.id !== removedId);
       imageStore.delete(removedId);
+      if (supabaseSyncConfigured()) cloudSync.deleteImage(removedId);
       saveStockCatalog();
       renderStock();
       renderDashboard();
@@ -1416,6 +1639,7 @@ function markSold(id){
   if (!confirm(`Mark "${itemLabel(item)}" as sold out? It will be removed from stock.`)) return;
   stockItems = stockItems.filter(s => s.id !== id);
   imageStore.delete(id);
+  if (supabaseSyncConfigured()) cloudSync.deleteImage(id);
   // Drop this item from any existing match results immediately so sold
   // stock never lingers as a "match" in memory.
   matchResults = matchResults.map(r => ({
@@ -1468,10 +1692,10 @@ function triggerReattach(id, kind){
       item.imageMimeType = file.type;
       item.hasImage = true;
       if (kind === 'stock'){
-        saveStockImage(id, base64);
+        saveStockImage(id, base64, file.type);
         saveStockCatalog();
       } else {
-        saveDemandImage(id, base64);
+        saveDemandImage(id, base64, file.type);
         saveDemandCatalog();
       }
     }
@@ -1565,6 +1789,7 @@ function attachDemandCardHandlers(){
       const removedId = e.target.dataset.id;
       demandItems = demandItems.filter(s => s.id !== removedId);
       imageStore.delete('demand:' + removedId);
+      if (supabaseSyncConfigured()) cloudSync.deleteImage('demand_' + removedId);
       matchResults = matchResults.filter(r => r.demandId !== removedId);
       saveDemandCatalog();
       renderDemand();
@@ -2550,7 +2775,7 @@ async function handleStockFiles(fileList){
         id: newId, type: 'image', filename: file.name || 'untitled', caption: '',
         imageData: base64, imageMimeType: file.type, hasImage: true, status: 'pending', fingerprint: null, error: null
       });
-      saveStockImage(newId, base64);
+      saveStockImage(newId, base64, file.type);
       added++;
       // render incrementally so progress is visible on slow mobile reads
       renderStock();
@@ -2586,7 +2811,7 @@ async function handleDemandFiles(fileList){
         id: newId, type: 'image', filename: file.name || 'untitled', caption: '',
         imageData: base64, imageMimeType: file.type, hasImage: true, status: 'pending', fingerprint: null, error: null
       });
-      saveDemandImage(newId, base64);
+      saveDemandImage(newId, base64, file.type);
       added++;
       renderDemand();
     }catch(e){
@@ -2700,6 +2925,10 @@ function init(){
   function openSettingsModal(){
     document.getElementById('apiKeyInput').value = getApiKey();
     document.getElementById('geminiApiKeyInput').value = getGeminiApiKey();
+    document.getElementById('firebaseConfigInput').value = getFirebaseConfigRaw();
+    document.getElementById('supabaseUrlInput').value = getSupabaseUrl();
+    document.getElementById('supabaseAnonKeyInput').value = getSupabaseAnonKey();
+    document.getElementById('syncIdInput').value = getSyncId();
     document.getElementById('settingsModalOverlay').classList.add('open');
   }
   document.getElementById('settingsBtn').onclick = openSettingsModal;
@@ -2710,11 +2939,34 @@ function init(){
   document.getElementById('settingsModalSave').onclick = () => {
     const key = document.getElementById('apiKeyInput').value.trim();
     const geminiKey = document.getElementById('geminiApiKeyInput').value.trim();
+    const firebaseConfigRaw = document.getElementById('firebaseConfigInput').value.trim();
+    const supabaseUrl = document.getElementById('supabaseUrlInput').value.trim();
+    const supabaseAnonKey = document.getElementById('supabaseAnonKeyInput').value.trim();
+    const syncId = document.getElementById('syncIdInput').value.trim();
+
+    if (firebaseConfigRaw){
+      try{ JSON.parse(firebaseConfigRaw); }
+      catch(e){ showToast('Firebase config isn\u2019t valid JSON \u2014 check it was pasted correctly', true); return; }
+    }
+    if ((firebaseConfigRaw || supabaseUrl || supabaseAnonKey) && !syncId){
+      showToast('Add a Sync ID too \u2014 it\u2019s needed alongside Firebase/Supabase', true); return;
+    }
+    if (supabaseUrl && !/^https?:\/\//i.test(supabaseUrl)){
+      showToast('Supabase URL should start with https://', true); return;
+    }
+
     setApiKey(key);
     setGeminiApiKey(geminiKey);
+    setFirebaseConfigRaw(firebaseConfigRaw);
+    setSupabaseUrl(supabaseUrl);
+    setSupabaseAnonKey(supabaseAnonKey);
+    setSyncId(syncId);
+    // Force re-init on next use since config may have changed.
+    _firebaseApp = null; _firestoreDb = null; _firebaseInitError = null;
+    _supabaseClient = null; _supabaseInitError = null;
     document.getElementById('settingsModalOverlay').classList.remove('open');
     updateKeyBanner();
-    showToast(key ? 'API keys saved' : 'Anthropic key cleared');
+    showToast(key ? 'Settings saved' : 'Anthropic key cleared');
   };
 
   document.addEventListener('paste', handlePaste);
@@ -2723,6 +2975,43 @@ function init(){
   document.getElementById('importCatalogInput').onchange = (e) => {
     if (e.target.files && e.target.files[0]) importCatalog(e.target.files[0]);
     e.target.value = '';
+  };
+
+  document.getElementById('clearStockBtn').onclick = () => {
+    if (!stockItems.length){ showToast('Stock is already empty'); return; }
+    if (!confirm(`Remove all ${stockItems.length} stock item${stockItems.length === 1 ? '' : 's'}? This can\u2019t be undone.`)) return;
+    const ids = stockItems.map(it => it.id);
+    ids.forEach(id => { imageStore.delete(id); if (supabaseSyncConfigured()) cloudSync.deleteImage(id); });
+    stockItems = [];
+    matchResults = matchResults.map(r => ({ ...r, matches: [] }));
+    saveStockCatalog();
+    renderStock();
+    renderDashboard();
+    renderResults();
+    showToast('Stock cleared');
+  };
+
+  document.getElementById('clearDemandBtn').onclick = () => {
+    if (!demandItems.length){ showToast('Demand is already empty'); return; }
+    if (!confirm(`Remove all ${demandItems.length} demand item${demandItems.length === 1 ? '' : 's'}? This can\u2019t be undone.`)) return;
+    const ids = demandItems.map(it => it.id);
+    ids.forEach(id => { imageStore.delete('demand:' + id); if (supabaseSyncConfigured()) cloudSync.deleteImage('demand_' + id); });
+    demandItems = [];
+    matchResults = [];
+    saveDemandCatalog();
+    renderDemand();
+    renderResults();
+    renderDashboard();
+    showToast('Demand cleared');
+  };
+
+  document.getElementById('clearResultsBtn').onclick = () => {
+    if (!matchResults.length){ showToast('Results are already empty'); return; }
+    if (!confirm('Clear all match results? Stock and demand items themselves won\u2019t be affected \u2014 just re-run matching to rebuild this list.')) return;
+    matchResults = [];
+    renderResults();
+    renderDashboard();
+    showToast('Results cleared');
   };
 
   updateKeyBanner();
