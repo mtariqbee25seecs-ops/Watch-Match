@@ -1358,7 +1358,11 @@ function renderStockCard(it){
       </div>
       ${it.status === 'error' ? `<p style="font-size:11px;color:var(--red);margin-top:6px;">${escapeHtml(it.error || 'analysis failed')}</p>` : ''}
       ${fpHtml}
-      ${it.status === 'done' ? `<button class="btn small sold-btn" data-action="sold" data-id="${it.id}" style="margin-top:10px;width:100%;">Sold out</button>` : ''}
+      ${it.status === 'done' ? `
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <button class="btn small" data-action="reanalyze" data-id="${it.id}" style="flex:1;">Reanalyze</button>
+        <button class="btn small sold-btn" data-action="sold" data-id="${it.id}" style="flex:1;">Sold out</button>
+      </div>` : ''}
     </div>
   </div>`;
 }
@@ -1392,6 +1396,9 @@ function attachStockCardHandlers(){
   grid.querySelectorAll('[data-action="sold"]').forEach(btn => {
     btn.onclick = (e) => markSold(e.target.dataset.id);
   });
+  grid.querySelectorAll('[data-action="reanalyze"]').forEach(btn => {
+    btn.onclick = (e) => reanalyzeItem(e.target.dataset.id, 'stock');
+  });
   grid.querySelectorAll('[data-action="lightbox"]').forEach(el => {
     el.onclick = (e) => {
       const item = stockItems.find(s => s.id === el.dataset.id);
@@ -1420,6 +1427,30 @@ function markSold(id){
   renderDashboard();
   renderResults();
   showToast('Marked sold out and removed from stock');
+}
+
+function reanalyzeItem(id, kind){
+  const list = kind === 'stock' ? stockItems : demandItems;
+  const item = list.find(s => s.id === id);
+  if (!item) return;
+  if (item.type === 'image' && !item.imageData){
+    showToast('Image isn\u2019t loaded this session \u2014 re-attach it first', true);
+    return;
+  }
+  // Reset to pending so the normal batch-analysis pipeline (with all its
+  // progress UI, retry, and multi-attempt lookup behavior) picks this one
+  // item back up, exactly as if it were a fresh upload. Old fingerprint
+  // stays visible until the new one replaces it, so the card doesn't go
+  // blank while this runs.
+  item.status = 'pending';
+  item.error = null;
+  if (kind === 'stock'){
+    renderStock();
+    analyzeBatch(stockItems, 'stock', renderStock);
+  } else {
+    renderDemand();
+    analyzeBatch(demandItems, 'demand', renderDemand);
+  }
 }
 
 function triggerReattach(id, kind){
@@ -1513,6 +1544,7 @@ function renderDemandCard(it){
       </div>
       ${it.status === 'error' ? `<p style="font-size:11px;color:var(--red);margin-top:6px;">${escapeHtml(it.error || 'analysis failed')}</p>` : ''}
       ${fpHtml}
+      ${it.status === 'done' ? `<button class="btn small" data-action="reanalyze" data-id="${it.id}" style="margin-top:10px;width:100%;">Reanalyze</button>` : ''}
     </div>
   </div>`;
 }
@@ -1545,6 +1577,9 @@ function attachDemandCardHandlers(){
       const item = demandItems.find(s => s.id === el.dataset.id);
       if (item && item.imageData) openLightbox(item.imageData, imageMimeTypeOf(item));
     };
+  });
+  grid.querySelectorAll('[data-action="reanalyze"]').forEach(btn => {
+    btn.onclick = (e) => reanalyzeItem(e.target.dataset.id, 'demand');
   });
   grid.querySelectorAll('[data-action="readd"]').forEach(el => {
     el.onclick = () => triggerReattach(el.dataset.id, 'demand');
@@ -1599,6 +1634,8 @@ CRITICAL \u2014 the reference number itself must come from a real source you fou
 CRITICAL \u2014 a common failure mode to avoid: do NOT override a reference number that appears repeatedly and consistently across your OWN search results in favor of a more "specific-sounding" sub-reference you're merely guessing at, especially one you cannot point to a single source actually confirming. If your searches keep surfacing the same base reference number across many independent listings, that repetition IS strong evidence \u2014 trust it over an invented-sounding variant name, even if that variant name feels like it better matches every visual detail.
 
 CRITICAL \u2014 visually near-identical metals and generations: precious white metals (platinum vs. white gold/steel) often look identical in a photo and cannot be told apart by color alone \u2014 if the case material in the extracted details is platinum, white gold, or steel, treat that as provisional and explicitly search variants in more than one of these metals rather than assuming the extracted guess is correct. Likewise, many models have been through generational reference updates (an older and a newer reference number sharing nearly identical looks, e.g. after a manufacturer-wide case/bracelet refresh) \u2014 when your searches surface more than one closely related candidate reference for what otherwise looks like the same watch, search specifically for what visually distinguishes those generations (clasp design, crown guards, bracelet attachment, dial text changes) and say in "confidence_notes" if you genuinely cannot distinguish them from the photo alone, rather than picking one arbitrarily.
+
+CRITICAL \u2014 dial color variants: many models are sold in several dial colors under the SAME base reference number, while others use a DIFFERENT suffix or fully different number per color (e.g. a base number with "-001" for one dial color and "-002" for another). If a search for the exact dial color you see turns up nothing, broaden the search to the base model WITHOUT the color qualifier to find what reference numbering pattern that model family actually uses, then check specifically whether color is part of the base number, a suffix variant, or doesn't affect the reference at all \u2014 and only report a reference number once you've confirmed (via a real source) which pattern applies to this specific model and that it matches the color actually shown. Don't give up just because the color-specific query alone came back empty.
 
 This matters most for heavily customized pieces: if the watch has added gemstones (especially a diamond-set bezel, lugs, or crown guards) that don't match official catalog photos for any reference your search turns up, the most likely explanation is that this is a standard factory reference that a third-party jeweler customized with added stones AFTER it left the brand \u2014 this is extremely common in the secondary watch market. In that case, do not invent a plausible-sounding "diamond sub-reference" that no source actually confirms. Instead, identify and report the BASE reference (the closest standard catalog match, ignoring the added bezel/lug stones) using whatever reference number your searches consistently surface, and say explicitly in "confidence_notes" that the bezel/lug stones appear to be a likely aftermarket addition on top of that base reference.
 
@@ -1679,7 +1716,10 @@ async function callGeminiWithSearch({ base64Image, mimeType, promptText }, attem
   const data = await response.json();
   const candidate = data.candidates && data.candidates[0];
   const textParts = (candidate && candidate.content && candidate.content.parts || []).filter(p => p.text).map(p => p.text);
-  if (!textParts.length) throw new Error('No text response from Gemini');
+  if (!textParts.length){
+    const finishReason = candidate && candidate.finishReason;
+    throw new Error('No text response from Gemini' + (finishReason ? ' (finishReason: ' + finishReason + ')' : ''));
+  }
 
   // Surface what actually happened during grounding \u2014 the real search
   // queries issued and the sources found \u2014 so a lookup result (or lack
@@ -1746,7 +1786,7 @@ function getOfficialSiteForBrand(brand){
   return null;
 }
 
-async function lookupReferenceNumber(fp, base64Image, mimeType){
+async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt){
   // Looks up a reference number via Gemini's Google Search grounding tool.
   // Instructed to run multiple distinct searches and require cross-source
   // agreement before reporting a confident match. When a photo is
@@ -1754,6 +1794,16 @@ async function lookupReferenceNumber(fp, base64Image, mimeType){
   // text query). Designed to degrade gracefully: any failure here (no key,
   // network error, rate limit) just means the caller gets no reference
   // number rather than the whole item's analysis breaking.
+  //
+  // Keeps retrying the FULL lookup (a fresh search attempt, not just a
+  // network retry) up to MAX_LOOKUP_ATTEMPTS times until it gets a
+  // Google-verified ("looked_up") result. Each attempt is independent and
+  // can search different angles, so a retry has a genuine chance of
+  // succeeding where the previous one didn't. Capped rather than
+  // unbounded, since an item with no real online presence (e.g. a
+  // one-off custom piece) would otherwise retry forever at real cost
+  // with zero chance of ever succeeding.
+  const MAX_LOOKUP_ATTEMPTS = 4;
   const officialSite = getOfficialSiteForBrand(fp.brand);
   const officialSiteInstruction = officialSite
     ? `\n\nThe brand's official site for this watch is ${officialSite} \u2014 search "site:${officialSite}" FIRST as your top-priority source, since the manufacturer's own site is the single most authoritative confirmation of current configurations and exact reference numbers. Note: official sites usually only list currently-produced configurations, so if this looks like an older or discontinued reference, the official site may not have it \u2014 in that case fall back to your other instructed sources (Chrono24, WatchCharts, established dealers, etc.) and say so in confidence_notes.`
@@ -1764,48 +1814,40 @@ async function lookupReferenceNumber(fp, base64Image, mimeType){
     ? `${detailsText}\n\nThe photo is attached. Identify the exact reference number using the photo plus multiple Google searches, per your instructions.${officialSiteInstruction}`
     : `${detailsText}\n\nNo photo is available, only the description above. Identify the exact reference number using multiple Google searches based on these details, per your instructions.${officialSiteInstruction}`;
 
-  try{
-    const { text, searchQueries, sources } = await callGeminiWithSearch({
-      base64Image,
-      mimeType,
-      promptText: REFERENCE_LOOKUP_PROMPT + '\n\n' + promptText
-    });
-
-    let result;
+  let lastResult = null;
+  for (let attempt = 1; attempt <= MAX_LOOKUP_ATTEMPTS; attempt++){
+    if (onAttempt) onAttempt(attempt, MAX_LOOKUP_ATTEMPTS);
     try{
-      result = parseJsonLoose(text);
-    }catch(parseErr){
-      // confidence_notes is always the last field, so a token-limit cutoff
-      // typically lands mid-way through it, leaving the earlier fields
-      // (reference_number, reference_number_source, sources_agreed) intact
-      // and parseable on their own. Recover those rather than discarding
-      // a perfectly good answer just because the trailing note got cut off.
-      const refMatch = text.match(/"reference_number"\s*:\s*(null|"((?:[^"\\]|\\.)*)")/);
-      const sourceMatch = text.match(/"reference_number_source"\s*:\s*(null|"((?:[^"\\]|\\.)*)")/);
-      const agreedMatch = text.match(/"sources_agreed"\s*:\s*(\d+)/);
-      if (refMatch){
-        result = {
-          reference_number: refMatch[1] === 'null' ? null : refMatch[2],
-          reference_number_source: sourceMatch ? (sourceMatch[1] === 'null' ? null : sourceMatch[2]) : null,
-          sources_agreed: agreedMatch ? parseInt(agreedMatch[1], 10) : 0,
-          confidence_notes: '(notes were cut off, but the reference itself was recovered)'
-        };
-      } else {
-        throw parseErr;
-      }
-    }
+      const { text, searchQueries, sources } = await callGeminiWithSearch({
+        base64Image,
+        mimeType,
+        promptText: REFERENCE_LOOKUP_PROMPT + '\n\n' + promptText +
+          (attempt > 1 ? `\n\n(This is retry attempt ${attempt} \u2014 a previous attempt did not reach a confirmed result. Try different search query angles than a typical first pass, e.g. broader searches without the specific dial color if color-specific searches keep failing, since the same base reference may be listed online under a different color example.)` : '')
+      });
+      const result = parseJsonLoose(text);
 
-    // Always attach what was actually searched, even on success, so this
-    // is verifiable rather than a black box.
-    const searchSummary = searchQueries.length
-      ? `Searched: ${searchQueries.map(q => `"${q}"`).join(', ')}.${sources.length ? ' Sources seen: ' + sources.join(', ') + '.' : ''}`
-      : 'No web search was actually performed for this lookup (model answered without grounding).';
-    result.confidence_notes = result.confidence_notes ? `${result.confidence_notes} | ${searchSummary}` : searchSummary;
-    return result;
-  }catch(e){
-    console.warn('Reference lookup call failed, falling back to no lookup:', e.message);
-    return { reference_number: null, reference_number_source: null, confidence_notes: 'Lookup step failed: ' + e.message };
+      const searchSummary = searchQueries.length
+        ? `Searched: ${searchQueries.map(q => `"${q}"`).join(', ')}.${sources.length ? ' Sources seen: ' + sources.join(', ') + '.' : ''}`
+        : 'No web search was actually performed for this lookup (model answered without grounding).';
+      result.confidence_notes = result.confidence_notes ? `${result.confidence_notes} | ${searchSummary}` : searchSummary;
+
+      lastResult = result;
+      if (result.reference_number_source === 'looked_up'){
+        if (attempt > 1) result.confidence_notes = `(confirmed on attempt ${attempt}/${MAX_LOOKUP_ATTEMPTS}) ${result.confidence_notes}`;
+        return result;
+      }
+      // Not yet confirmed -- loop again unless out of attempts.
+    }catch(e){
+      console.warn(`Reference lookup attempt ${attempt} failed:`, e.message);
+      lastResult = { reference_number: null, reference_number_source: null, confidence_notes: 'Lookup step failed: ' + e.message };
+    }
   }
+
+  // Exhausted all attempts without a confirmed match.
+  if (lastResult){
+    lastResult.confidence_notes = `(tried ${MAX_LOOKUP_ATTEMPTS} times, never reached a Google-verified match) ${lastResult.confidence_notes || ''}`.trim();
+  }
+  return lastResult || { reference_number: null, reference_number_source: null, confidence_notes: `Lookup failed after ${MAX_LOOKUP_ATTEMPTS} attempts.` };
 }
 
 async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWait, enableWebSearch }, attempt = 1){
@@ -1886,7 +1928,7 @@ async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWa
   return { text: textParts.join('\n'), searchQueries, sources };
 }
 
-async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeType){
+async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeType, onLookupAttempt){
   const userText = caption
     ? `Caption / filename provided by the dealer: "${caption}". Use this as supporting signal alongside the image.`
     : 'No caption was provided. Rely on the image alone.';
@@ -1904,7 +1946,7 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
   const fp = parseJsonLoose(text);
 
   if (!fp.reference_number){
-    const lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType);
+    const lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType, onLookupAttempt);
     fp.reference_number = lookup.reference_number || null;
     fp.reference_number_source = lookup.reference_number_source || null;
     if (lookup.confidence_notes){
@@ -1914,7 +1956,7 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
   return fp;
 }
 
-async function extractFingerprintFromText(text, onRetryWait){
+async function extractFingerprintFromText(text, onRetryWait, onLookupAttempt){
   const textSystemPrompt = FINGERPRINT_SCHEMA_PROMPT
     .replace('You are inspecting a watch listing screenshot for a dealer\'s inventory system. The screenshot is typically a chat message (e.g. WhatsApp) containing a watch photo AND message text baked into the same image \u2014 the text may include price, description, condition, or seller notes layered over or alongside the photo. Read both the watch itself and any visible text in the image.',
       'You are parsing a free-text customer demand request describing a watch they want. There is no image \u2014 work only from the text.')
@@ -1930,7 +1972,7 @@ async function extractFingerprintFromText(text, onRetryWait){
   const fp = parseJsonLoose(responseText);
 
   if (!fp.reference_number){
-    const lookup = await lookupReferenceNumber(fp);
+    const lookup = await lookupReferenceNumber(fp, null, null, onLookupAttempt);
     fp.reference_number = lookup.reference_number || null;
     fp.reference_number_source = lookup.reference_number_source || null;
     if (lookup.confidence_notes){
@@ -1940,29 +1982,114 @@ async function extractFingerprintFromText(text, onRetryWait){
   return fp;
 }
 
-function parseJsonLoose(text){
-  let cleaned = text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '');
-  try{
-    return JSON.parse(cleaned);
-  }catch(e){
-    // Model sometimes adds stray prose before/after the JSON despite
-    // instructions not to, or the fence isn't at the exact string boundary.
-    // Fall back to extracting the outermost {...} block by bracket matching.
-    const start = cleaned.indexOf('{');
-    if (start === -1) throw e;
-    let depth = 0;
-    for (let i = start; i < cleaned.length; i++){
-      if (cleaned[i] === '{') depth++;
-      else if (cleaned[i] === '}'){
-        depth--;
-        if (depth === 0){
-          const candidate = cleaned.slice(start, i + 1);
-          try{ return JSON.parse(candidate); }catch(e2){ throw e; }
-        }
-      }
+function findMatchingBraceStringAware(text, start){
+  // Scans for the closing brace that matches the opening brace at `start`,
+  // correctly skipping over the CONTENTS of string literals so that stray
+  // {, }, or " characters inside natural-language text (like confidence_notes)
+  // never throw off the depth count. This was the root cause behind several
+  // differently-worded JSON parse errors: a naive character-by-character
+  // brace counter breaks the moment any string value contains a brace.
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i++){
+    const ch = text[i];
+    if (inString){
+      if (ch === '\\'){ i++; continue; } // skip escaped char, including \"
+      if (ch === '"') inString = false;
+      continue;
     }
-    throw e;
+    if (ch === '"'){ inString = true; continue; }
+    if (ch === '{') depth++;
+    else if (ch === '}'){
+      depth--;
+      if (depth === 0) return i;
+    }
   }
+  return -1; // never closed -- genuine truncation
+}
+
+function attemptStructuralRepair(candidate){
+  // Best-effort repair for a candidate that's missing its closing quote/
+  // brace because generation was cut off mid-string (e.g. a long
+  // confidence_notes value that hit a token limit). Counts unescaped
+  // quotes; an odd count means a string was left open.
+  let quoteCount = 0;
+  for (let i = 0; i < candidate.length; i++){
+    if (candidate[i] === '\\'){ i++; continue; }
+    if (candidate[i] === '"') quoteCount++;
+  }
+  let repaired = candidate;
+  if (quoteCount % 2 !== 0){
+    repaired += '"'; // close the dangling string
+  }
+  // Close any remaining open braces.
+  let depth = 0;
+  let inStr = false;
+  for (let i = 0; i < repaired.length; i++){
+    const ch = repaired[i];
+    if (inStr){
+      if (ch === '\\'){ i++; continue; }
+      if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"'){ inStr = true; continue; }
+    if (ch === '{') depth++;
+    else if (ch === '}') depth--;
+  }
+  while (depth > 0){ repaired += '}'; depth--; }
+  return repaired;
+}
+
+function extractFieldsByRegex(text){
+  // Absolute last resort: pull out known fields directly from raw text via
+  // regex, regardless of whether the overall JSON structure is parseable
+  // at all. This recovers a perfectly good answer even when the response
+  // was cut off so early or so badly that structural repair can't help.
+  const get = (key) => {
+    const m = text.match(new RegExp(`"${key}"\\s*:\\s*(null|"((?:[^"\\\\]|\\\\.)*)"|\\d+)`));
+    if (!m) return undefined;
+    if (m[1] === 'null') return null;
+    if (m[2] !== undefined) return m[2];
+    return m[1];
+  };
+  const referenceNumber = get('reference_number');
+  if (referenceNumber === undefined) return null; // nothing usable found
+  return {
+    reference_number: referenceNumber,
+    reference_number_source: get('reference_number_source') ?? null,
+    sources_agreed: (() => { const v = get('sources_agreed'); return v !== undefined ? parseInt(v, 10) : 0; })(),
+    confidence_notes: get('confidence_notes') ?? null
+  };
+}
+
+function parseJsonLoose(text){
+  const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '');
+
+  // Attempt 1: the cleaned text is already valid JSON as-is.
+  try{ return JSON.parse(cleaned); }catch(e){}
+
+  // Attempt 2: extract the outermost {...} block with a string-aware
+  // brace matcher (handles stray prose before/after the JSON).
+  const start = cleaned.indexOf('{');
+  if (start !== -1){
+    const end = findMatchingBraceStringAware(cleaned, start);
+    if (end !== -1){
+      const candidate = cleaned.slice(start, end + 1);
+      try{ return JSON.parse(candidate); }catch(e){}
+    } else {
+      // Braces never closed at all -- genuine truncation mid-object.
+      // Try structural repair on everything from the opening brace onward.
+      const candidate = cleaned.slice(start);
+      try{ return JSON.parse(attemptStructuralRepair(candidate)); }catch(e){}
+    }
+  }
+
+  // Attempt 3: regex-extract known fields directly, ignoring structure
+  // entirely. Works even for severely truncated or malformed responses.
+  const recovered = extractFieldsByRegex(cleaned);
+  if (recovered) return recovered;
+
+  throw new Error('Could not parse a usable JSON object from the response');
 }
 
 /* ===================== batch analysis with progress ===================== */
@@ -2001,11 +2128,15 @@ async function analyzeBatch(items, kind, renderFn){
           rateLimitNotice = `Rate limited, waiting ${waitSeconds}s\u2026`;
           updateProgress();
         };
+        const onLookupAttempt = (attempt, max) => {
+          rateLimitNotice = attempt > 1 ? `Verifying with Google (attempt ${attempt}/${max})\u2026` : 'Verifying with Google\u2026';
+          updateProgress();
+        };
         if (item.type === 'image'){
           if (!item.imageData) throw new Error('image not attached this session');
-          fp = await extractFingerprintFromImage(item.imageData, item.caption, onRetryWait, imageMimeTypeOf(item));
+          fp = await extractFingerprintFromImage(item.imageData, item.caption, onRetryWait, imageMimeTypeOf(item), onLookupAttempt);
         } else {
-          fp = await extractFingerprintFromText(item.text || '', onRetryWait);
+          fp = await extractFingerprintFromText(item.text || '', onRetryWait, onLookupAttempt);
         }
         item.fingerprint = fp;
         item.status = 'done';
