@@ -1854,6 +1854,8 @@ const REFERENCE_LOOKUP_PROMPT = `You are identifying the exact reference number 
 3. Compare what the different searches/sources turn up. If multiple independent sources agree on the same reference number, that's your answer \u2014 treat agreement across sources as the deciding signal, not just whichever result came up first.
 4. If sources conflict or only a single weak source suggests a number, do not present it as confirmed \u2014 keep searching with another query angle instead. If you still can't resolve it after genuinely trying multiple angles, return null \u2014 see the rules below. Do not guess.
 
+CRITICAL \u2014 you MUST actually call the search tool before claiming "looked_up": never answer from memory and then describe it as if sources confirmed it. Do not write things like "confirmed by the official Rolex website, Chrono24, [other dealer names]" unless you actually issued search queries and actually read those results in this conversation. Naming real-sounding sources you did not actually consult is a serious error \u2014 it is fabricating evidence, not summarizing it. If you're answering from trained knowledge rather than something you just searched for, that is "inferred" behavior and must be reported as "reference_number_source": null per the rules below, even if you are personally confident the brand/model/style is right \u2014 confidence from memory is not the same as confirmation from a source.
+
 CRITICAL \u2014 the reference number itself must come from a real source you found, never from visual reasoning alone: looking at the photo is only for forming good search queries and for cross-checking that a candidate reference's known photos genuinely match what you see. It is NOT a basis for the final answer on its own. Phrases like "consistent with the warm rose-gold tone" or "looks like Everose gold based on color" describe what you see, not what a website confirmed \u2014 never let that kind of visual impression alone produce a reference_number. Only set "reference_number" to a value that a specific search result/page actually stated as that watch's reference. If your searches only get you to "this looks like brand X's style" without any source actually naming a number, that is not enough \u2014 keep searching with sharper, more specific queries, or return null.
 
 CRITICAL \u2014 a common failure mode to avoid: do NOT override a reference number that appears repeatedly and consistently across your OWN search results in favor of a more "specific-sounding" sub-reference you're merely guessing at, especially one you cannot point to a single source actually confirming. If your searches keep surfacing the same base reference number across many independent listings, that repetition IS strong evidence \u2014 trust it over an invented-sounding variant name, even if that variant name feels like it better matches every visual detail.
@@ -1875,6 +1877,7 @@ Respond with STRICT JSON ONLY (no markdown fences, no commentary), in this exact
 }
 
 Rules:
+- "reference_number_source": "looked_up" is ONLY valid if you actually invoked the search tool in this conversation and a real result stated the reference number. Never set it to "looked_up" based on memory, confidence, or stylistic similarity, even if you're certain you're right.
 - If 2+ independent sources/searches agree on the same reference number, set "reference_number" to that value, "reference_number_source" to "looked_up", "sources_agreed" to the count, and name the agreeing sources briefly in "confidence_notes".
 - If only one weak source or no clear agreement, but you still found a source that explicitly stated a number, you may report it as "looked_up" with "sources_agreed": 1, but say briefly in "confidence_notes" that it's unconfirmed by a second source.
 - There is no fallback guess. If search genuinely cannot confirm even a single plausible reference \u2014 actually stated by a real source \u2014 after multiple distinct attempts, set "reference_number" to null and "reference_number_source" to null. Do not invent one from memory or from visual impression. Still briefly report what you searched for in "confidence_notes", so it's clear a real attempt was made.
@@ -2051,13 +2054,27 @@ async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt){
       });
       const result = parseJsonLoose(text);
 
+      // CRITICAL: don't trust the model's own "looked_up" self-report. It
+      // can (and does) sometimes answer purely from memory, then claim
+      // sources confirmed it anyway -- a hallucinated citation. Only treat
+      // it as genuinely verified if the API's own grounding metadata shows
+      // real search activity actually happened. If it claims "looked_up"
+      // but no search occurred, downgrade it and keep retrying instead of
+      // accepting a fabricated confirmation.
+      const reallySearched = searchQueries.length > 0;
+      if (result.reference_number_source === 'looked_up' && !reallySearched){
+        result.reference_number = null;
+        result.reference_number_source = null;
+        result.confidence_notes = 'Model claimed a confirmed reference without actually performing a search \u2014 discarded as unverified.';
+      }
+
       const searchSummary = searchQueries.length
         ? `Searched: ${searchQueries.map(q => `"${q}"`).join(', ')}.${sources.length ? ' Sources seen: ' + sources.join(', ') + '.' : ''}`
         : 'No web search was actually performed for this lookup (model answered without grounding).';
       result.confidence_notes = result.confidence_notes ? `${result.confidence_notes} | ${searchSummary}` : searchSummary;
 
       lastResult = result;
-      if (result.reference_number_source === 'looked_up'){
+      if (result.reference_number_source === 'looked_up' && reallySearched){
         if (attempt > 1) result.confidence_notes = `(confirmed on attempt ${attempt}/${MAX_LOOKUP_ATTEMPTS}) ${result.confidence_notes}`;
         return result;
       }
