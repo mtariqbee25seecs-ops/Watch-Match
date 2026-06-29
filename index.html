@@ -2171,7 +2171,7 @@ async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWa
   return { text: textParts.join('\n'), searchQueries, sources };
 }
 
-async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeType, onLookupAttempt){
+async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeType, onLookupAttempt, allowLookup){
   const userText = caption
     ? `Caption / filename provided by the dealer: "${caption}". Use this as supporting signal alongside the image.`
     : 'No caption was provided. Rely on the image alone.';
@@ -2188,7 +2188,15 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
   });
   const fp = parseJsonLoose(text);
 
-  if (!fp.reference_number){
+  // Stock photos reliably have the reference number baked into the seller's
+  // message text, which the extraction step above already reads directly
+  // (per the REFERENCE NUMBER RULE: visible includes "stated in message
+  // text"). So for stock, skip the Google lookup entirely rather than
+  // spending a multi-attempt search on something the photo already told
+  // us -- faster and cheaper, with lookup reserved for demand where the
+  // reference is genuinely often missing. allowLookup defaults to true so
+  // demand (and any other caller) keeps full lookup behavior.
+  if (!fp.reference_number && allowLookup !== false){
     const lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType, onLookupAttempt);
     fp.reference_number = lookup.reference_number || null;
     fp.reference_number_source = lookup.reference_number_source || null;
@@ -2377,7 +2385,7 @@ async function analyzeBatch(items, kind, renderFn){
         };
         if (item.type === 'image'){
           if (!item.imageData) throw new Error('image not attached this session');
-          fp = await extractFingerprintFromImage(item.imageData, item.caption, onRetryWait, imageMimeTypeOf(item), onLookupAttempt);
+          fp = await extractFingerprintFromImage(item.imageData, item.caption, onRetryWait, imageMimeTypeOf(item), onLookupAttempt, kind !== 'stock');
         } else {
           fp = await extractFingerprintFromText(item.text || '', onRetryWait, onLookupAttempt);
         }
