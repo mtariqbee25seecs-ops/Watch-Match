@@ -913,6 +913,7 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
             Restore catalog
             <input type="file" id="importCatalogInput" accept="application/json" hidden>
           </label>
+          <button class="btn small" id="pushImagesBtn" title="Push any locally-loaded images up to the cloud, catching up devices that predate cloud sync setup">Push images to cloud</button>
         </div>
       </div>
 
@@ -2972,6 +2973,8 @@ function init(){
       showToast('Supabase URL should start with https://', true); return;
     }
 
+    const wasSupabaseConfigured = supabaseSyncConfigured();
+
     setApiKey(key);
     setGeminiApiKey(geminiKey);
     setFirebaseConfigRaw(firebaseConfigRaw);
@@ -2984,11 +2987,19 @@ function init(){
     document.getElementById('settingsModalOverlay').classList.remove('open');
     updateKeyBanner();
     showToast(key ? 'Settings saved' : 'Anthropic key cleared');
+
+    // Cloud sync just became configured for the first time on this device
+    // -- automatically catch up any images already sitting locally that
+    // predate this setup, rather than leaving them stuck local-only.
+    if (!wasSupabaseConfigured && supabaseSyncConfigured()){
+      setTimeout(() => pushLocalImagesToCloud(), 600);
+    }
   };
 
   document.addEventListener('paste', handlePaste);
 
   document.getElementById('exportCatalogBtn').onclick = exportCatalog;
+  document.getElementById('pushImagesBtn').onclick = pushLocalImagesToCloud;
   document.getElementById('importCatalogInput').onchange = (e) => {
     if (e.target.files && e.target.files[0]) importCatalog(e.target.files[0]);
     e.target.value = '';
@@ -3048,6 +3059,38 @@ function updateKeyBanner(){
    storage for sites that aren't bookmarked/installed. This file-based
    backup is the reliable fallback: it never depends on the browser
    remembering anything, since the data lives in a file you control. */
+
+async function pushLocalImagesToCloud(){
+  // Catch-up sync: pushes any image currently loaded in THIS browser's
+  // memory up to the cloud, regardless of whether it was already there.
+  // Needed because images only get pushed at the moment of upload/re-attach
+  // -- anything analyzed before cloud sync was configured (or on a device
+  // that's never had its local IndexedDB images pushed) would otherwise
+  // never make it to the cloud on its own.
+  if (!supabaseSyncConfigured()){
+    showToast('Set up Supabase first \u2014 see settings', true);
+    return;
+  }
+  const stockToPush = stockItems.filter(it => it.imageData);
+  const demandToPush = demandItems.filter(it => it.imageData);
+  const total = stockToPush.length + demandToPush.length;
+  if (!total){
+    showToast('No images loaded in this browser right now to push \u2014 open each item once first if needed');
+    return;
+  }
+  showToast(`Pushing ${total} image${total === 1 ? '' : 's'} to the cloud\u2026`);
+  let pushed = 0, failed = 0;
+  for (const it of stockToPush){
+    const ok = await cloudSync.saveImage(it.id, it.imageData, imageMimeTypeOf(it));
+    if (ok) pushed++; else failed++;
+  }
+  for (const it of demandToPush){
+    const ok = await cloudSync.saveImage('demand_' + it.id, it.imageData, imageMimeTypeOf(it));
+    if (ok) pushed++; else failed++;
+  }
+  if (failed) showToast(`Pushed ${pushed}, ${failed} failed \u2014 check Supabase bucket name/policy`, true);
+  else showToast(`Pushed ${pushed} image${pushed === 1 ? '' : 's'} to the cloud \u2014 other devices will see them now`);
+}
 
 function exportCatalog(){
   const persistable = stockItems.map(it => ({
