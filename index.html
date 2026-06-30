@@ -1536,10 +1536,13 @@ function renderStock(){
   empty.style.display = stockItems.length ? 'none' : '';
   grid.innerHTML = stockItems.map(renderStockCard).join('');
 
-  const pending = stockItems.filter(it => it.status === 'pending' || it.status === 'error').length;
+  const pendingCount = stockItems.filter(it => it.status === 'pending').length;
+  const errorCount = stockItems.filter(it => it.status === 'error').length;
   const analyzeBtn = document.getElementById('analyzeStockBtn');
-  analyzeBtn.disabled = pending === 0;
-  analyzeBtn.textContent = pending ? `Analyze pending (${pending})` : 'Analyze pending';
+  analyzeBtn.disabled = (pendingCount + errorCount) === 0;
+  if (errorCount && !pendingCount) analyzeBtn.textContent = `Retry failed (${errorCount})`;
+  else if (errorCount) analyzeBtn.textContent = `Analyze pending (${pendingCount + errorCount}, ${errorCount} retry)`;
+  else analyzeBtn.textContent = pendingCount ? `Analyze pending (${pendingCount})` : 'Analyze pending';
 
   updateRunMatchAvailability();
   attachStockCardHandlers();
@@ -1718,10 +1721,13 @@ function renderDemand(){
   empty.style.display = demandItems.length ? 'none' : '';
   grid.innerHTML = demandItems.map(renderDemandCard).join('');
 
-  const pending = demandItems.filter(it => it.status === 'pending' || it.status === 'error').length;
+  const pendingCount = demandItems.filter(it => it.status === 'pending').length;
+  const errorCount = demandItems.filter(it => it.status === 'error').length;
   const analyzeBtn = document.getElementById('analyzeDemandBtn');
-  analyzeBtn.disabled = pending === 0;
-  analyzeBtn.textContent = pending ? `Analyze pending (${pending})` : 'Analyze pending';
+  analyzeBtn.disabled = (pendingCount + errorCount) === 0;
+  if (errorCount && !pendingCount) analyzeBtn.textContent = `Retry failed (${errorCount})`;
+  else if (errorCount) analyzeBtn.textContent = `Analyze pending (${pendingCount + errorCount}, ${errorCount} retry)`;
+  else analyzeBtn.textContent = pendingCount ? `Analyze pending (${pendingCount})` : 'Analyze pending';
 
   updateRunMatchAvailability();
   attachDemandCardHandlers();
@@ -1914,15 +1920,36 @@ async function callGeminiWithSearch({ base64Image, mimeType, promptText }, attem
   parts.push({ text: promptText });
 
   const model = GEMINI_MODELS[modelIndex] || GEMINI_MODELS[0];
-  const response = await fetch(`${geminiUrlFor(model)}?key=${encodeURIComponent(apiKey)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts }],
-      tools: [{ googleSearch: {} }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 2500 }
-    })
-  });
+  let response;
+  try{
+    response = await fetch(`${geminiUrlFor(model)}?key=${encodeURIComponent(apiKey)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts }],
+        tools: [{ googleSearch: {} }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 2500 }
+      })
+    });
+  }catch(networkErr){
+    // fetch() itself rejected -- no HTTP response was ever received. This is
+    // a raw connection failure (dropped wifi/cellular, request killed by the
+    // OS backgrounding the tab, DNS hiccup, etc), surfaced by the browser as
+    // a generic message like "Load failed" (Safari) or "Failed to fetch"
+    // (Chrome) with no status code at all. Previously this threw immediately
+    // with no retry, since the retry logic below only triggers on a
+    // response that was actually received. Treat it the same as a
+    // transient server error instead of giving up on the first blip.
+    if (attempt <= 4){
+      const waitSeconds = attempt * 4;
+      await new Promise(r => setTimeout(r, waitSeconds * 1000));
+      return callGeminiWithSearch({ base64Image, mimeType, promptText }, attempt + 1, modelIndex);
+    }
+    if (modelIndex < GEMINI_MODELS.length - 1){
+      return callGeminiWithSearch({ base64Image, mimeType, promptText }, 1, modelIndex + 1);
+    }
+    throw new Error('Network error reaching Gemini (' + (networkErr.message || 'connection failed') + ') \u2014 check your connection and try again');
+  }
 
   if (!response.ok){
     let errJson = null;
@@ -2133,16 +2160,34 @@ async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWa
     body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }];
   }
 
-  const response = await fetch(ANTHROPIC_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: JSON.stringify(body)
-  });
+  let response;
+  try{
+    response = await fetch(ANTHROPIC_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify(body)
+    });
+  }catch(networkErr){
+    // fetch() itself rejected -- no HTTP response was ever received (dropped
+    // wifi/cellular mid-request, tab backgrounded and the OS killed the
+    // request, DNS hiccup, etc). Browsers surface this as a generic message
+    // like "Load failed" (Safari) or "Failed to fetch" (Chrome) with no
+    // status code. This used to throw immediately with zero retry, since
+    // the retry logic below only runs once a response actually comes back.
+    // Treat it the same as a transient server error instead.
+    if (attempt <= 4){
+      const waitSeconds = attempt * 3;
+      if (onRetryWait) onRetryWait(waitSeconds, attempt);
+      await new Promise(r => setTimeout(r, waitSeconds * 1000));
+      return callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWait, enableWebSearch }, attempt + 1);
+    }
+    throw new Error('Network error reaching Anthropic (' + (networkErr.message || 'connection failed') + ') \u2014 check your connection and try again');
+  }
 
   if (!response.ok){
     let errJson = null;
@@ -2357,9 +2402,41 @@ function parseJsonLoose(text){
 
 /* ===================== batch analysis with progress ===================== */
 
+let _wakeLockSentinel = null;
+
+async function acquireWakeLock(){
+  // Keeps the screen from timing out during a long batch run -- the most
+  // common real-world trigger for the in-flight network failures seen on
+  // large batches (phone sits idle for several minutes, screen locks,
+  // mobile Safari suspends pending requests on the now-backgrounded tab).
+  // This only prevents the screen from sleeping due to inactivity; it does
+  // NOT survive the user actively switching to another app, since the lock
+  // releases the moment the tab itself goes hidden. Feature-detected and
+  // silently skipped on unsupported browsers -- this is a mitigation, not
+  // a guarantee, so it fails quietly rather than blocking anything.
+  try{
+    if ('wakeLock' in navigator){
+      _wakeLockSentinel = await navigator.wakeLock.request('screen');
+    }
+  }catch(e){
+    _wakeLockSentinel = null; // common if battery saver is on, etc -- not fatal
+  }
+}
+
+function releaseWakeLock(){
+  try{
+    if (_wakeLockSentinel){
+      _wakeLockSentinel.release();
+      _wakeLockSentinel = null;
+    }
+  }catch(e){}
+}
+
 async function analyzeBatch(items, kind, renderFn){
   const toProcess = items.filter(it => it.status === 'pending' || it.status === 'error');
   if (!toProcess.length) return;
+
+  await acquireWakeLock();
 
   const btn = document.getElementById(kind === 'stock' ? 'analyzeStockBtn' : 'analyzeDemandBtn');
   const originalText = btn.textContent;
@@ -2418,6 +2495,7 @@ async function analyzeBatch(items, kind, renderFn){
 
   const workers = Array.from({length: Math.min(CONCURRENCY, toProcess.length)}, worker);
   await Promise.all(workers);
+  releaseWakeLock();
 
   btn.disabled = false;
   btn.textContent = originalText;
