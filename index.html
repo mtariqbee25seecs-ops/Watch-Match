@@ -1614,9 +1614,15 @@ function attachStockCardHandlers(){
       stockItems = stockItems.filter(s => s.id !== removedId);
       imageStore.delete(removedId);
       if (supabaseSyncConfigured()) cloudSync.deleteImage(removedId);
+      matchResults = matchResults.map(r => ({
+        ...r,
+        matches: r.matches.filter(m => m.stockId !== removedId),
+        similarModels: (r.similarModels || []).filter(m => m.stockId !== removedId)
+      }));
       saveStockCatalog();
       renderStock();
       renderDashboard();
+      renderResults();
     };
   });
   grid.querySelectorAll('[data-action="sold"]').forEach(btn => {
@@ -1644,10 +1650,11 @@ function markSold(id){
   imageStore.delete(id);
   if (supabaseSyncConfigured()) cloudSync.deleteImage(id);
   // Drop this item from any existing match results immediately so sold
-  // stock never lingers as a "match" in memory.
+  // stock never lingers as a "match" or a "similar model" suggestion.
   matchResults = matchResults.map(r => ({
     ...r,
-    matches: r.matches.filter(m => m.stockId !== id)
+    matches: r.matches.filter(m => m.stockId !== id),
+    similarModels: (r.similarModels || []).filter(m => m.stockId !== id)
   }));
   saveStockCatalog();
   renderStock();
@@ -2568,6 +2575,37 @@ function normalizeRefNumber(ref){
   return String(ref).toUpperCase().replace(/[\s\-_.]/g, '');
 }
 
+function extractRefBase(ref){
+  // Strips a trailing separator + short alphanumeric suffix -- the part
+  // that often encodes dial color or a minor variant in many brands'
+  // numbering, e.g. "5167A-001" -> "5167A", "15202.ST.OO.1240ST.01" ->
+  // "15202.ST.OO.1240ST". Used only to flag genuinely related variants as
+  // "similar" suggestions, never to widen what counts as an exact match.
+  if (!ref) return null;
+  const trimmed = String(ref).trim();
+  const match = trimmed.match(/^(.+?)[-_.]([A-Za-z0-9]{1,4})$/);
+  if (match && match[1].replace(/[^A-Za-z0-9]/g, '').length >= 4){
+    return normalizeRefNumber(match[1]);
+  }
+  return null; // no clean variant-suffix pattern found, no base to compare
+}
+
+function areSimilarRefs(refA, refB){
+  // Deliberately conservative: only flags two DIFFERENT references as
+  // similar when they share an extracted base after stripping a trailing
+  // variant suffix. Identical refs return false here since those are
+  // exact matches, handled separately. This must never be used to widen
+  // the strict exact-match rule -- only to power a clearly-separate
+  // "similar models" suggestion.
+  const normA = normalizeRefNumber(refA);
+  const normB = normalizeRefNumber(refB);
+  if (!normA || !normB || normA === normB) return false;
+  const baseA = extractRefBase(refA);
+  const baseB = extractRefBase(refB);
+  if (!baseA || !baseB) return false;
+  return baseA === baseB;
+}
+
 function refSourceRank(source){
   if (source === 'visible') return 3;
   if (source === 'looked_up') return 2;
@@ -2635,7 +2673,19 @@ function runMatching(opts){
       .sort((a, b) => b.confidence - a.confidence)
       .slice(0, 3);
 
-    return { demandId: d.id, demandItem: d, matches };
+    // Separate from exact matches: stock items with a DIFFERENT but closely
+    // related reference (e.g. same base number, different color/variant
+    // suffix). Never treated as a match, never factored into confidence --
+    // purely a "you don't have the exact one, but here's something close"
+    // suggestion, useful for a dealer workflow even when it isn't a real
+    // match. Capped at 3 and excludes anything already an exact match.
+    const matchedStockIds = new Set(matches.map(m => m.stockId));
+    const similarModels = stockReady
+      .filter(s => !matchedStockIds.has(s.id) && areSimilarRefs(s.fingerprint.reference_number, d.fingerprint.reference_number))
+      .map(s => ({ stockId: s.id, stockItem: s }))
+      .slice(0, 3);
+
+    return { demandId: d.id, demandItem: d, matches, similarModels };
   });
 
   renderResults();
@@ -2856,6 +2906,18 @@ function renderResultRow(r){
     </div>
   `).join('');
 
+  const similarModels = r.similarModels || [];
+  const similarModelsHtml = similarModels.length ? `
+    <div class="alt-matches similar-models">
+      <h4>Similar models in stock (different reference, not a match)</h4>
+      ${similarModels.map(m => `
+        <div class="alt-match-item">
+          ${thumbHtml(m.stockItem, 30)}
+          <span>${escapeHtml(itemLabel(m.stockItem))} ${refBadge(m.stockItem.fingerprint)}</span>
+        </div>
+      `).join('')}
+    </div>` : '';
+
   return `
   <div class="result-row" data-demand-id="${r.demandId}">
     <div class="result-summary">
@@ -2868,7 +2930,9 @@ function renderResultRow(r){
         <div class="demand-name">${escapeHtml(itemLabel(demandItem))}</div>
         ${top
           ? `<div class="match-name">matched: ${escapeHtml(itemLabel(top.stockItem))}</div>`
-          : `<div class="no-match">no confident match in current stock</div>`}
+          : similarModels.length
+            ? `<div class="no-match">no exact match \u2014 ${similarModels.length} similar model${similarModels.length > 1 ? 's' : ''} in stock</div>`
+            : `<div class="no-match">no confident match in current stock</div>`}
       </div>
       ${top ? `
       <div class="confidence">
@@ -2894,7 +2958,8 @@ function renderResultRow(r){
         <p>${escapeHtml(top.reasoning || '')}</p>
       </div>
       ${altMatches ? `<div class="alt-matches"><h4>Other possible matches</h4>${altMatches}</div>` : ''}
-      ` : `<p style="font-size:12.5px;color:var(--text-faint);padding-top:14px;">No stock item shared enough identifying detail with this request to surface as a match.</p>`}
+      ${similarModelsHtml}
+      ` : `<p style="font-size:12.5px;color:var(--text-faint);padding-top:14px;">No stock item shared the same reference number as this request.</p>${similarModelsHtml}`}
     </div>
   </div>`;
 }
