@@ -328,6 +328,7 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
 }
 .ref-badge.visible{background:rgba(111,174,95,0.14);color:var(--jade-bright);}
 .ref-badge.looked-up{background:rgba(90,143,176,0.16);color:var(--steel-bright);}
+.ref-badge.best-match{background:rgba(212,168,75,0.16);color:var(--brass-bright);}
 .ref-badge.inferred{background:rgba(212,168,75,0.14);color:var(--brass-bright);}
 
 .card-badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px;}
@@ -1852,14 +1853,16 @@ For "message_text": transcribe any visible chat/message text in the screenshot v
 For "price": extract just the price/amount if stated anywhere in the visible text (keep currency symbol or code as shown, e.g. "PKR 450,000" or "$3,200"). If no price is stated, use null.
 Only state what is visually evident or stated in the caption. If the caption conflicts with the image or message text, prefer the image/message text but note the conflict in confidence_notes. Respond with the JSON object only.`;
 
-const REFERENCE_LOOKUP_PROMPT = `You are identifying the exact reference number of a watch for a dealer's inventory system. You have a web_search tool \u2014 use it properly, not as a single vague lookup:
+const REFERENCE_LOOKUP_PROMPT = `You are identifying the exact reference number of a watch for a dealer's inventory system. You have TWO tools \u2014 use both properly, not as a single vague lookup:
+- Google Search: finds candidate pages and gives you short text snippets about them. Snippets alone are often too short to confirm an exact reference number with confidence.
+- URL context: lets you actually open and read the full content of a specific page (not just its snippet). Use this on the most promising 1-2 pages a search turns up whenever the snippet alone isn't conclusive \u2014 don't stop at the snippet if a full read of the page would settle it.
 
 1. Run AT LEAST 3-4 separate, differently-worded searches focused specifically on finding the reference number itself \u2014 not a general "what is this watch" search. Vary the query each time, e.g. "[brand] [model] [dial color] reference number", "[brand] [model] [case material] [bracelet type] ref", site-specific variants like "[brand] [model] site:chrono24.com", etc. Use the photo (if provided) to identify distinguishing details to search with.
-2. Check real, distinct sources each time \u2014 the brand's official site (the single most reliable source \u2014 search it specifically, e.g. "site:rolex.com" or "site:patek.com"), established marketplaces (Chrono24, WatchCharts, Bob's Watches, Crown & Caliber), watch reference databases, forums with verified reference threads. Do not stop after one search if the first result is weak or unconfirmed.
+2. Check real, distinct sources each time \u2014 the brand's official site (the single most reliable source \u2014 search it specifically, e.g. "site:rolex.com" or "site:patek.com"), established marketplaces (Chrono24, WatchCharts, Bob's Watches, Crown & Caliber), watch reference databases, forums with verified reference threads. Do not stop after one search if the first result is weak or unconfirmed. When a search snippet looks promising but isn't detailed enough to confirm the exact reference, actually open that page with the URL context tool rather than guessing from the snippet alone or giving up.
 3. Compare what the different searches/sources turn up. If multiple independent sources agree on the same reference number, that's your answer \u2014 treat agreement across sources as the deciding signal, not just whichever result came up first.
-4. If sources conflict or only a single weak source suggests a number, do not present it as confirmed \u2014 keep searching with another query angle instead. If you still can't resolve it after genuinely trying multiple angles, return null \u2014 see the rules below. Do not guess.
+4. If sources conflict or only a single weak source suggests a number, do not present it as confirmed \u2014 keep searching with another query angle, or open another candidate page, instead. If you still can't resolve it after genuinely trying multiple angles (including reading full pages, not just snippets), return null \u2014 see the rules below. Do not guess.
 
-CRITICAL \u2014 you MUST actually call the search tool before claiming "looked_up": never answer from memory and then describe it as if sources confirmed it. Do not write things like "confirmed by the official Rolex website, Chrono24, [other dealer names]" unless you actually issued search queries and actually read those results in this conversation. Naming real-sounding sources you did not actually consult is a serious error \u2014 it is fabricating evidence, not summarizing it. If you're answering from trained knowledge rather than something you just searched for, that is "inferred" behavior and must be reported as "reference_number_source": null per the rules below, even if you are personally confident the brand/model/style is right \u2014 confidence from memory is not the same as confirmation from a source.
+CRITICAL \u2014 you MUST actually call search and/or open pages before claiming "looked_up": never answer from memory and then describe it as if sources confirmed it. Do not write things like "confirmed by the official Rolex website, Chrono24, [other dealer names]" unless you actually issued search queries (and opened pages, where relevant) and actually read those results in this conversation. Naming real-sounding sources you did not actually consult is a serious error \u2014 it is fabricating evidence, not summarizing it. If a page genuinely could not be retrieved (it happens sometimes \u2014 a site blocks automated access, or a search returns nothing usable), say so plainly in confidence_notes rather than treating it as confirmation either way. If you're answering from trained knowledge rather than something you just searched for, that is "inferred" behavior and must be reported as "reference_number_source": null per the rules below, even if you are personally confident the brand/model/style is right \u2014 confidence from memory is not the same as confirmation from a source.
 
 CRITICAL \u2014 the reference number itself must come from a real source you found, never from visual reasoning alone: looking at the photo is only for forming good search queries and for cross-checking that a candidate reference's known photos genuinely match what you see. It is NOT a basis for the final answer on its own. Phrases like "consistent with the warm rose-gold tone" or "looks like Everose gold based on color" describe what you see, not what a website confirmed \u2014 never let that kind of visual impression alone produce a reference_number. Only set "reference_number" to a value that a specific search result/page actually stated as that watch's reference. If your searches only get you to "this looks like brand X's style" without any source actually naming a number, that is not enough \u2014 keep searching with sharper, more specific queries, or return null.
 
@@ -1873,19 +1876,26 @@ This matters most for heavily customized pieces: if the watch has added gemstone
 
 Keep "confidence_notes" SHORT \u2014 2-3 sentences maximum, naming sources tersely (e.g. "rolex.com, Chrono24"). Do not write long explanations; a brief, direct note is all that's needed, and overly long notes risk being cut off.
 
+CRITICAL \u2014 when search finds MULTIPLE real candidates, pick the single best one rather than returning nothing: sometimes your searches will turn up two or three distinct, real reference numbers that all plausibly match (e.g. a design shared across a few limited editions, like several colorways of the same special-edition model). When this happens, do NOT default to null. Instead:
+1. Compare the specific visual details you have (dial color, bezel, strap/bracelet color, any distinguishing text or markings) against what each real candidate is documented as looking like.
+2. Pick whichever single candidate best matches those specific details.
+3. Report that one candidate as "reference_number", set "reference_number_source" to "best_match" (not "looked_up", since it isn't fully confirmed), and in "confidence_notes" briefly name the other candidate(s) you considered and why you picked this one over them.
+This only applies when your search genuinely surfaced multiple real, distinct candidates with actual evidence behind them \u2014 it is NOT permission to guess when search found nothing at all. If search found zero real candidates, the answer is still null per the rules below, not a memory-based guess dressed up as "best_match".
+
 Respond with STRICT JSON ONLY (no markdown fences, no commentary), in this exact shape:
 {
   "reference_number": string or null,
-  "reference_number_source": "looked_up" or null,
+  "reference_number_source": "looked_up" or "best_match" or null,
   "sources_agreed": number (how many independent sources/searches confirmed this same number, 0 if none),
   "confidence_notes": string or null
 }
 
 Rules:
-- "reference_number_source": "looked_up" is ONLY valid if you actually invoked the search tool in this conversation and a real result stated the reference number. Never set it to "looked_up" based on memory, confidence, or stylistic similarity, even if you're certain you're right.
-- If 2+ independent sources/searches agree on the same reference number, set "reference_number" to that value, "reference_number_source" to "looked_up", "sources_agreed" to the count, and name the agreeing sources briefly in "confidence_notes".
+- "reference_number_source": "looked_up" is ONLY valid if you actually invoked the search tool in this conversation and a real result stated the reference number, AND you're confident it's the one specific match (not one of several plausible candidates). Never set it to "looked_up" based on memory, confidence, or stylistic similarity, even if you're certain you're right.
+- "reference_number_source": "best_match" is for when real search activity turned up multiple plausible real candidates and you picked the most likely one per the rule above \u2014 always pair this with a brief note on what made you pick it and what the alternatives were.
+- If 2+ independent sources/searches agree on the same single reference number, set "reference_number" to that value, "reference_number_source" to "looked_up", "sources_agreed" to the count, and name the agreeing sources briefly in "confidence_notes".
 - If only one weak source or no clear agreement, but you still found a source that explicitly stated a number, you may report it as "looked_up" with "sources_agreed": 1, but say briefly in "confidence_notes" that it's unconfirmed by a second source.
-- There is no fallback guess. If search genuinely cannot confirm even a single plausible reference \u2014 actually stated by a real source \u2014 after multiple distinct attempts, set "reference_number" to null and "reference_number_source" to null. Do not invent one from memory or from visual impression. Still briefly report what you searched for in "confidence_notes", so it's clear a real attempt was made.
+- There is no fallback guess from memory alone. If search genuinely cannot find even one plausible reference \u2014 actually stated by a real source \u2014 after multiple distinct attempts, set "reference_number" to null and "reference_number_source" to null. Do not invent one from memory or from visual impression with no search backing at all. Still briefly report what you searched for in "confidence_notes", so it's clear a real attempt was made.
 Respond with the JSON object only \u2014 no extra commentary around it, even after using search.`;
 
 function extractRetryDelaySeconds(response, errJson){
@@ -1927,7 +1937,14 @@ async function callGeminiWithSearch({ base64Image, mimeType, promptText }, attem
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ role: 'user', parts }],
-        tools: [{ googleSearch: {} }],
+        // googleSearch alone only ever gives Gemini short text snippets from
+        // search results -- it cannot read a full page. urlContext is a
+        // separate tool that lets Gemini actually fetch and read the full
+        // content of a specific page it found via search. Combining both is
+        // Google's documented pattern for exactly this kind of task: search
+        // to find candidate sources, then read them for real confirmation,
+        // instead of guessing from a truncated snippet alone.
+        tools: [{ urlContext: {} }, { googleSearch: {} }],
         generationConfig: { temperature: 0.2, maxOutputTokens: 2500 }
       })
     });
@@ -1990,15 +2007,22 @@ async function callGeminiWithSearch({ base64Image, mimeType, promptText }, attem
   }
 
   // Surface what actually happened during grounding \u2014 the real search
-  // queries issued and the sources found \u2014 so a lookup result (or lack
-  // of one) is verifiable rather than a black box.
+  // queries issued, the sources found, and any pages actually opened via
+  // url_context \u2014 so a lookup result (or lack of one) is verifiable
+  // rather than a black box.
   const grounding = candidate && candidate.groundingMetadata;
   const searchQueries = (grounding && grounding.webSearchQueries) || [];
   const sources = ((grounding && grounding.groundingChunks) || [])
     .map(c => c.web && c.web.title)
     .filter(Boolean);
 
-  return { text: textParts.join('\n'), searchQueries, sources };
+  const urlMeta = (candidate && candidate.urlContextMetadata && candidate.urlContextMetadata.urlMetadata) || [];
+  const pagesRead = urlMeta
+    .filter(u => u.urlRetrievalStatus === 'URL_RETRIEVAL_STATUS_SUCCESS')
+    .map(u => u.retrievedUrl)
+    .filter(Boolean);
+
+  return { text: textParts.join('\n'), searchQueries, sources, pagesRead };
 }
 
 const BRAND_OFFICIAL_SITES = {
@@ -2086,7 +2110,7 @@ async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt){
   for (let attempt = 1; attempt <= MAX_LOOKUP_ATTEMPTS; attempt++){
     if (onAttempt) onAttempt(attempt, MAX_LOOKUP_ATTEMPTS);
     try{
-      const { text, searchQueries, sources } = await callGeminiWithSearch({
+      const { text, searchQueries, sources, pagesRead } = await callGeminiWithSearch({
         base64Image,
         mimeType,
         promptText: REFERENCE_LOOKUP_PROMPT + '\n\n' + promptText +
@@ -2094,27 +2118,28 @@ async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt){
       });
       const result = parseJsonLoose(text);
 
-      // CRITICAL: don't trust the model's own "looked_up" self-report. It
-      // can (and does) sometimes answer purely from memory, then claim
+      // CRITICAL: don't trust the model's own self-reported source label.
+      // It can (and does) sometimes answer purely from memory, then claim
       // sources confirmed it anyway -- a hallucinated citation. Only treat
-      // it as genuinely verified if the API's own grounding metadata shows
-      // real search activity actually happened. If it claims "looked_up"
-      // but no search occurred, downgrade it and keep retrying instead of
-      // accepting a fabricated confirmation.
-      const reallySearched = searchQueries.length > 0;
-      if (result.reference_number_source === 'looked_up' && !reallySearched){
+      // "looked_up" or "best_match" as genuinely grounded if the API's own
+      // metadata shows real search/page-read activity actually happened.
+      // If it claims either label but neither occurred, downgrade it and
+      // keep retrying instead of accepting a fabricated confirmation.
+      const reallySearched = searchQueries.length > 0 || pagesRead.length > 0;
+      const claimsGrounded = result.reference_number_source === 'looked_up' || result.reference_number_source === 'best_match';
+      if (claimsGrounded && !reallySearched){
         result.reference_number = null;
         result.reference_number_source = null;
         result.confidence_notes = 'Model claimed a confirmed reference without actually performing a search \u2014 discarded as unverified.';
       }
 
       const searchSummary = searchQueries.length
-        ? `Searched: ${searchQueries.map(q => `"${q}"`).join(', ')}.${sources.length ? ' Sources seen: ' + sources.join(', ') + '.' : ''}`
+        ? `Searched: ${searchQueries.map(q => `"${q}"`).join(', ')}.${sources.length ? ' Sources seen: ' + sources.join(', ') + '.' : ''}${pagesRead.length ? ' Pages read in full: ' + pagesRead.join(', ') + '.' : ''}`
         : 'No web search was actually performed for this lookup (model answered without grounding).';
       result.confidence_notes = result.confidence_notes ? `${result.confidence_notes} | ${searchSummary}` : searchSummary;
 
       lastResult = result;
-      if (result.reference_number_source === 'looked_up' && reallySearched){
+      if (claimsGrounded && reallySearched){
         if (attempt > 1) result.confidence_notes = `(confirmed on attempt ${attempt}/${MAX_LOOKUP_ATTEMPTS}) ${result.confidence_notes}`;
         return result;
       }
@@ -2125,9 +2150,9 @@ async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt){
     }
   }
 
-  // Exhausted all attempts without a confirmed match.
+  // Exhausted all attempts without a confirmed or best-estimate match.
   if (lastResult){
-    lastResult.confidence_notes = `(tried ${MAX_LOOKUP_ATTEMPTS} times, never reached a Google-verified match) ${lastResult.confidence_notes || ''}`.trim();
+    lastResult.confidence_notes = `(tried ${MAX_LOOKUP_ATTEMPTS} times, never reached a search-grounded match) ${lastResult.confidence_notes || ''}`.trim();
   }
   return lastResult || { reference_number: null, reference_number_source: null, confidence_notes: `Lookup failed after ${MAX_LOOKUP_ATTEMPTS} attempts.` };
 }
@@ -2544,8 +2569,9 @@ function normalizeRefNumber(ref){
 }
 
 function refSourceRank(source){
-  if (source === 'visible') return 2;
-  if (source === 'looked_up') return 1;
+  if (source === 'visible') return 3;
+  if (source === 'looked_up') return 2;
+  if (source === 'best_match') return 1;
   return 0; // null/unknown \u2014 shouldn't normally occur since items without a
             // confirmed reference no longer carry a reference_number at all
 }
@@ -2553,6 +2579,7 @@ function refSourceRank(source){
 function refSourceLabel(source){
   if (source === 'visible') return 'read directly';
   if (source === 'looked_up') return 'found via Google search';
+  if (source === 'best_match') return 'best estimate among real candidates';
   return 'unconfirmed';
 }
 
@@ -2584,14 +2611,24 @@ function runMatching(opts){
         const stockLabel = refSourceLabel(s.fingerprint.reference_number_source);
         const combinedRank = Math.min(demandRank, stockRank);
 
-        const confidence = combinedRank === 2 ? 97 : 82;
-        const referenceMatchType = combinedRank === 2 ? 'visible_exact' : 'looked_up';
+        // 3 = both sides read directly off the piece/text -- highest trust.
+        // 2 = at least one side only Google-confirmed, not directly read.
+        // 1 = at least one side is a best-estimate among multiple real
+        // candidates, not a single confirmed match -- meaningfully less
+        // certain, since the "match" could be coincidental if the estimate
+        // picked the wrong one of several real candidates.
+        let confidence, referenceMatchType;
+        if (combinedRank === 3){ confidence = 97; referenceMatchType = 'visible_exact'; }
+        else if (combinedRank === 2){ confidence = 82; referenceMatchType = 'looked_up'; }
+        else { confidence = 55; referenceMatchType = 'best_match'; }
 
         let reasoning;
-        if (combinedRank === 2){
+        if (combinedRank === 3){
           reasoning = `Reference ${s.fingerprint.reference_number} read directly from both the stock photo and the demand request \u2014 exact match.`;
-        } else {
+        } else if (combinedRank === 2){
           reasoning = `Reference ${s.fingerprint.reference_number} matches \u2014 stock side ${stockLabel}, demand side ${demandLabel}. At least one side is Google-search-verified rather than read directly; treat as reliable but worth a quick visual confirmation.`;
+        } else {
+          reasoning = `Reference ${s.fingerprint.reference_number} matches \u2014 stock side ${stockLabel}, demand side ${demandLabel}. At least one side is a best estimate picked among multiple real candidates, not a single confirmed source \u2014 treat this match as a lead worth checking, not a certainty.`;
         }
         return { stockId: s.id, stockItem: s, confidence, referenceMatchType, reasoning };
       })
@@ -2628,10 +2665,11 @@ function genderBadge(fp){
 function refBadge(fp){
   if (!fp || !fp.reference_number) return '';
   const source = fp.reference_number_source;
-  const cls = source === 'visible' ? 'visible' : 'looked-up';
-  const label = source === 'visible' ? '' : ' (Google-verified)';
+  const cls = source === 'visible' ? 'visible' : source === 'looked_up' ? 'looked-up' : 'best-match';
+  const label = source === 'visible' ? '' : source === 'looked_up' ? ' (Google-verified)' : ' (best estimate)';
   const title = source === 'visible' ? 'Read directly from the photo or message text'
-    : 'Not directly legible \u2014 confirmed via Google search against real listings/specs';
+    : source === 'looked_up' ? 'Not directly legible \u2014 confirmed via Google search against real listings/specs'
+    : 'Not directly legible \u2014 search found multiple real candidates, this is the most likely one based on visual details. Treat as a strong lead, not a certainty.';
   return `<span class="ref-badge ${cls}" title="${title}">${escapeHtml(fp.reference_number)}${label}</span>`;
 }
 
@@ -2659,7 +2697,9 @@ function renderDashboardMatches(){
     const tier = confidenceTier(pct);
     const matchTypeBadge = top.referenceMatchType === 'looked_up'
       ? '<span class="ref-badge looked-up">Google-verified match</span>'
-      : '';
+      : top.referenceMatchType === 'best_match'
+        ? '<span class="ref-badge best-match">best-estimate match \u2014 verify</span>'
+        : '';
 
     return `
     <div class="match-pair-card">
