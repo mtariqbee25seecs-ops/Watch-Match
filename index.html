@@ -1026,12 +1026,6 @@ let matchResults = []; // {demandId, demandLabel, demandThumb, matches:[{stockId
 let currentView = 'stock';
 
 /* ===================== IndexedDB image store ===================== */
-/* localStorage caps out around 5-10MB total, nowhere near enough for dozens
-   of full-resolution watch photos. IndexedDB has a much higher practical
-   ceiling (typically hundreds of MB, browser-dependent), so it's the only
-   realistic way to keep photos themselves persisted across reloads. This
-   wraps it in a tiny promise-based API so the rest of the app can just
-   call imageStore.get(id) / imageStore.set(id, base64) / imageStore.delete(id). */
 
 const IMAGE_DB_NAME = 'stockmatch-images';
 const IMAGE_DB_VERSION = 1;
@@ -1117,19 +1111,6 @@ const imageStore = {
 };
 
 /* ===================== cloud sync (Firestore + Supabase) ===================== */
-/* Optional layer for genuine cross-device sync. Local storage and
-   IndexedDB above are per-browser, per-device -- they can never show the
-   same data on a phone and a PC, since there's no server in this static
-   app to hold a shared copy. When configured in settings, this layer
-   reads/writes a real cloud backend instead, so any device using the
-   same sync ID sees the same data. Falls back to local-only behavior
-   automatically when not configured.
-
-   Split across two free services on purpose: Firestore (Firebase) holds
-   the catalog metadata -- it's free on the Spark plan, no card needed.
-   Supabase Storage holds the actual images -- Firebase Storage now
-   requires the paid Blaze plan even for small usage, while Supabase's
-   free tier includes 1GB of file storage with no card required at all. */
 
 let _firebaseApp = null;
 let _firestoreDb = null;
@@ -1243,7 +1224,7 @@ const cloudSync = {
         reader.onerror = reject;
         reader.readAsDataURL(data);
       });
-    }catch(e){ return null; } // not found is normal, not an error worth logging
+    }catch(e){ return null; }
   },
   async getImages(ids){
     const results = {};
@@ -1257,16 +1238,11 @@ const cloudSync = {
       const { error } = await _supabaseClient.storage.from(SUPABASE_BUCKET).remove([`${syncId}/${id}`]);
       if (error) throw error;
       return true;
-    }catch(e){ return false; } // fine if it never existed
+    }catch(e){ return false; }
   }
 };
 
 /* ===================== local storage shim ===================== */
-/* This app needs a paid Anthropic API key (billing enabled at
-   console.anthropic.com) since it's hosted standalone rather than inside
-   Claude.ai. It uses window.storage when available (Claude.ai artifact
-   viewer) and falls back to real browser localStorage when run standalone,
-   e.g. on GitHub Pages, so the catalog persists either way. */
 
 const localStore = {
   async get(key){
@@ -1363,11 +1339,6 @@ function fileToBase64(file){
 }
 
 function detectImageMimeTypeFromBytes(base64){
-  // Reads the actual file signature (magic number) from the decoded bytes,
-  // rather than trusting metadata captured at upload time. This is the
-  // reliable fix: it works even for items added before MIME tracking
-  // existed, or where the browser/clipboard never reported a useful
-  // file.type to begin with.
   try{
     if (!base64 || base64.length < 12) return null;
     const binary = atob(base64.slice(0, 24));
@@ -1379,18 +1350,11 @@ function detectImageMimeTypeFromBytes(base64){
     if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return 'image/gif';
     if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
     if (b[0] === 0x42 && b[1] === 0x4D) return 'image/bmp';
-  }catch(e){
-    // malformed base64 slice or atob failure; fall through to other signals
-  }
+  }catch(e){}
   return null;
 }
 
 function imageMimeTypeOf(item){
-  // Primary: sniff the real signature from the actual image bytes, since
-  // this is correct regardless of what (if anything) was recorded at
-  // upload time. Secondary: the stored upload-time type, for cases where
-  // the image isn't loaded into memory this session so there are no bytes
-  // to sniff. Last resort: jpeg, just to avoid a broken data: URL.
   if (item && item.imageData){
     const sniffed = detectImageMimeTypeFromBytes(item.imageData);
     if (sniffed) return sniffed;
@@ -1415,10 +1379,6 @@ function fpLine(fp){
 }
 
 /* ===================== persistence ===================== */
-/* Metadata (fingerprints, captions, prices) goes in localStore, which is
-   small and reliable. Actual image bytes go in IndexedDB via imageStore,
-   which has enough headroom for dozens of full photos. Both are written
-   together so a reload restores the full catalog, photos included. */
 
 async function saveStockCatalog(){
   try{
@@ -1429,22 +1389,19 @@ async function saveStockCatalog(){
       priceOverride: it.priceOverride !== undefined ? it.priceOverride : null
     }));
     const json = JSON.stringify(persistable);
-    await localStore.set('stock-catalog', json); // always keep a fast local cache too
+    await localStore.set('stock-catalog', json);
     if (firebaseSyncConfigured()) await cloudSync.saveCatalog('stockCatalog', json);
   }catch(e){ console.error('save stock failed', e); }
 }
 
 async function saveStockImage(id, base64, mimeType){
   if (!base64) return;
-  await imageStore.set(id, base64); // local cache, works even offline
+  await imageStore.set(id, base64);
   if (supabaseSyncConfigured()) await cloudSync.saveImage(id, base64, mimeType);
 }
 
 async function loadStockCatalog(){
   try{
-    // Cloud is the source of truth when configured, since the whole point
-    // is seeing the same catalog on every device -- prefer it over the
-    // local cache, but don't fail the load if cloud is unreachable.
     let json = null;
     if (firebaseSyncConfigured()) json = await cloudSync.loadCatalog('stockCatalog');
     if (!json){
@@ -1464,9 +1421,7 @@ async function loadStockCatalog(){
         });
       }
     }
-  }catch(e){
-    // key not found is normal on first run
-  }
+  }catch(e){}
 }
 
 async function saveDemandCatalog(){
@@ -1514,9 +1469,7 @@ async function loadDemandCatalog(){
         }
       }
     }
-  }catch(e){
-    // key not found is normal on first run
-  }
+  }catch(e){}
 }
 
 /* ===================== rendering: view switching ===================== */
@@ -1649,8 +1602,6 @@ function markSold(id){
   stockItems = stockItems.filter(s => s.id !== id);
   imageStore.delete(id);
   if (supabaseSyncConfigured()) cloudSync.deleteImage(id);
-  // Drop this item from any existing match results immediately so sold
-  // stock never lingers as a "match" or a "similar model" suggestion.
   matchResults = matchResults.map(r => ({
     ...r,
     matches: r.matches.filter(m => m.stockId !== id),
@@ -1671,11 +1622,6 @@ function reanalyzeItem(id, kind){
     showToast('Image isn\u2019t loaded this session \u2014 re-attach it first', true);
     return;
   }
-  // Reset to pending so the normal batch-analysis pipeline (with all its
-  // progress UI, retry, and multi-attempt lookup behavior) picks this one
-  // item back up, exactly as if it were a fresh upload. Old fingerprint
-  // stays visible until the new one replaces it, so the card doesn't go
-  // blank while this runs.
   item.status = 'pending';
   item.error = null;
   if (kind === 'stock'){
@@ -1864,8 +1810,8 @@ const REFERENCE_LOOKUP_PROMPT = `You are identifying the exact reference number 
 - Google Search: finds candidate pages and gives you short text snippets about them. Snippets alone are often too short to confirm an exact reference number with confidence.
 - URL context: lets you actually open and read the full content of a specific page (not just its snippet). Use this on the most promising 1-2 pages a search turns up whenever the snippet alone isn't conclusive \u2014 don't stop at the snippet if a full read of the page would settle it.
 
-1. Run AT LEAST 3-4 separate, differently-worded searches focused specifically on finding the reference number itself \u2014 not a general "what is this watch" search. Vary the query each time, e.g. "[brand] [model] [dial color] reference number", "[brand] [model] [case material] [bracelet type] ref", site-specific variants like "[brand] [model] site:chrono24.com", etc. Use the photo (if provided) to identify distinguishing details to search with.
-2. Check real, distinct sources each time \u2014 the brand's official site (the single most reliable source \u2014 search it specifically, e.g. "site:rolex.com" or "site:patek.com"), established marketplaces (Chrono24, WatchCharts, Bob's Watches, Crown & Caliber), watch reference databases, forums with verified reference threads. Do not stop after one search if the first result is weak or unconfirmed. When a search snippet looks promising but isn't detailed enough to confirm the exact reference, actually open that page with the URL context tool rather than guessing from the snippet alone or giving up.
+1. Your FIRST search MUST always be Chrono24 \u2014 query "[brand] [model] site:chrono24.com" or "[model reference number] site:chrono24.com". Chrono24 is the world's largest luxury watch marketplace and consistently has the most complete secondary-market reference data. After Chrono24, run at least 3 more differently-worded searches: "[brand] [model] [dial color] reference number", "[brand] [model] [case material] [bracelet type] ref", etc. Use the photo (if provided) to identify distinguishing details.
+2. Source priority order: (1) Chrono24 (site:chrono24.com) \u2014 always your first search, the most comprehensive secondary-market database; (2) the brand's official site (site:rolex.com, site:patek.com, etc.) \u2014 authoritative for currently-produced references; (3) other established sources (WatchCharts, Bob's Watches, Crown & Caliber, watch reference databases, verified forum threads). Do not stop after one search if the first result is weak or unconfirmed. When a search snippet looks promising but isn't detailed enough to confirm the exact reference, actually open that page with the URL context tool rather than guessing from the snippet alone or giving up.
 3. Compare what the different searches/sources turn up. If multiple independent sources agree on the same reference number, that's your answer \u2014 treat agreement across sources as the deciding signal, not just whichever result came up first.
 4. If sources conflict or only a single weak source suggests a number, do not present it as confirmed \u2014 keep searching with another query angle, or open another candidate page, instead. If you still can't resolve it after genuinely trying multiple angles (including reading full pages, not just snippets), return null \u2014 see the rules below. Do not guess.
 
@@ -1883,6 +1829,35 @@ This matters most for heavily customized pieces: if the watch has added gemstone
 
 Keep "confidence_notes" SHORT \u2014 2-3 sentences maximum, naming sources tersely (e.g. "rolex.com, Chrono24"). Do not write long explanations; a brief, direct note is all that's needed, and overly long notes risk being cut off.
 
+REFERENCE NUMBER ANATOMY \u2014 use this to form better search queries and correctly interpret what you find:
+
+PATEK PHILIPPE: Format XXXX/YZ-NNN
+- XXXX = 4-digit base model (5711=Nautilus 40mm, 5726=Annual Calendar, 5726A=Annual Cal, 5980=Flyback Chrono, 5167=Aquanaut)
+- /Y = case variant number; Z = material code: A=Acier (steel), G=Or Gris (white gold), J=Or Jaune (yellow gold), R=Or Rose (rose gold), P=Platine (platinum)
+- -NNN = 3-digit dial variant: same model and case, different dial color/finish (001, 010, 011, 014, etc.)
+- Real examples: 5711/1A-001 (Nautilus steel, blue-grey dial), 5711/1A-014 (same watch, olive green dial), 5726A-001 (Annual Calendar steel, blue dial)
+- When searching: if you know brand+model (e.g. "Patek Nautilus steel"), Chrono24 will show multiple dial variants \u2014 use the dial color to identify the correct -NNN suffix
+
+AUDEMARS PIGUET (AP): Format XXXXXAA.BB.CCCCDD.EE
+- XXXXX = 5-digit model code (15400=Royal Oak 41mm, 15202=RO 39mm, 26331=RO Offshore Chrono 42mm, 15500=RO 41mm new gen)
+- AA = case material (ST=steel, OR=Or Rose/rose gold, OO=standard/no special, YG=yellow gold, WG=white gold, TI=titanium, CE=ceramic)
+- BB = bezel/movement code
+- CCCCDD = bracelet/strap reference + material code
+- .EE = dial variant (final 2 digits after last dot, e.g. .01=silver, .02=blue, .03=black)
+- Real examples: 15400ST.OO.1220ST.01 (Royal Oak 41mm steel, silver dial), 15400ST.OO.1220ST.02 (same watch, blue dial)
+- Dealers use short form: just 7 chars e.g. 15400ST \u2014 this is a PREFIX of the full reference, match it as such
+- When searching: search both the full ref AND the short form (e.g. "15400ST site:chrono24.com")
+
+ROLEX: Format XXXXXX + suffix letters
+- XXXXXX = 6-digit model code (126610=Submariner Date new gen, 116610=Sub Date old gen, 116500=Daytona, 126710=GMT-Master II, 228238=Day-Date 40mm)
+- Suffix letters identify bezel material/color and are CRITICAL \u2014 they distinguish fundamentally different watches, never strip them:
+  LN=Lunette Noire (black ceramic bezel), LV=Lunette Verte (green ceramic, "Hulk"),
+  LB=Lunette Bleue (blue), BLRO=Bleu/Rouge (Pepsi red-blue, GMT), BLNR=Bleu/Noir (Batman/Bruce Wayne, GMT)
+  WG=white gold case, YG=yellow gold, RG=rose gold
+- 126610LN vs 126610LV = completely different watches (different bezel colors, different prices)
+- Optional trailing -XXXX (e.g. 228238-0042) = specific dial variant, analogous to Patek -NNN
+- When searching: always include the full suffix (e.g. "126610LN" not just "126610")
+
 CRITICAL \u2014 when search finds MULTIPLE real candidates, pick the single best one rather than returning nothing: sometimes your searches will turn up two or three distinct, real reference numbers that all plausibly match (e.g. a design shared across a few limited editions, like several colorways of the same special-edition model). When this happens, do NOT default to null. Instead:
 1. Compare the specific visual details you have (dial color, bezel, strap/bracelet color, any distinguishing text or markings) against what each real candidate is documented as looking like.
 2. Pick whichever single candidate best matches those specific details.
@@ -1894,6 +1869,7 @@ Respond with STRICT JSON ONLY (no markdown fences, no commentary), in this exact
   "reference_number": string or null,
   "reference_number_source": "looked_up" or "best_match" or null,
   "sources_agreed": number (how many independent sources/searches confirmed this same number, 0 if none),
+  "confirming_source": string or null,
   "confidence_notes": string or null
 }
 
@@ -1902,12 +1878,11 @@ Rules:
 - "reference_number_source": "best_match" is for when real search activity turned up multiple plausible real candidates and you picked the most likely one per the rule above \u2014 always pair this with a brief note on what made you pick it and what the alternatives were.
 - If 2+ independent sources/searches agree on the same single reference number, set "reference_number" to that value, "reference_number_source" to "looked_up", "sources_agreed" to the count, and name the agreeing sources briefly in "confidence_notes".
 - If only one weak source or no clear agreement, but you still found a source that explicitly stated a number, you may report it as "looked_up" with "sources_agreed": 1, but say briefly in "confidence_notes" that it's unconfirmed by a second source.
+- "confirming_source": name the specific domain(s) whose content actually stated this reference number (e.g. "chrono24.com", "rolex.com + chrono24.com"). Use null only if no source confirmed it.
 - There is no fallback guess from memory alone. If search genuinely cannot find even one plausible reference \u2014 actually stated by a real source \u2014 after multiple distinct attempts, set "reference_number" to null and "reference_number_source" to null. Do not invent one from memory or from visual impression with no search backing at all. Still briefly report what you searched for in "confidence_notes", so it's clear a real attempt was made.
 Respond with the JSON object only \u2014 no extra commentary around it, even after using search.`;
 
 function extractRetryDelaySeconds(response, errJson){
-  // Anthropic returns a Retry-After header on 429s. Fall back to a safe
-  // default if it's missing or unparsable.
   try{
     const headerVal = response && response.headers && response.headers.get && response.headers.get('retry-after');
     if (headerVal){
@@ -1944,26 +1919,11 @@ async function callGeminiWithSearch({ base64Image, mimeType, promptText }, attem
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ role: 'user', parts }],
-        // googleSearch alone only ever gives Gemini short text snippets from
-        // search results -- it cannot read a full page. urlContext is a
-        // separate tool that lets Gemini actually fetch and read the full
-        // content of a specific page it found via search. Combining both is
-        // Google's documented pattern for exactly this kind of task: search
-        // to find candidate sources, then read them for real confirmation,
-        // instead of guessing from a truncated snippet alone.
         tools: [{ urlContext: {} }, { googleSearch: {} }],
         generationConfig: { temperature: 0.2, maxOutputTokens: 2500 }
       })
     });
   }catch(networkErr){
-    // fetch() itself rejected -- no HTTP response was ever received. This is
-    // a raw connection failure (dropped wifi/cellular, request killed by the
-    // OS backgrounding the tab, DNS hiccup, etc), surfaced by the browser as
-    // a generic message like "Load failed" (Safari) or "Failed to fetch"
-    // (Chrome) with no status code at all. Previously this threw immediately
-    // with no retry, since the retry logic below only triggers on a
-    // response that was actually received. Treat it the same as a
-    // transient server error instead of giving up on the first blip.
     if (attempt <= 4){
       const waitSeconds = attempt * 4;
       await new Promise(r => setTimeout(r, waitSeconds * 1000));
@@ -1980,13 +1940,6 @@ async function callGeminiWithSearch({ base64Image, mimeType, promptText }, attem
     try{ errJson = await response.json(); }catch(e){}
     const detail = errJson?.error?.message || '';
 
-    // Lookups run multiple searches per call, so under concurrent analysis
-    // it's easy to transiently hit Gemini's rate limit (429). Separately,
-    // Gemini occasionally returns 503/500/502 when the model itself is
-    // temporarily overloaded \u2014 genuinely transient and worth a short
-    // retry rather than giving up immediately, since the error message
-    // itself says to try again. Use a flat backoff for these since there's
-    // no Retry-After header to read, unlike 429.
     const isRateLimit = response.status === 429;
     const isTransientServerError = [500, 502, 503, 504].includes(response.status);
     if ((isRateLimit || isTransientServerError) && attempt <= 4){
@@ -1995,10 +1948,6 @@ async function callGeminiWithSearch({ base64Image, mimeType, promptText }, attem
       return callGeminiWithSearch({ base64Image, mimeType, promptText }, attempt + 1, modelIndex);
     }
 
-    // Retries on this model exhausted. If a sustained capacity issue (not
-    // a rate limit, which is account-specific either way) and another
-    // model is available, try that instead of giving up entirely --
-    // capacity problems are often specific to one model, not all of them.
     if (isTransientServerError && modelIndex < GEMINI_MODELS.length - 1){
       return callGeminiWithSearch({ base64Image, mimeType, promptText }, 1, modelIndex + 1);
     }
@@ -2013,10 +1962,6 @@ async function callGeminiWithSearch({ base64Image, mimeType, promptText }, attem
     throw new Error('No text response from Gemini' + (finishReason ? ' (finishReason: ' + finishReason + ')' : ''));
   }
 
-  // Surface what actually happened during grounding \u2014 the real search
-  // queries issued, the sources found, and any pages actually opened via
-  // url_context \u2014 so a lookup result (or lack of one) is verifiable
-  // rather than a black box.
   const grounding = candidate && candidate.groundingMetadata;
   const searchQueries = (grounding && grounding.webSearchQueries) || [];
   const sources = ((grounding && grounding.groundingChunks) || [])
@@ -2033,52 +1978,26 @@ async function callGeminiWithSearch({ base64Image, mimeType, promptText }, attem
 }
 
 const BRAND_OFFICIAL_SITES = {
-  'rolex': 'rolex.com',
-  'tudor': 'tudorwatch.com',
-  'patek philippe': 'patek.com',
-  'audemars piguet': 'audemarspiguet.com',
-  'omega': 'omegawatches.com',
-  'cartier': 'cartier.com',
-  'richard mille': 'richardmille.com',
-  'iwc': 'iwc.com',
-  'iwc schaffhausen': 'iwc.com',
-  'panerai': 'panerai.com',
-  'vacheron constantin': 'vacheron-constantin.com',
-  'jaeger-lecoultre': 'jaeger-lecoultre.com',
-  'jaeger lecoultre': 'jaeger-lecoultre.com',
-  'breitling': 'breitling.com',
-  'tag heuer': 'tagheuer.com',
-  'hublot': 'hublot.com',
-  'chopard': 'chopard.com',
-  'bvlgari': 'bulgari.com',
-  'bulgari': 'bulgari.com',
-  'zenith': 'zenith-watches.com',
-  'piaget': 'piaget.com',
-  'a. lange & sohne': 'alange-soehne.com',
-  'a. lange & söhne': 'alange-soehne.com',
-  'lange & sohne': 'alange-soehne.com',
-  'breguet': 'breguet.com',
-  'bell & ross': 'bellross.com',
-  'longines': 'longines.com',
-  'tissot': 'tissot.ch',
-  'seiko': 'seikowatches.com',
-  'grand seiko': 'grand-seiko.com',
-  'chanel': 'chanel.com',
-  'franck muller': 'franckmuller.com',
-  'girard-perregaux': 'girard-perregaux.com',
-  'ulysse nardin': 'ulysse-nardin.com',
-  'h. moser & cie': 'h-moser.com',
-  'rado': 'rado.com',
-  'oris': 'oris.ch',
-  'montblanc': 'montblanc.com'
+  'rolex': 'rolex.com', 'tudor': 'tudorwatch.com', 'patek philippe': 'patek.com',
+  'audemars piguet': 'audemarspiguet.com', 'omega': 'omegawatches.com', 'cartier': 'cartier.com',
+  'richard mille': 'richardmille.com', 'iwc': 'iwc.com', 'iwc schaffhausen': 'iwc.com',
+  'panerai': 'panerai.com', 'vacheron constantin': 'vacheron-constantin.com',
+  'jaeger-lecoultre': 'jaeger-lecoultre.com', 'jaeger lecoultre': 'jaeger-lecoultre.com',
+  'breitling': 'breitling.com', 'tag heuer': 'tagheuer.com', 'hublot': 'hublot.com',
+  'chopard': 'chopard.com', 'bvlgari': 'bulgari.com', 'bulgari': 'bulgari.com',
+  'zenith': 'zenith-watches.com', 'piaget': 'piaget.com',
+  'a. lange & sohne': 'alange-soehne.com', 'a. lange & söhne': 'alange-soehne.com',
+  'lange & sohne': 'alange-soehne.com', 'breguet': 'breguet.com', 'bell & ross': 'bellross.com',
+  'longines': 'longines.com', 'tissot': 'tissot.ch', 'seiko': 'seikowatches.com',
+  'grand seiko': 'grand-seiko.com', 'chanel': 'chanel.com', 'franck muller': 'franckmuller.com',
+  'girard-perregaux': 'girard-perregaux.com', 'ulysse nardin': 'ulysse-nardin.com',
+  'h. moser & cie': 'h-moser.com', 'rado': 'rado.com', 'oris': 'oris.ch', 'montblanc': 'montblanc.com'
 };
 
 function getOfficialSiteForBrand(brand){
   if (!brand) return null;
   const normalized = brand.toLowerCase().trim();
   if (BRAND_OFFICIAL_SITES[normalized]) return BRAND_OFFICIAL_SITES[normalized];
-  // Fall back to a partial match in case of slight extraction variance
-  // (e.g. "Rolex Oyster Perpetual" vs just "Rolex").
   for (const key in BRAND_OFFICIAL_SITES){
     if (normalized.includes(key) || key.includes(normalized)) return BRAND_OFFICIAL_SITES[key];
   }
@@ -2086,22 +2005,6 @@ function getOfficialSiteForBrand(brand){
 }
 
 async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt){
-  // Looks up a reference number via Gemini's Google Search grounding tool.
-  // Instructed to run multiple distinct searches and require cross-source
-  // agreement before reporting a confident match. When a photo is
-  // available, Gemini sees it directly (richer signal than a templated
-  // text query). Designed to degrade gracefully: any failure here (no key,
-  // network error, rate limit) just means the caller gets no reference
-  // number rather than the whole item's analysis breaking.
-  //
-  // Keeps retrying the FULL lookup (a fresh search attempt, not just a
-  // network retry) up to MAX_LOOKUP_ATTEMPTS times until it gets a
-  // Google-verified ("looked_up") result. Each attempt is independent and
-  // can search different angles, so a retry has a genuine chance of
-  // succeeding where the previous one didn't. Capped rather than
-  // unbounded, since an item with no real online presence (e.g. a
-  // one-off custom piece) would otherwise retry forever at real cost
-  // with zero chance of ever succeeding.
   const MAX_LOOKUP_ATTEMPTS = 4;
   const officialSite = getOfficialSiteForBrand(fp.brand);
   const officialSiteInstruction = officialSite
@@ -2125,13 +2028,6 @@ async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt){
       });
       const result = parseJsonLoose(text);
 
-      // CRITICAL: don't trust the model's own self-reported source label.
-      // It can (and does) sometimes answer purely from memory, then claim
-      // sources confirmed it anyway -- a hallucinated citation. Only treat
-      // "looked_up" or "best_match" as genuinely grounded if the API's own
-      // metadata shows real search/page-read activity actually happened.
-      // If it claims either label but neither occurred, downgrade it and
-      // keep retrying instead of accepting a fabricated confirmation.
       const reallySearched = searchQueries.length > 0 || pagesRead.length > 0;
       const claimsGrounded = result.reference_number_source === 'looked_up' || result.reference_number_source === 'best_match';
       if (claimsGrounded && !reallySearched){
@@ -2150,14 +2046,12 @@ async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt){
         if (attempt > 1) result.confidence_notes = `(confirmed on attempt ${attempt}/${MAX_LOOKUP_ATTEMPTS}) ${result.confidence_notes}`;
         return result;
       }
-      // Not yet confirmed -- loop again unless out of attempts.
     }catch(e){
       console.warn(`Reference lookup attempt ${attempt} failed:`, e.message);
       lastResult = { reference_number: null, reference_number_source: null, confidence_notes: 'Lookup step failed: ' + e.message };
     }
   }
 
-  // Exhausted all attempts without a confirmed or best-estimate match.
   if (lastResult){
     lastResult.confidence_notes = `(tried ${MAX_LOOKUP_ATTEMPTS} times, never reached a search-grounded match) ${lastResult.confidence_notes || ''}`.trim();
   }
@@ -2170,8 +2064,6 @@ async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWa
     throw new Error('No Anthropic API key set \u2014 click the settings (gear) icon to add one');
   }
 
-  // userParts use a { text } / { inline_data } shape kept consistent across
-  // call sites; convert to Anthropic's native content block format.
   const content = userParts.map(p => {
     if (p.text !== undefined) return { type: 'text', text: p.text };
     if (p.inline_data) return { type: 'image', source: { type: 'base64', media_type: p.inline_data.mime_type, data: p.inline_data.data } };
@@ -2185,10 +2077,6 @@ async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWa
     messages: [{ role: 'user', content }]
   };
   if (enableWebSearch){
-    // Lets Claude look up the exact reference number from real watch
-    // reference/retailer sites when it isn't legible in the photo or text,
-    // instead of relying purely on trained pattern recognition. Capped to
-    // keep latency and cost bounded per item.
     body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }];
   }
 
@@ -2205,13 +2093,6 @@ async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWa
       body: JSON.stringify(body)
     });
   }catch(networkErr){
-    // fetch() itself rejected -- no HTTP response was ever received (dropped
-    // wifi/cellular mid-request, tab backgrounded and the OS killed the
-    // request, DNS hiccup, etc). Browsers surface this as a generic message
-    // like "Load failed" (Safari) or "Failed to fetch" (Chrome) with no
-    // status code. This used to throw immediately with zero retry, since
-    // the retry logic below only runs once a response actually comes back.
-    // Treat it the same as a transient server error instead.
     if (attempt <= 4){
       const waitSeconds = attempt * 3;
       if (onRetryWait) onRetryWait(waitSeconds, attempt);
@@ -2242,11 +2123,6 @@ async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWa
     throw new Error('Anthropic API error ' + response.status + (detail ? ': ' + detail : ''));
   }
   const data = await response.json();
-  // With web search enabled, the response can include several block types
-  // (server_tool_use shows the actual query issued, web_search_tool_result
-  // shows the actual sources found, text is the final answer) interleaved.
-  // Concatenate every text block in order, and surface the search activity
-  // itself so a result is verifiable rather than a black box.
   const textParts = (data.content || []).filter(b => b.type === 'text' && b.text).map(b => b.text);
   if (!textParts.length) throw new Error('No text response from Anthropic');
 
@@ -2277,18 +2153,11 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
   });
   const fp = parseJsonLoose(text);
 
-  // Stock photos reliably have the reference number baked into the seller's
-  // message text, which the extraction step above already reads directly
-  // (per the REFERENCE NUMBER RULE: visible includes "stated in message
-  // text"). So for stock, skip the Google lookup entirely rather than
-  // spending a multi-attempt search on something the photo already told
-  // us -- faster and cheaper, with lookup reserved for demand where the
-  // reference is genuinely often missing. allowLookup defaults to true so
-  // demand (and any other caller) keeps full lookup behavior.
   if (!fp.reference_number && allowLookup !== false){
     const lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType, onLookupAttempt);
     fp.reference_number = lookup.reference_number || null;
     fp.reference_number_source = lookup.reference_number_source || null;
+    fp.reference_source_site = lookup.confirming_source || null;
     if (lookup.confidence_notes){
       fp.confidence_notes = fp.confidence_notes ? fp.confidence_notes + ' | ' + lookup.confidence_notes : lookup.confidence_notes;
     }
@@ -2315,6 +2184,7 @@ async function extractFingerprintFromText(text, onRetryWait, onLookupAttempt){
     const lookup = await lookupReferenceNumber(fp, null, null, onLookupAttempt);
     fp.reference_number = lookup.reference_number || null;
     fp.reference_number_source = lookup.reference_number_source || null;
+    fp.reference_source_site = lookup.confirming_source || null;
     if (lookup.confidence_notes){
       fp.confidence_notes = fp.confidence_notes ? fp.confidence_notes + ' | ' + lookup.confidence_notes : lookup.confidence_notes;
     }
@@ -2323,18 +2193,12 @@ async function extractFingerprintFromText(text, onRetryWait, onLookupAttempt){
 }
 
 function findMatchingBraceStringAware(text, start){
-  // Scans for the closing brace that matches the opening brace at `start`,
-  // correctly skipping over the CONTENTS of string literals so that stray
-  // {, }, or " characters inside natural-language text (like confidence_notes)
-  // never throw off the depth count. This was the root cause behind several
-  // differently-worded JSON parse errors: a naive character-by-character
-  // brace counter breaks the moment any string value contains a brace.
   let depth = 0;
   let inString = false;
   for (let i = start; i < text.length; i++){
     const ch = text[i];
     if (inString){
-      if (ch === '\\'){ i++; continue; } // skip escaped char, including \"
+      if (ch === '\\'){ i++; continue; }
       if (ch === '"') inString = false;
       continue;
     }
@@ -2345,14 +2209,10 @@ function findMatchingBraceStringAware(text, start){
       if (depth === 0) return i;
     }
   }
-  return -1; // never closed -- genuine truncation
+  return -1;
 }
 
 function attemptStructuralRepair(candidate){
-  // Best-effort repair for a candidate that's missing its closing quote/
-  // brace because generation was cut off mid-string (e.g. a long
-  // confidence_notes value that hit a token limit). Counts unescaped
-  // quotes; an odd count means a string was left open.
   let quoteCount = 0;
   for (let i = 0; i < candidate.length; i++){
     if (candidate[i] === '\\'){ i++; continue; }
@@ -2360,9 +2220,8 @@ function attemptStructuralRepair(candidate){
   }
   let repaired = candidate;
   if (quoteCount % 2 !== 0){
-    repaired += '"'; // close the dangling string
+    repaired += '"';
   }
-  // Close any remaining open braces.
   let depth = 0;
   let inStr = false;
   for (let i = 0; i < repaired.length; i++){
@@ -2381,10 +2240,6 @@ function attemptStructuralRepair(candidate){
 }
 
 function extractFieldsByRegex(text){
-  // Absolute last resort: pull out known fields directly from raw text via
-  // regex, regardless of whether the overall JSON structure is parseable
-  // at all. This recovers a perfectly good answer even when the response
-  // was cut off so early or so badly that structural repair can't help.
   const get = (key) => {
     const m = text.match(new RegExp(`"${key}"\\s*:\\s*(null|"((?:[^"\\\\]|\\\\.)*)"|\\d+)`));
     if (!m) return undefined;
@@ -2393,7 +2248,7 @@ function extractFieldsByRegex(text){
     return m[1];
   };
   const referenceNumber = get('reference_number');
-  if (referenceNumber === undefined) return null; // nothing usable found
+  if (referenceNumber === undefined) return null;
   return {
     reference_number: referenceNumber,
     reference_number_source: get('reference_number_source') ?? null,
@@ -2405,11 +2260,8 @@ function extractFieldsByRegex(text){
 function parseJsonLoose(text){
   const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '');
 
-  // Attempt 1: the cleaned text is already valid JSON as-is.
   try{ return JSON.parse(cleaned); }catch(e){}
 
-  // Attempt 2: extract the outermost {...} block with a string-aware
-  // brace matcher (handles stray prose before/after the JSON).
   const start = cleaned.indexOf('{');
   if (start !== -1){
     const end = findMatchingBraceStringAware(cleaned, start);
@@ -2417,15 +2269,11 @@ function parseJsonLoose(text){
       const candidate = cleaned.slice(start, end + 1);
       try{ return JSON.parse(candidate); }catch(e){}
     } else {
-      // Braces never closed at all -- genuine truncation mid-object.
-      // Try structural repair on everything from the opening brace onward.
       const candidate = cleaned.slice(start);
       try{ return JSON.parse(attemptStructuralRepair(candidate)); }catch(e){}
     }
   }
 
-  // Attempt 3: regex-extract known fields directly, ignoring structure
-  // entirely. Works even for severely truncated or malformed responses.
   const recovered = extractFieldsByRegex(cleaned);
   if (recovered) return recovered;
 
@@ -2437,21 +2285,12 @@ function parseJsonLoose(text){
 let _wakeLockSentinel = null;
 
 async function acquireWakeLock(){
-  // Keeps the screen from timing out during a long batch run -- the most
-  // common real-world trigger for the in-flight network failures seen on
-  // large batches (phone sits idle for several minutes, screen locks,
-  // mobile Safari suspends pending requests on the now-backgrounded tab).
-  // This only prevents the screen from sleeping due to inactivity; it does
-  // NOT survive the user actively switching to another app, since the lock
-  // releases the moment the tab itself goes hidden. Feature-detected and
-  // silently skipped on unsupported browsers -- this is a mitigation, not
-  // a guarantee, so it fails quietly rather than blocking anything.
   try{
     if ('wakeLock' in navigator){
       _wakeLockSentinel = await navigator.wakeLock.request('screen');
     }
   }catch(e){
-    _wakeLockSentinel = null; // common if battery saver is on, etc -- not fatal
+    _wakeLockSentinel = null;
   }
 }
 
@@ -2476,9 +2315,6 @@ async function analyzeBatch(items, kind, renderFn){
 
   let done = 0;
   const total = toProcess.length;
-  // Paid Anthropic API tiers have generous rate limits, so we can run several
-  // requests concurrently. callAnthropic's built-in retry still handles any
-  // occasional 429s gracefully.
   const CONCURRENCY = 4;
   let idx = 0;
   let rateLimitNotice = '';
@@ -2544,9 +2380,6 @@ async function analyzeBatch(items, kind, renderFn){
     setTimeout(() => showToast('Tip: use "Backup catalog" on the Dashboard tab to save this analysis to a file'), 3500);
   }
 
-  // Memory behavior: as soon as new demand is analyzed, automatically check
-  // it against current stock rather than requiring a separate manual click.
-  // Likewise, new stock should be checked against any demand already on file.
   if (kind === 'demand' && stockItems.some(it => it.status === 'done')){
     runMatching({ silent: true });
   } else if (kind === 'stock' && demandItems.some(it => it.status === 'done')){
@@ -2562,61 +2395,89 @@ function updateRunMatchAvailability(){
   document.getElementById('runMatchBtn').disabled = !(stockReady && demandReady);
 }
 
-/* Matching is now deterministic, not another AI call. Claude's job is to
-   read or infer each watch's reference number during extraction (already
-   done above); the actual "is this the same reference" decision is plain
-   string comparison here. This is the only signal used \u2014 dial, case,
-   strap, bezel, and gender are no longer matching criteria. This also
-   means matching can never fail with a JSON parsing error, since there's
-   no second AI response to parse. */
-
-// Strip ALL separators. Used for exact comparison.
-function normalizeRefNumber(ref) {
+// ── Change 1: strip ALL non-alphanumeric (including /) so separators never
+//   block a match. Letters stay intact — Rolex LN/LV = different bezels,
+//   Patek A/J/R = different case materials. Never strip those.
+function normalizeRefNumber(ref){
   if (!ref) return '';
-  return String(ref)
-    .trim()
-    .replace(/[^a-zA-Z0-9]/g, '') // strip / - . spaces
-    .toUpperCase();
+  return String(ref).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
 }
 
-// Strip trailing numeric-only dial variant (-001, -014, -0042).
-// Keeps letter suffixes (Rolex LN/LV, AP ST/RG) because those are different watches.
-function baseRefNumber(ref) {
+// Strip trailing dial-variant code before normalizing:
+//   Patek  5711/1A-001   ->  base 57111A   (strips trailing -NNN)
+//   Patek  5711/1A-014   ->  base 57111A
+//   AP     15400ST.OO.1220ST.02  ->  base 15400STOO1220ST  (strips trailing .XX)
+//   Rolex  228238-0042   ->  base 228238   (strips trailing -XXXX)
+// Rolex letter suffixes (LN, LV, BLRO) and AP material codes contain letters,
+// so neither pattern ever strips them — those identify different watches entirely.
+function baseRefNumber(ref){
   if (!ref) return '';
-  const withoutDialVariant = String(ref).trim().replace(/-\d+$/, '');
+  const withoutDialVariant = String(ref).trim()
+    .replace(/-\d+$/, '')       // Patek/Rolex: strips -001, -014, -0042
+    .replace(/\.\d{1,2}$/, ''); // AP: strips .01, .02 (last dot-segment if 1-2 digits)
   return normalizeRefNumber(withoutDialVariant);
 }
 
-// 3-tier matcher.
-function matchRefs(ref1, ref2) {
+// ── Change 2: 3-tier reference matcher ──────────────────────────────────────
+//
+//  Tier 1 exact:      refs identical after stripping all separators.
+//                     5711/1A-001 == 5711-1A/001  (same ref, formatting differs)
+//
+//  Tier 2 prefix:     one normalized ref is a clean prefix of the other.
+//                     57111A  (demand, no dial specified) hits 57111A014 (stock)
+//                     15400ST (AP short form) hits 15400STOO1220ST02 (full ref)
+//
+//  Tier 3 base_model: same base after stripping trailing dial-variant suffix.
+//                     5711/1A-001 vs 5711/1A-014 -> both base 57111A
+//                     15400ST.OO.1220ST.01 vs .02 -> both base 15400STOO1220ST
+function matchRefs(ref1, ref2){
   if (!ref1 || !ref2) return { match: false, confidence: null };
-
   const n1 = normalizeRefNumber(ref1);
   const n2 = normalizeRefNumber(ref2);
+  if (!n1 || !n2) return { match: false, confidence: null };
 
+  // Tier 1: exact
   if (n1 === n2) return { match: true, confidence: 'exact' };
 
-  if (n1.length < n2.length && n2.startsWith(n1))
-    return { match: true, confidence: 'prefix' };
+  // Tier 2: prefix (handles AP short-form vs full-form, Patek without dial suffix)
+  if (n1.length < n2.length && n2.startsWith(n1)) return { match: true, confidence: 'prefix' };
+  if (n2.length < n1.length && n1.startsWith(n2)) return { match: true, confidence: 'prefix' };
 
-  if (n2.length < n1.length && n1.startsWith(n2))
-    return { match: true, confidence: 'prefix' };
-
+  // Tier 3: same base model (same watch, different dial variant)
   const b1 = baseRefNumber(ref1);
   const b2 = baseRefNumber(ref2);
-
-  if (b1 === b2 && b1.length > 3)
-    return { match: true, confidence: 'base_model' };
+  if (b1 && b2 && b1 === b2 && b1.length > 3) return { match: true, confidence: 'base_model' };
 
   return { match: false, confidence: null };
+}
+
+function extractRefBase(ref){
+  // Strips a trailing separator + short alphanumeric suffix for the
+  // "similar models" suggestion feature. Separate from matchRefs.
+  if (!ref) return null;
+  const trimmed = String(ref).trim();
+  const match = trimmed.match(/^(.+?)[-_.]([A-Za-z0-9]{1,4})$/);
+  if (match && match[1].replace(/[^A-Za-z0-9]/g, '').length >= 4){
+    return normalizeRefNumber(match[1]);
+  }
+  return null;
+}
+
+function areSimilarRefs(refA, refB){
+  const normA = normalizeRefNumber(refA);
+  const normB = normalizeRefNumber(refB);
+  if (!normA || !normB || normA === normB) return false;
+  const baseA = extractRefBase(refA);
+  const baseB = extractRefBase(refB);
+  if (!baseA || !baseB) return false;
+  return baseA === baseB;
 }
 
 function refSourceRank(source){
   if (source === 'visible') return 3;
   if (source === 'looked_up') return 2;
   if (source === 'best_match') return 1;
-  return 0; // null/unknown \u2014 shouldn't normally occur since items without a
-            // confirmed reference no longer carry a reference_number at all
+  return 0;
 }
 
 function refSourceLabel(source){
@@ -2626,6 +2487,7 @@ function refSourceLabel(source){
   return 'unconfirmed';
 }
 
+// ── Change 3: runMatching uses matchRefs + tier-based confidence ─────────────
 function runMatching(opts){
   const silent = opts && opts.silent;
   const stockReady = stockItems.filter(it => it.status === 'done' && it.fingerprint && it.fingerprint.reference_number);
@@ -2643,47 +2505,49 @@ function runMatching(opts){
   }
 
   matchResults = demandReady.map(d => {
-    const demandRefNorm = normalizeRefNumber(d.fingerprint.reference_number);
     const demandRank = refSourceRank(d.fingerprint.reference_number_source);
     const demandLabel = refSourceLabel(d.fingerprint.reference_number_source);
 
     const matches = stockReady
-      .filter(s => normalizeRefNumber(s.fingerprint.reference_number) === demandRefNorm)
+      .filter(s => matchRefs(d.fingerprint.reference_number, s.fingerprint.reference_number).match)
       .map(s => {
         const stockRank = refSourceRank(s.fingerprint.reference_number_source);
         const stockLabel = refSourceLabel(s.fingerprint.reference_number_source);
         const combinedRank = Math.min(demandRank, stockRank);
+        const refMatch = matchRefs(d.fingerprint.reference_number, s.fingerprint.reference_number);
 
-        // 3 = both sides read directly off the piece/text -- highest trust.
-        // 2 = at least one side only Google-confirmed, not directly read.
-        // 1 = at least one side is a best-estimate among multiple real
-        // candidates, not a single confirmed match -- meaningfully less
-        // certain, since the "match" could be coincidental if the estimate
-        // picked the wrong one of several real candidates.
-        let confidence, referenceMatchType;
-        if (combinedRank === 3){ confidence = 97; referenceMatchType = 'visible_exact'; }
-        else if (combinedRank === 2){ confidence = 82; referenceMatchType = 'looked_up'; }
-        else { confidence = 55; referenceMatchType = 'best_match'; }
+        // Base confidence from source reliability
+        let basePct;
+        if (combinedRank === 3) basePct = 97;
+        else if (combinedRank === 2) basePct = 82;
+        else basePct = 55;
+
+        // Tier penalty for non-exact reference match
+        if (refMatch.confidence === 'prefix') basePct = Math.max(basePct - 5, 40);
+        else if (refMatch.confidence === 'base_model') basePct = Math.max(basePct - 15, 35);
+
+        const confidence = basePct;
+        const referenceMatchType = combinedRank === 3 ? 'visible_exact' : combinedRank === 2 ? 'looked_up' : 'best_match';
+
+        const refTierNote = refMatch.confidence === 'prefix'
+          ? ` Demand didn\u2019t specify a dial variant \u2014 stock carries ${s.fingerprint.reference_number}; worth confirming that suits the customer.`
+          : refMatch.confidence === 'base_model'
+            ? ` Same base model but different dial variants (demand: ${d.fingerprint.reference_number} vs stock: ${s.fingerprint.reference_number}) \u2014 confirm dial preference before proceeding.`
+            : '';
 
         let reasoning;
         if (combinedRank === 3){
-          reasoning = `Reference ${s.fingerprint.reference_number} read directly from both the stock photo and the demand request \u2014 exact match.`;
+          reasoning = `Reference ${s.fingerprint.reference_number} read directly from both the stock photo and the demand request \u2014 exact match.${refTierNote}`;
         } else if (combinedRank === 2){
-          reasoning = `Reference ${s.fingerprint.reference_number} matches \u2014 stock side ${stockLabel}, demand side ${demandLabel}. At least one side is Google-search-verified rather than read directly; treat as reliable but worth a quick visual confirmation.`;
+          reasoning = `Reference ${s.fingerprint.reference_number} matches \u2014 stock side ${stockLabel}, demand side ${demandLabel}. At least one side is Google-search-verified rather than read directly; treat as reliable but worth a quick visual confirmation.${refTierNote}`;
         } else {
-          reasoning = `Reference ${s.fingerprint.reference_number} matches \u2014 stock side ${stockLabel}, demand side ${demandLabel}. At least one side is a best estimate picked among multiple real candidates, not a single confirmed source \u2014 treat this match as a lead worth checking, not a certainty.`;
+          reasoning = `Reference ${s.fingerprint.reference_number} matches \u2014 stock side ${stockLabel}, demand side ${demandLabel}. At least one side is a best estimate picked among multiple real candidates, not a single confirmed source \u2014 treat this match as a lead worth checking, not a certainty.${refTierNote}`;
         }
         return { stockId: s.id, stockItem: s, confidence, referenceMatchType, reasoning };
       })
       .sort((a, b) => b.confidence - a.confidence)
       .slice(0, 3);
 
-    // Separate from exact matches: stock items with a DIFFERENT but closely
-    // related reference (e.g. same base number, different color/variant
-    // suffix). Never treated as a match, never factored into confidence --
-    // purely a "you don't have the exact one, but here's something close"
-    // suggestion, useful for a dealer workflow even when it isn't a real
-    // match. Capped at 3 and excludes anything already an exact match.
     const matchedStockIds = new Set(matches.map(m => m.stockId));
     const similarModels = stockReady
       .filter(s => !matchedStockIds.has(s.id) && areSimilarRefs(s.fingerprint.reference_number, d.fingerprint.reference_number))
@@ -2717,15 +2581,31 @@ function genderBadge(fp){
   return `<span class="gender-badge ${cls}" title="${escapeHtml(fp.gender_basis || '')}">${label}</span>`;
 }
 
+// refBadge: shows reference number + how it was found + which site confirmed it
 function refBadge(fp){
   if (!fp || !fp.reference_number) return '';
   const source = fp.reference_number_source;
+  const site = fp.reference_source_site || null;
+
   const cls = source === 'visible' ? 'visible' : source === 'looked_up' ? 'looked-up' : 'best-match';
-  const label = source === 'visible' ? '' : source === 'looked_up' ? ' (Google-verified)' : ' (best estimate)';
-  const title = source === 'visible' ? 'Read directly from the photo or message text'
-    : source === 'looked_up' ? 'Not directly legible \u2014 confirmed via Google search against real listings/specs'
-    : 'Not directly legible \u2014 search found multiple real candidates, this is the most likely one based on visual details. Treat as a strong lead, not a certainty.';
-  return `<span class="ref-badge ${cls}" title="${title}">${escapeHtml(fp.reference_number)}${label}</span>`;
+
+  let label, title;
+  if (source === 'visible'){
+    label = '';
+    title = 'Read directly from the photo or message text';
+  } else if (source === 'looked_up'){
+    label = site ? ` (via ${site})` : ' (Google-verified)';
+    title = site
+      ? `Not directly legible \u2014 confirmed via Google search, source: ${site}`
+      : 'Not directly legible \u2014 confirmed via Google search against real listings/specs';
+  } else {
+    label = site ? ` (est. via ${site})` : ' (best estimate)';
+    title = site
+      ? `Not directly legible \u2014 search found multiple real candidates, best match picked; source: ${site}. Treat as a strong lead, not a certainty.`
+      : 'Not directly legible \u2014 search found multiple real candidates, this is the most likely one based on visual details. Treat as a strong lead, not a certainty.';
+  }
+
+  return `<span class="ref-badge ${cls}" title="${title}">${escapeHtml(fp.reference_number)}${escapeHtml(label)}</span>`;
 }
 
 function renderDashboardMatches(){
@@ -2751,7 +2631,7 @@ function renderDashboardMatches(){
     const pct = Math.round(top.confidence || 0);
     const tier = confidenceTier(pct);
     const matchTypeBadge = top.referenceMatchType === 'looked_up'
-      ? '<span class="ref-badge looked-up">Google-verified match</span>'
+      ? `<span class="ref-badge looked-up">Google-verified match${stockItem.fingerprint && stockItem.fingerprint.reference_source_site ? ' \u00b7 ' + escapeHtml(stockItem.fingerprint.reference_source_site) : ''}</span>`
       : top.referenceMatchType === 'best_match'
         ? '<span class="ref-badge best-match">best-estimate match \u2014 verify</span>'
         : '';
@@ -2858,8 +2738,6 @@ function renderDashboard(){
   });
 }
 
-
-
 function confidenceTier(pct){
   if (pct >= 70) return 'high';
   if (pct >= 40) return 'medium';
@@ -2882,6 +2760,8 @@ function itemLabel(item){
   }
   return item.caption || item.filename || 'Unidentified';
 }
+
+/* ===================== rendering: results ===================== */
 
 function renderResults(){
   const list = document.getElementById('resultsList');
@@ -3003,7 +2883,6 @@ async function handleStockFiles(fileList){
       });
       saveStockImage(newId, base64, file.type);
       added++;
-      // render incrementally so progress is visible on slow mobile reads
       renderStock();
     }catch(e){
       failed++;
@@ -3052,7 +2931,6 @@ async function handleDemandFiles(fileList){
 }
 
 function handlePaste(e){
-  // Only act if a relevant tab is active and no modal is open
   if (document.getElementById('textModalOverlay').classList.contains('open')) return;
   if (currentView !== 'stock' && currentView !== 'demand') return;
 
@@ -3085,23 +2963,16 @@ function wireFileInput(inputId, handlerFn){
   function handle(e){
     const fl = (e.target && e.target.files) || input.files;
     if (!fl || !fl.length) return;
-    // change and input can both fire for the same selection; collapse duplicates
-    // that land within a short window of each other
     const now = Date.now();
     if (now - lastHandledAt < 600) return;
     lastHandledAt = now;
     handlerFn(fl);
-    // delay clearing the input value so iOS WebKit has finished handing off
-    // file blobs before we reset it (clearing too early can orphan the FileList
-    // in some mobile WebKit/iframe combinations)
     setTimeout(() => { input.value = ''; }, 500);
   }
 
   input.addEventListener('change', handle, false);
   input.addEventListener('input', handle, false);
 
-  // Fallback: if neither event fires within a few seconds of the input
-  // losing focus (picker closed) but files are present, handle them anyway.
   input.addEventListener('blur', () => {
     setTimeout(() => {
       if (input.files && input.files.length && Date.now() - lastHandledAt > 600){
@@ -3189,16 +3060,12 @@ function init(){
     setSupabaseUrl(supabaseUrl);
     setSupabaseAnonKey(supabaseAnonKey);
     setSyncId(syncId);
-    // Force re-init on next use since config may have changed.
     _firebaseApp = null; _firestoreDb = null; _firebaseInitError = null;
     _supabaseClient = null; _supabaseInitError = null;
     document.getElementById('settingsModalOverlay').classList.remove('open');
     updateKeyBanner();
     showToast(key ? 'Settings saved' : 'Anthropic key cleared');
 
-    // Cloud sync just became configured for the first time on this device
-    // -- automatically catch up any images already sitting locally that
-    // predate this setup, rather than leaving them stuck local-only.
     if (!wasSupabaseConfigured && supabaseSyncConfigured()){
       setTimeout(() => pushLocalImagesToCloud(), 600);
     }
@@ -3262,19 +3129,8 @@ function updateKeyBanner(){
 }
 
 /* ===================== catalog backup / restore ===================== */
-/* Browser storage (localStorage / window.storage) can be cleared by the
-   browser itself \u2014 iOS Safari in particular limits or clears script-writable
-   storage for sites that aren't bookmarked/installed. This file-based
-   backup is the reliable fallback: it never depends on the browser
-   remembering anything, since the data lives in a file you control. */
 
 async function pushLocalImagesToCloud(){
-  // Catch-up sync: pushes any image currently loaded in THIS browser's
-  // memory up to the cloud, regardless of whether it was already there.
-  // Needed because images only get pushed at the moment of upload/re-attach
-  // -- anything analyzed before cloud sync was configured (or on a device
-  // that's never had its local IndexedDB images pushed) would otherwise
-  // never make it to the cloud on its own.
   if (!supabaseSyncConfigured()){
     showToast('Set up Supabase first \u2014 see settings', true);
     return;
