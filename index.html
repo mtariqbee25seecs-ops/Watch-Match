@@ -2570,40 +2570,45 @@ function updateRunMatchAvailability(){
    means matching can never fail with a JSON parsing error, since there's
    no second AI response to parse. */
 
-function normalizeRefNumber(ref){
+// Strip ALL separators. Used for exact comparison.
+function normalizeRefNumber(ref) {
   if (!ref) return '';
-  return String(ref).toUpperCase().replace(/[\s\-_.]/g, '');
+  return String(ref)
+    .trim()
+    .replace(/[^a-zA-Z0-9]/g, '') // strip / - . spaces
+    .toUpperCase();
 }
 
-function extractRefBase(ref){
-  // Strips a trailing separator + short alphanumeric suffix -- the part
-  // that often encodes dial color or a minor variant in many brands'
-  // numbering, e.g. "5167A-001" -> "5167A", "15202.ST.OO.1240ST.01" ->
-  // "15202.ST.OO.1240ST". Used only to flag genuinely related variants as
-  // "similar" suggestions, never to widen what counts as an exact match.
-  if (!ref) return null;
-  const trimmed = String(ref).trim();
-  const match = trimmed.match(/^(.+?)[-_.]([A-Za-z0-9]{1,4})$/);
-  if (match && match[1].replace(/[^A-Za-z0-9]/g, '').length >= 4){
-    return normalizeRefNumber(match[1]);
-  }
-  return null; // no clean variant-suffix pattern found, no base to compare
+// Strip trailing numeric-only dial variant (-001, -014, -0042).
+// Keeps letter suffixes (Rolex LN/LV, AP ST/RG) because those are different watches.
+function baseRefNumber(ref) {
+  if (!ref) return '';
+  const withoutDialVariant = String(ref).trim().replace(/-\d+$/, '');
+  return normalizeRefNumber(withoutDialVariant);
 }
 
-function areSimilarRefs(refA, refB){
-  // Deliberately conservative: only flags two DIFFERENT references as
-  // similar when they share an extracted base after stripping a trailing
-  // variant suffix. Identical refs return false here since those are
-  // exact matches, handled separately. This must never be used to widen
-  // the strict exact-match rule -- only to power a clearly-separate
-  // "similar models" suggestion.
-  const normA = normalizeRefNumber(refA);
-  const normB = normalizeRefNumber(refB);
-  if (!normA || !normB || normA === normB) return false;
-  const baseA = extractRefBase(refA);
-  const baseB = extractRefBase(refB);
-  if (!baseA || !baseB) return false;
-  return baseA === baseB;
+// 3-tier matcher.
+function matchRefs(ref1, ref2) {
+  if (!ref1 || !ref2) return { match: false, confidence: null };
+
+  const n1 = normalizeRefNumber(ref1);
+  const n2 = normalizeRefNumber(ref2);
+
+  if (n1 === n2) return { match: true, confidence: 'exact' };
+
+  if (n1.length < n2.length && n2.startsWith(n1))
+    return { match: true, confidence: 'prefix' };
+
+  if (n2.length < n1.length && n1.startsWith(n2))
+    return { match: true, confidence: 'prefix' };
+
+  const b1 = baseRefNumber(ref1);
+  const b2 = baseRefNumber(ref2);
+
+  if (b1 === b2 && b1.length > 3)
+    return { match: true, confidence: 'base_model' };
+
+  return { match: false, confidence: null };
 }
 
 function refSourceRank(source){
