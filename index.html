@@ -914,7 +914,8 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
             Restore catalog
             <input type="file" id="importCatalogInput" accept="application/json" hidden>
           </label>
-          <button class="btn small" id="pushImagesBtn" title="Push any locally-loaded images up to the cloud, catching up devices that predate cloud sync setup">Push images to cloud</button>
+          <button class="btn small" id="pushImagesBtn" title="Upload all local images to cloud so other devices can see them">Push images to cloud</button>
+          <button class="btn small danger-text" id="clearCloudBtn" title="Delete all images from cloud storage (local images are not affected)">Clear cloud images</button>
         </div>
       </div>
 
@@ -2942,6 +2943,7 @@ function init(){
   };
   document.addEventListener('paste', handlePaste);
   document.getElementById('exportCatalogBtn').onclick = exportCatalog;
+  document.getElementById('clearCloudBtn').onclick = clearCloudImages;
   document.getElementById('pushImagesBtn').onclick = pushLocalImagesToCloud;
   document.getElementById('importCatalogInput').onchange = (e) => { if (e.target.files && e.target.files[0]) importCatalog(e.target.files[0]); e.target.value = ''; };
   document.getElementById('clearStockBtn').onclick = () => {
@@ -2983,21 +2985,33 @@ function updateKeyBanner(){
 
 async function pushLocalImagesToCloud(){
   if (!supabaseSyncConfigured()){ showToast('Set up Supabase first — see settings', true); return; }
-  const stockToPush = stockItems.filter(it => it.imageData);
-  const demandToPush = demandItems.filter(it => it.imageData);
-  const total = stockToPush.length + demandToPush.length;
-  if (!total){ showToast('No images loaded in this browser right now to push — open each item once first if needed'); return; }
+
+  // Load any images that are in IndexedDB but not yet in memory this session
+  const allStock  = stockItems.filter(it => it.hasImage);
+  const allDemand = demandItems.filter(it => it.hasImage);
+  const missingStock  = allStock.filter(it => !it.imageData).map(it => it.id);
+  const missingDemand = allDemand.filter(it => !it.imageData).map(it => it.id);
+  if (missingStock.length){
+    const imgs = await imageStore.getMany(missingStock);
+    allStock.forEach(it => { if (imgs[it.id]) it.imageData = imgs[it.id]; });
+  }
+  if (missingDemand.length){
+    const imgs = await imageStore.getMany(missingDemand.map(id => 'demand:' + id));
+    allDemand.forEach(it => { if (imgs['demand:' + it.id]) it.imageData = imgs['demand:' + it.id]; });
+  }
+
+  const allToPush = [
+    ...allStock.filter(it => it.imageData).map(it => ({ id: it.id,              data: it.imageData, mime: imageMimeTypeOf(it) })),
+    ...allDemand.filter(it => it.imageData).map(it => ({ id: 'demand_' + it.id, data: it.imageData, mime: imageMimeTypeOf(it) }))
+  ];
+  const total = allToPush.length;
+  if (!total){ showToast('No images found locally to push'); return; }
 
   const btn = document.getElementById('pushImagesBtn');
   const originalText = btn.textContent;
   btn.disabled = true;
 
   let pushed = 0, failed = 0;
-  const allToPush = [
-    ...stockToPush.map(it => ({ id: it.id, data: it.imageData, mime: imageMimeTypeOf(it) })),
-    ...demandToPush.map(it => ({ id: 'demand_' + it.id, data: it.imageData, mime: imageMimeTypeOf(it) }))
-  ];
-
   for (const item of allToPush){
     const current = pushed + failed + 1;
     btn.textContent = `Pushing ${current}/${total}…`;
@@ -3009,7 +3023,36 @@ async function pushLocalImagesToCloud(){
   btn.textContent = originalText;
 
   if (failed) showToast(`Pushed ${pushed}/${total} — ${failed} failed. Check Supabase bucket name/policy.`, true);
-  else showToast(`All ${total} image${total === 1 ? '' : 's'} pushed to cloud — other devices will see them now`);
+  else showToast(`All ${total} image${total === 1 ? '' : 's'} pushed to cloud`);
+}
+
+async function clearCloudImages(){
+  if (!supabaseSyncConfigured() || !ensureSupabaseInit()){
+    showToast('Supabase not configured — set it up in settings first', true); return;
+  }
+  if (!confirm('Delete all images from cloud storage? Local images on this device are not affected.')) return;
+
+  const syncId = getSyncId();
+  const btn = document.getElementById('clearCloudBtn');
+  if (btn){ btn.disabled = true; btn.textContent = 'Clearing…'; }
+
+  try{
+    // List everything under this syncId folder
+    const { data, error } = await _supabaseClient.storage.from(SUPABASE_BUCKET).list(syncId);
+    if (error) throw error;
+    if (!data || !data.length){
+      showToast('No images found in cloud storage for this Sync ID');
+      if (btn){ btn.disabled = false; btn.textContent = 'Clear cloud images'; }
+      return;
+    }
+    const paths = data.map(f => `${syncId}/${f.name}`);
+    const { error: delErr } = await _supabaseClient.storage.from(SUPABASE_BUCKET).remove(paths);
+    if (delErr) throw delErr;
+    showToast(`Deleted ${paths.length} image${paths.length === 1 ? '' : 's'} from cloud storage`);
+  }catch(e){
+    showToast('Clear failed: ' + (e.message || e), true);
+  }
+  if (btn){ btn.disabled = false; btn.textContent = 'Clear cloud images'; }
 }
 
 function exportCatalog(){
