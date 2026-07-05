@@ -813,6 +813,50 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
   margin-left:3px;
 }
 
+/* ---------- dashboard multi-match ---------- */
+.match-stocks-row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;}
+.match-stock-entry{display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;}
+.match-stock-entry img,.match-stock-entry .thumb{
+  border-radius:8px;border:2px solid var(--border-soft);
+  transition:border-color 0.15s,transform 0.15s;
+}
+.match-stock-entry:hover img,.match-stock-entry:hover .thumb{
+  border-color:var(--brass);transform:scale(1.06);
+}
+.match-stock-pct{font-size:10px;font-family:var(--mono);color:var(--brass-bright);}
+.match-stock-label{font-size:9.5px;color:var(--text-faint);text-align:center;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+.match-entries{margin-top:10px;display:flex;flex-direction:column;gap:9px;}
+.match-entry{
+  padding:9px 11px;
+  background:var(--bg);
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius-sm);
+}
+.match-entry-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:5px;}
+.match-entry-rank{
+  font-size:10px;font-family:var(--mono);color:var(--text-faint);
+  background:var(--bg-raised-2);border-radius:10px;padding:2px 7px;flex-shrink:0;
+}
+.match-entry-name{font-size:12.5px;font-weight:600;color:var(--text);}
+.match-entry-reasoning{font-size:11.5px;color:var(--text-dim);line-height:1.5;margin-top:4px;}
+.match-entry-goto{
+  font-size:10.5px;color:var(--brass-dim);cursor:pointer;
+  background:none;border:none;font-family:var(--sans);
+  text-decoration:underline;padding:0;flex-shrink:0;
+}
+.match-entry-goto:hover{color:var(--brass);}
+
+/* photo lightbox hover overlay */
+.match-photo-btn{position:relative;}
+.match-photo-btn::after{
+  content:'\1F50D';
+  position:absolute;bottom:22px;right:2px;
+  font-size:12px;opacity:0;transition:opacity 0.15s;
+  pointer-events:none;
+}
+.match-photo-btn:hover::after{opacity:0.8;}
+
 /* ---------- condition badge ---------- */
 .condition-badge{
   display:inline-flex;
@@ -2743,51 +2787,95 @@ function renderDashboardMatches(){
 
   wrap.innerHTML = withMatches.map(r => {
     const demandItem = r.demandItem;
-    const top = r.matches[0];
-    const stockItem = top.stockItem;
+    const allMatches = r.matches; // show ALL matches, not just top
+    const top = allMatches[0];
     const pct = Math.round(top.confidence || 0);
     const tier = confidenceTier(pct);
-    const matchTypeBadge = top.referenceMatchType === 'looked_up'
-      ? '<span class="ref-badge looked-up">Google-verified match</span>'
-      : top.referenceMatchType === 'best_match'
-        ? '<span class="ref-badge best-match">best-estimate match \u2014 verify</span>'
-        : '';
+
+    // Demand photo (click = lightbox)
+    const demandPhoto = `
+      <button class="match-photo-btn" data-action="lb-demand" data-id="${demandItem.id}" title="Tap to enlarge">
+        ${thumbHtml(demandItem, 64)}
+        <span class="match-photo-label">Demand</span>
+      </button>`;
+
+    // All matching stock photos in a row
+    const stockPhotos = allMatches.map((m, i) => `
+      <div class="match-stock-entry" data-action="lb-stock" data-id="${m.stockItem.id}" title="Tap to enlarge">
+        ${thumbHtml(m.stockItem, 54)}
+        <span class="match-stock-pct">${Math.round(m.confidence)}%</span>
+        <span class="match-stock-label">${escapeHtml(itemLabel(m.stockItem))}</span>
+      </div>`).join('');
+
+    // Match entries (one per stock match)
+    const matchEntries = allMatches.map((m, i) => {
+      const matchTypeBadge = m.referenceMatchType === 'looked_up'
+        ? '<span class="ref-badge looked-up" style="font-size:10px;">Google-verified</span>'
+        : m.referenceMatchType === 'best_match'
+          ? '<span class="ref-badge best-match" style="font-size:10px;">best estimate</span>'
+          : '';
+      return `
+      <div class="match-entry">
+        <div class="match-entry-head">
+          <span class="match-entry-rank">#${i + 1}</span>
+          <span class="match-entry-name">${escapeHtml(itemLabel(m.stockItem))}</span>
+          <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;">
+            ${genderBadge(m.stockItem.fingerprint)}
+            ${conditionBadge(m.stockItem.fingerprint)}
+            ${refBadge(m.stockItem.fingerprint)}
+            ${matchTypeBadge}
+          </div>
+          <button class="match-entry-goto" data-action="goto-stock" data-id="${m.stockItem.id}">view \u2192</button>
+        </div>
+        <div class="match-entry-reasoning">${escapeHtml(m.reasoning || '')}</div>
+      </div>`;
+    }).join('');
 
     return `
     <div class="match-pair-card">
       <div class="match-pair-photos">
-        <button class="match-photo-btn" data-action="goto-demand" data-id="${demandItem.id}" title="Open this demand request">
-          ${thumbHtml(demandItem, 64)}
-          <span class="match-photo-label">Demand</span>
-        </button>
-        <span class="match-pair-arrow">&harr;</span>
-        <button class="match-photo-btn" data-action="goto-stock" data-id="${stockItem.id}" title="Open this stock item">
-          ${thumbHtml(stockItem, 64)}
-          <span class="match-photo-label">Stock</span>
-        </button>
+        ${demandPhoto}
+        <span class="match-pair-arrow">&rarr;</span>
+        <div class="match-stocks-row">${stockPhotos}</div>
       </div>
-      <div class="match-pair-info">
-        <div class="match-pair-title">${escapeHtml(itemLabel(demandItem))} <span class="match-pair-sep">matched</span> ${escapeHtml(itemLabel(stockItem))}</div>
-        <div class="match-pair-badges">
-          ${genderBadge(stockItem.fingerprint)}
-          ${refBadge(stockItem.fingerprint)}
-          ${matchTypeBadge}
+      <div class="match-pair-info" style="flex:1;min-width:0;">
+        <div class="match-pair-title">
+          ${escapeHtml(itemLabel(demandItem))}
+          <span class="match-pair-sep">&mdash;</span>
+          ${allMatches.length} match${allMatches.length > 1 ? 'es' : ''} found
+          <button class="match-entry-goto" data-action="goto-demand" data-id="${demandItem.id}" style="margin-left:6px;">view demand \u2192</button>
         </div>
-        <div class="match-pair-reasoning">${escapeHtml(top.reasoning || '')}</div>
+        <div class="match-entries">${matchEntries}</div>
       </div>
       <div class="confidence">
-        <span class="confidence-label">confidence</span>
+        <span class="confidence-label">best match</span>
         <div class="confidence-meter"><div class="confidence-fill ${tier}" style="width:${pct}%"></div></div>
         <span class="confidence-pct">${pct}%</span>
       </div>
     </div>`;
   }).join('');
 
-  wrap.querySelectorAll('[data-action="goto-demand"]').forEach(btn => {
-    btn.onclick = () => { setView('demand'); setTimeout(() => scrollToCard('demand', btn.dataset.id), 50); };
+  // Lightbox handlers — demand photos
+  wrap.querySelectorAll('[data-action="lb-demand"]').forEach(btn => {
+    btn.onclick = () => {
+      const item = demandItems.find(d => d.id === btn.dataset.id);
+      if (item && item.imageData) openLightbox(item.imageData, imageMimeTypeOf(item));
+    };
   });
+  // Lightbox handlers — stock photos
+  wrap.querySelectorAll('[data-action="lb-stock"]').forEach(el => {
+    el.onclick = () => {
+      const item = stockItems.find(s => s.id === el.dataset.id);
+      if (item && item.imageData) openLightbox(item.imageData, imageMimeTypeOf(item));
+    };
+  });
+  // Navigate to demand
+  wrap.querySelectorAll('[data-action="goto-demand"]').forEach(btn => {
+    btn.onclick = (e) => { e.stopPropagation(); setView('demand'); setTimeout(() => scrollToCard('demand', btn.dataset.id), 50); };
+  });
+  // Navigate to stock
   wrap.querySelectorAll('[data-action="goto-stock"]').forEach(btn => {
-    btn.onclick = () => { setView('stock'); setTimeout(() => scrollToCard('stock', btn.dataset.id), 50); };
+    btn.onclick = (e) => { e.stopPropagation(); setView('stock'); setTimeout(() => scrollToCard('stock', btn.dataset.id), 50); };
   });
 }
 
