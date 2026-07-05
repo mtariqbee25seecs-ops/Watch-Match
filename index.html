@@ -2982,17 +2982,34 @@ function updateKeyBanner(){
 /* ===================== catalog backup / restore ===================== */
 
 async function pushLocalImagesToCloud(){
-  if (!supabaseSyncConfigured()){ showToast('Set up Supabase first \u2014 see settings', true); return; }
+  if (!supabaseSyncConfigured()){ showToast('Set up Supabase first — see settings', true); return; }
   const stockToPush = stockItems.filter(it => it.imageData);
   const demandToPush = demandItems.filter(it => it.imageData);
   const total = stockToPush.length + demandToPush.length;
-  if (!total){ showToast('No images loaded in this browser right now to push \u2014 open each item once first if needed'); return; }
-  showToast(`Pushing ${total} image${total === 1 ? '' : 's'} to the cloud\u2026`);
+  if (!total){ showToast('No images loaded in this browser right now to push — open each item once first if needed'); return; }
+
+  const btn = document.getElementById('pushImagesBtn');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+
   let pushed = 0, failed = 0;
-  for (const it of stockToPush){ const ok = await cloudSync.saveImage(it.id, it.imageData, imageMimeTypeOf(it)); if (ok) pushed++; else failed++; }
-  for (const it of demandToPush){ const ok = await cloudSync.saveImage('demand_' + it.id, it.imageData, imageMimeTypeOf(it)); if (ok) pushed++; else failed++; }
-  if (failed) showToast(`Pushed ${pushed}, ${failed} failed \u2014 check Supabase bucket name/policy`, true);
-  else showToast(`Pushed ${pushed} image${pushed === 1 ? '' : 's'} to the cloud \u2014 other devices will see them now`);
+  const allToPush = [
+    ...stockToPush.map(it => ({ id: it.id, data: it.imageData, mime: imageMimeTypeOf(it) })),
+    ...demandToPush.map(it => ({ id: 'demand_' + it.id, data: it.imageData, mime: imageMimeTypeOf(it) }))
+  ];
+
+  for (const item of allToPush){
+    const current = pushed + failed + 1;
+    btn.textContent = `Pushing ${current}/${total}…`;
+    const ok = await cloudSync.saveImage(item.id, item.data, item.mime);
+    if (ok) pushed++; else failed++;
+  }
+
+  btn.disabled = false;
+  btn.textContent = originalText;
+
+  if (failed) showToast(`Pushed ${pushed}/${total} — ${failed} failed. Check Supabase bucket name/policy.`, true);
+  else showToast(`All ${total} image${total === 1 ? '' : 's'} pushed to cloud — other devices will see them now`);
 }
 
 function exportCatalog(){
