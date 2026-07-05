@@ -2,7 +2,3109 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<style><!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
 <style>
+/* ============================================================
+   STOCKMATCH — instrument-panel design system
+   Inspired by the inside of a fine watch movement: gunmetal,
+   bronze, brushed steel, jewel-bearing indicators.
+   ============================================================ */
+
+:root{
+  /* surfaces */
+  --bg: #0f0e0c;
+  --bg-raised: #181511;
+  --bg-raised-2: #211d16;
+  --bg-raised-3: #2a2419;
+  --border: #3d3527;
+  --border-soft: #2a2419;
+  --border-bright: #54462e;
+
+  /* movement gold (primary accent) */
+  --brass: #d4a84b;
+  --brass-dim: #97793a;
+  --brass-bright: #f0c668;
+  --brass-glow: rgba(212,168,75,0.35);
+
+  /* steel blue (mens / cool data) */
+  --steel: #5a8fb0;
+  --steel-bright: #8fc1e0;
+
+  /* rose gold (ladies) */
+  --rose: #b8638a;
+  --rose-bright: #e0a0c0;
+
+  /* jewel states */
+  --jade: #6fae5f;
+  --jade-bright: #97d985;
+  --ruby: #c75450;
+  --ruby-bright: #e88884;
+
+  /* text */
+  --text: #f2ede0;
+  --text-dim: #aaa392;
+  --text-faint: #756c5a;
+
+  /* type */
+  --display: 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --serif: 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --mono: 'SF Mono', 'IBM Plex Mono', 'Courier New', monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+}
+
+*{box-sizing:border-box;margin:0;padding:0;}
+
+#app{
+  background:
+    radial-gradient(ellipse 1200px 600px at 50% -10%, rgba(212,168,75,0.06), transparent),
+    var(--bg);
+  color:var(--text);
+  font-family:var(--sans);
+  min-height:100vh;
+  width:100%;
+  font-size:14px;
+  line-height:1.5;
+}
+
+/* ---------- topbar ---------- */
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:16px;
+  padding:22px 28px;
+  border-bottom:1px solid var(--border-soft);
+  background:linear-gradient(180deg, var(--bg-raised-2) 0%, var(--bg-raised) 100%);
+  box-shadow:0 1px 0 rgba(212,168,75,0.08) inset, 0 4px 20px rgba(0,0,0,0.4);
+  position:relative;
+}
+.topbar::after{
+  content:'';
+  position:absolute;
+  left:0; right:0; bottom:-1px;
+  height:1px;
+  background:linear-gradient(90deg, transparent, var(--brass-dim) 20%, var(--brass) 50%, var(--brass-dim) 80%, transparent);
+  opacity:0.5;
+}
+.brand{display:flex;align-items:center;gap:14px;}
+.brand-mark{
+  font-size:30px;
+  color:var(--brass);
+  line-height:1;
+  filter:drop-shadow(0 0 8px var(--brass-glow));
+  animation:slowSpin 40s linear infinite;
+  display:inline-block;
+}
+@keyframes slowSpin{ from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
+.brand-text h1{
+  font-family:var(--display);
+  font-size:21px;
+  font-weight:600;
+  letter-spacing:0.015em;
+  color:var(--text);
+  background:linear-gradient(90deg, var(--text) 60%, var(--brass-bright));
+  -webkit-background-clip:text;
+  background-clip:text;
+}
+.brand-text p{
+  font-size:10.5px;
+  color:var(--text-faint);
+  letter-spacing:0.08em;
+  text-transform:uppercase;
+  margin-top:3px;
+}
+.tabs{
+  display:flex;
+  gap:4px;
+  background:var(--bg);
+  border:1px solid var(--border-soft);
+  border-radius:10px;
+  padding:4px;
+  box-shadow:0 2px 8px rgba(0,0,0,0.35) inset;
+}
+.tab{
+  background:transparent;
+  border:none;
+  color:var(--text-dim);
+  font-size:13px;
+  font-family:var(--sans);
+  font-weight:500;
+  padding:9px 15px;
+  border-radius:7px;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  transition:background 0.18s, color 0.18s, box-shadow 0.18s;
+}
+.tab:hover{color:var(--text);}
+.tab.active{
+  background:linear-gradient(180deg, var(--bg-raised-3), var(--bg-raised-2));
+  color:var(--brass-bright);
+  box-shadow:0 1px 0 rgba(255,255,255,0.05) inset, 0 2px 6px rgba(0,0,0,0.3);
+}
+.tab .count{
+  font-family:var(--mono);
+  font-size:11px;
+  background:var(--border-soft);
+  color:var(--text-dim);
+  padding:1px 7px;
+  border-radius:10px;
+  min-width:16px;
+  text-align:center;
+}
+.tab.active .count{background:var(--brass-glow);color:var(--brass-bright);}
+
+.settings-btn{
+  font-size:17px;
+  padding:9px 13px;
+  flex-shrink:0;
+  border-radius:10px;
+}
+.key-banner{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  flex-wrap:wrap;
+  background:linear-gradient(90deg, rgba(199,84,80,0.14), rgba(199,84,80,0.06));
+  border-bottom:1px solid rgba(199,84,80,0.25);
+  padding:11px 28px;
+  font-size:12.5px;
+  color:var(--ruby-bright);
+}
+
+/* ---------- layout ---------- */
+main{padding:30px 28px;max-width:1140px;margin:0 auto;}
+.view{display:none;}
+.view.active{display:block;animation:fadeIn 0.25s ease-out;}
+@keyframes fadeIn{ from{opacity:0;transform:translateY(4px);} to{opacity:1;transform:translateY(0);} }
+
+.panel-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:20px;
+  flex-wrap:wrap;
+  margin-bottom:26px;
+}
+.panel-head h2{
+  font-family:var(--display);
+  font-size:21px;
+  font-weight:600;
+  color:var(--text);
+  margin-bottom:7px;
+  position:relative;
+  display:inline-block;
+}
+.panel-head h2::after{
+  content:'';
+  position:absolute;
+  left:0; bottom:-6px;
+  width:32px; height:2px;
+  background:linear-gradient(90deg, var(--brass), transparent);
+  border-radius:2px;
+}
+.panel-head .sub{
+  font-size:12.5px;
+  color:var(--text-dim);
+  max-width:540px;
+  line-height:1.6;
+}
+.paste-hint{color:var(--text-faint);font-style:italic;}
+.panel-actions{display:flex;gap:9px;flex-wrap:wrap;}
+
+/* ---------- buttons ---------- */
+.btn{
+  background:linear-gradient(180deg, var(--bg-raised-3), var(--bg-raised-2));
+  border:1px solid var(--border);
+  color:var(--text);
+  font-size:12.5px;
+  font-family:var(--sans);
+  font-weight:500;
+  padding:10px 17px;
+  border-radius:9px;
+  cursor:pointer;
+  white-space:nowrap;
+  box-shadow:0 1px 0 rgba(255,255,255,0.04) inset, 0 2px 6px rgba(0,0,0,0.3);
+  transition:background 0.16s,border-color 0.16s,opacity 0.16s,transform 0.12s,box-shadow 0.16s;
+}
+.btn:hover:not(:disabled){
+  border-color:var(--brass-dim);
+  transform:translateY(-1.5px);
+  box-shadow:0 1px 0 rgba(255,255,255,0.06) inset, 0 6px 16px rgba(0,0,0,0.4);
+}
+.btn:active:not(:disabled){transform:translateY(0px);}
+.btn:disabled{opacity:0.38;cursor:not-allowed;}
+.btn.primary{
+  background:linear-gradient(180deg, var(--brass-bright), var(--brass));
+  border-color:var(--brass);
+  color:#1a1206;
+  font-weight:700;
+  box-shadow:0 1px 0 rgba(255,255,255,0.35) inset, 0 3px 12px var(--brass-glow);
+}
+.btn.primary:hover:not(:disabled){
+  background:linear-gradient(180deg, #f7da8c, var(--brass-bright));
+  box-shadow:0 1px 0 rgba(255,255,255,0.4) inset, 0 6px 20px var(--brass-glow);
+}
+.btn.small{padding:6px 11px;font-size:11.5px;border-radius:7px;}
+.btn.danger-text{color:var(--ruby-bright);}
+.file-btn{display:inline-flex;align-items:center;justify-content:center;}
+
+.sold-btn{
+  border-color:rgba(199,84,80,0.4);
+  color:var(--ruby-bright);
+  background:linear-gradient(180deg, rgba(199,84,80,0.1), rgba(199,84,80,0.04));
+}
+.sold-btn:hover{
+  background:linear-gradient(180deg, rgba(199,84,80,0.18), rgba(199,84,80,0.08));
+  border-color:var(--ruby);
+}
+
+/* ---------- jewel-bearing status indicators ---------- */
+.status-badge{
+  font-size:10px;
+  letter-spacing:0.04em;
+  text-transform:uppercase;
+  padding:4px 9px 4px 20px;
+  border-radius:20px;
+  font-family:var(--mono);
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+}
+.status-badge::before{
+  content:'';
+  position:absolute;
+  left:7px; top:50%;
+  width:7px; height:7px;
+  border-radius:50%;
+  transform:translateY(-50%);
+  box-shadow:0 0 0 2px rgba(0,0,0,0.2) inset;
+}
+.status-badge.pending{background:rgba(170,163,146,0.1);color:var(--text-dim);}
+.status-badge.pending::before{background:radial-gradient(circle at 35% 30%, #cfc9b8, var(--text-faint));}
+.status-badge.analyzing{background:rgba(212,168,75,0.12);color:var(--brass-bright);}
+.status-badge.analyzing::before{background:radial-gradient(circle at 35% 30%, var(--brass-bright), var(--brass-dim));animation:pulseGlow 1.1s ease-in-out infinite;}
+.status-badge.done{background:rgba(111,174,95,0.12);color:var(--jade-bright);}
+.status-badge.done::before{background:radial-gradient(circle at 35% 30%, var(--jade-bright), var(--jade));}
+.status-badge.error{background:rgba(199,84,80,0.12);color:var(--ruby-bright);}
+.status-badge.error::before{background:radial-gradient(circle at 35% 30%, var(--ruby-bright), var(--ruby));}
+@keyframes pulseGlow{ 0%,100%{box-shadow:0 0 0 0 var(--brass-glow), 0 0 0 2px rgba(0,0,0,0.2) inset;} 50%{box-shadow:0 0 0 4px transparent, 0 0 0 2px rgba(0,0,0,0.2) inset;} }
+
+/* ---------- gender / reference badges ---------- */
+.gender-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  font-size:10.5px;
+  font-family:var(--mono);
+  text-transform:uppercase;
+  letter-spacing:0.03em;
+  padding:4px 9px;
+  border-radius:20px;
+  cursor:default;
+}
+.gender-badge::before{content:'';width:6px;height:6px;border-radius:50%;}
+.gender-badge.mens{background:rgba(90,143,176,0.16);color:var(--steel-bright);}
+.gender-badge.mens::before{background:radial-gradient(circle at 35% 30%, var(--steel-bright), var(--steel));}
+.gender-badge.ladies{background:rgba(184,99,138,0.16);color:var(--rose-bright);}
+.gender-badge.ladies::before{background:radial-gradient(circle at 35% 30%, var(--rose-bright), var(--rose));}
+.gender-badge.unisex{background:rgba(170,163,146,0.14);color:var(--text-dim);}
+.gender-badge.unisex::before{background:var(--text-faint);}
+
+.ref-badge{
+  display:inline-flex;
+  align-items:center;
+  font-size:10.5px;
+  font-family:var(--mono);
+  padding:4px 9px;
+  border-radius:6px;
+  margin-top:4px;
+  cursor:default;
+}
+.ref-badge.visible{background:rgba(111,174,95,0.14);color:var(--jade-bright);}
+.ref-badge.looked-up{background:rgba(90,143,176,0.16);color:var(--steel-bright);}
+.ref-badge.best-match{background:rgba(212,168,75,0.16);color:var(--brass-bright);}
+.ref-badge.inferred{background:rgba(212,168,75,0.14);color:var(--brass-bright);}
+
+.card-badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px;}
+
+/* ---------- empty state ---------- */
+.empty-state{
+  text-align:center;
+  padding:70px 20px;
+  color:var(--text-faint);
+  border:1px dashed var(--border);
+  border-radius:var(--radius);
+  background:radial-gradient(ellipse at 50% 0%, rgba(212,168,75,0.04), transparent);
+}
+.empty-icon{
+  font-size:32px;
+  color:var(--brass-dim);
+  margin-bottom:16px;
+  opacity:0.6;
+}
+.empty-state p{font-size:13.5px;color:var(--text-dim);margin-bottom:4px;}
+.empty-state p.sub{font-size:12px;color:var(--text-faint);max-width:380px;margin:6px auto 0;line-height:1.55;}
+
+/* ---------- grid of item cards ---------- */
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(225px,1fr));
+  gap:16px;
+}
+.card{
+  background:linear-gradient(165deg, var(--bg-raised-2), var(--bg-raised));
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius);
+  overflow:hidden;
+  position:relative;
+  transition:border-color 0.2s, box-shadow 0.2s;
+}
+.card:hover{
+  border-color:var(--border-bright);
+  box-shadow:0 6px 22px rgba(0,0,0,0.35);
+}
+.card-img-wrap{
+  width:100%;
+  aspect-ratio:1/1;
+  background:var(--bg);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  overflow:hidden;
+  position:relative;
+}
+.card-img-wrap::after{
+  content:'';
+  position:absolute;
+  inset:0;
+  background:linear-gradient(180deg, transparent 60%, rgba(0,0,0,0.25));
+  pointer-events:none;
+}
+.card-img-wrap img{width:100%;height:100%;object-fit:cover;display:block;transition:transform 0.3s;}
+.card-img-wrap:hover img{transform:scale(1.035);}
+.card-img-wrap.no-image{
+  color:var(--text-faint);
+  font-size:11px;
+  text-align:center;
+  padding:20px;
+  cursor:default;
+}
+.card-body{padding:14px 15px;}
+.card-caption-input{
+  width:100%;
+  background:var(--bg);
+  border:1px solid var(--border-soft);
+  color:var(--text);
+  font-size:12px;
+  font-family:var(--sans);
+  padding:8px 10px;
+  border-radius:var(--radius-sm);
+  margin-bottom:9px;
+  transition:border-color 0.15s;
+}
+.card-caption-input:focus{border-color:var(--brass-dim);outline:none;}
+.card-caption-input::placeholder{color:var(--text-faint);}
+.card-status{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+.card-remove{
+  background:none;border:none;color:var(--text-faint);cursor:pointer;font-size:17px;line-height:1;padding:2px 4px;
+  transition:color 0.15s;
+}
+.card-remove:hover{color:var(--ruby-bright);}
+
+.highlight-flash{animation:flashHighlight 1.6s ease-out;}
+@keyframes flashHighlight{
+  0%{box-shadow:0 0 0 3px var(--brass-bright);}
+  100%{box-shadow:0 0 0 0px transparent;}
+}
+
+.fingerprint{
+  margin-top:11px;
+  padding-top:11px;
+  border-top:1px solid var(--border-soft);
+  font-family:var(--mono);
+  font-size:11px;
+  color:var(--text-dim);
+  display:grid;
+  grid-template-columns:auto 1fr;
+  gap:4px 10px;
+}
+.fingerprint .fp-label{color:var(--text-faint);}
+.fingerprint .fp-val{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+.msg-text{
+  margin-top:11px;
+  padding-top:11px;
+  border-top:1px solid var(--border-soft);
+}
+.msg-text p{
+  font-size:12px;
+  color:var(--text-dim);
+  line-height:1.55;
+  font-family:var(--sans);
+  white-space:pre-wrap;
+  max-height:80px;
+  overflow-y:auto;
+}
+.lookup-notes{
+  margin-top:11px;
+  padding-top:11px;
+  border-top:1px solid var(--border-soft);
+}
+.lookup-notes summary{
+  font-size:10.5px;
+  text-transform:uppercase;
+  letter-spacing:0.04em;
+  color:var(--brass-dim);
+  font-family:var(--mono);
+  cursor:pointer;
+  user-select:none;
+}
+.lookup-notes summary:hover{color:var(--brass);}
+.lookup-notes p{
+  font-size:11.5px;
+  color:var(--text-dim);
+  line-height:1.55;
+  font-family:var(--sans);
+  margin-top:7px;
+  white-space:pre-wrap;
+}
+.price-row{
+  margin-top:11px;
+  padding-top:11px;
+  border-top:1px solid var(--border-soft);
+  display:flex;
+  align-items:center;
+  gap:9px;
+}
+.price-row .fp-label{font-family:var(--mono);font-size:11px;color:var(--text-faint);flex-shrink:0;}
+.price-input{
+  flex:1;
+  background:var(--bg);
+  border:1px solid var(--border-soft);
+  color:var(--brass-bright);
+  font-family:var(--mono);
+  font-weight:600;
+  font-size:12.5px;
+  padding:7px 10px;
+  border-radius:var(--radius-sm);
+}
+.price-input:focus{border-color:var(--brass-dim);outline:none;}
+
+/* ---------- results ---------- */
+#resultsList{display:flex;flex-direction:column;gap:11px;}
+.result-row{
+  background:linear-gradient(165deg, var(--bg-raised-2), var(--bg-raised));
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius);
+  overflow:hidden;
+  transition:border-color 0.2s;
+}
+.result-row:hover{border-color:var(--border-bright);}
+.result-summary{
+  display:flex;
+  align-items:center;
+  gap:16px;
+  padding:15px 19px;
+  cursor:pointer;
+}
+.result-thumbs{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.thumb{width:46px;height:46px;border-radius:8px;background:var(--bg);object-fit:cover;border:1px solid var(--border-soft);}
+.thumb.placeholder{display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:9px;font-family:var(--mono);}
+.result-arrow{color:var(--brass-dim);font-size:13px;flex-shrink:0;transition:transform 0.2s;}
+.result-text{flex:1;min-width:0;}
+.result-text .demand-name{font-size:13.5px;color:var(--text);font-weight:600;}
+.result-text .match-name{font-size:12.5px;color:var(--text-dim);margin-top:2px;}
+.result-text .no-match{font-size:12.5px;color:var(--text-faint);font-style:italic;margin-top:2px;}
+
+.confidence{
+  flex-shrink:0;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:4px;
+  min-width:90px;
+}
+.confidence-label{font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-faint);font-family:var(--mono);}
+.confidence-meter{width:84px;height:5px;background:var(--border-soft);border-radius:3px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.3) inset;}
+.confidence-fill{height:100%;border-radius:3px;}
+.confidence-fill.high{background:linear-gradient(90deg, var(--jade), var(--jade-bright));}
+.confidence-fill.medium{background:linear-gradient(90deg, var(--brass), var(--brass-bright));}
+.confidence-fill.low{background:linear-gradient(90deg, var(--ruby), var(--ruby-bright));}
+.confidence-pct{font-family:var(--mono);font-size:12.5px;color:var(--text);font-weight:600;}
+
+.result-detail{
+  display:none;
+  padding:0 19px 19px;
+  border-top:1px solid var(--border-soft);
+}
+.result-row.expanded .result-detail{display:block;animation:fadeIn 0.2s ease-out;}
+.result-row.expanded .result-arrow{transform:rotate(90deg);color:var(--brass-bright);}
+.reasoning-block{
+  margin-top:15px;
+  padding:13px 15px;
+  background:var(--bg);
+  border-radius:var(--radius-sm);
+  border:1px solid var(--border-soft);
+}
+.reasoning-block .rb-label{font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;color:var(--brass);font-family:var(--mono);margin-bottom:7px;}
+.reasoning-block p{font-size:13px;color:var(--text-dim);line-height:1.6;}
+.compare-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-top:15px;}
+.compare-col h4{font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-faint);margin-bottom:9px;font-family:var(--mono);}
+.alt-matches{margin-top:15px;}
+.alt-matches h4{font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-faint);margin-bottom:9px;font-family:var(--mono);}
+.alt-match-item{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:12px;color:var(--text-dim);}
+.alt-match-item .thumb{width:30px;height:30px;}
+
+/* ---------- dashboard sections ---------- */
+.dash-section-label{
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:0.08em;
+  color:var(--brass-dim);
+  font-family:var(--mono);
+  margin:28px 0 14px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.dash-section-label:first-of-type{margin-top:0;}
+.dash-section-label::after{
+  content:'';
+  flex:1;
+  height:1px;
+  background:linear-gradient(90deg, var(--border-bright), transparent);
+}
+
+.match-pair-card{
+  display:flex;
+  align-items:center;
+  gap:18px;
+  background:linear-gradient(165deg, var(--bg-raised-2), var(--bg-raised));
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius);
+  padding:15px 19px;
+  margin-bottom:11px;
+  flex-wrap:wrap;
+  transition:border-color 0.2s, box-shadow 0.2s;
+}
+.match-pair-card:hover{border-color:var(--brass-dim);box-shadow:0 6px 20px rgba(0,0,0,0.3);}
+.match-pair-photos{
+  display:flex;
+  align-items:center;
+  gap:11px;
+  flex-shrink:0;
+}
+.match-photo-btn{
+  background:none;
+  border:none;
+  cursor:pointer;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:5px;
+  padding:0;
+}
+.match-photo-btn img, .match-photo-btn .thumb{
+  border-radius:9px;
+  border:2px solid var(--border-soft);
+  transition:border-color 0.15s, transform 0.15s;
+}
+.match-photo-btn:hover img, .match-photo-btn:hover .thumb{
+  border-color:var(--brass);
+  transform:scale(1.05);
+}
+.match-photo-label{
+  font-size:9.5px;
+  text-transform:uppercase;
+  letter-spacing:0.05em;
+  color:var(--text-faint);
+  font-family:var(--mono);
+}
+.match-pair-arrow{color:var(--brass-dim);font-size:17px;flex-shrink:0;}
+.match-pair-info{flex:1;min-width:200px;}
+.match-pair-title{font-size:13px;color:var(--text);font-weight:600;line-height:1.4;}
+.match-pair-sep{color:var(--text-faint);font-weight:400;font-style:italic;font-size:11.5px;}
+.match-pair-badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px;}
+.match-pair-reasoning{font-size:11.5px;color:var(--text-dim);margin-top:7px;line-height:1.55;}
+
+/* ---------- dashboard table ---------- */
+.dash-table{
+  width:100%;
+  border-collapse:collapse;
+  background:var(--bg-raised);
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius);
+  overflow:hidden;
+}
+.dash-table thead th{
+  text-align:left;
+  font-size:10.5px;
+  text-transform:uppercase;
+  letter-spacing:0.05em;
+  color:var(--text-faint);
+  font-family:var(--mono);
+  font-weight:400;
+  padding:12px 15px;
+  background:var(--bg-raised-3);
+  border-bottom:1px solid var(--border-bright);
+}
+.dash-table tbody tr{border-bottom:1px solid var(--border-soft);transition:background 0.15s;}
+.dash-table tbody tr:hover{background:rgba(212,168,75,0.03);}
+.dash-table tbody tr:last-child{border-bottom:none;}
+.dash-table td{padding:11px 15px;vertical-align:middle;font-size:13px;}
+.dash-thumb{width:44px;height:44px;border-radius:7px;object-fit:cover;display:block;border:1px solid var(--border-soft);}
+.dash-thumb.placeholder{
+  display:flex;align-items:center;justify-content:center;
+  background:var(--bg);color:var(--text-faint);font-size:9px;font-family:var(--mono);
+  border:1px solid var(--border-soft);
+}
+.dash-name{font-weight:600;color:var(--text);}
+.dash-ref{font-family:var(--mono);font-size:11px;color:var(--brass-bright);margin-top:2px;}
+.dash-price-input{
+  width:135px;
+  background:var(--bg);
+  border:1px solid var(--border-soft);
+  color:var(--brass-bright);
+  font-family:var(--mono);
+  font-weight:600;
+  font-size:12px;
+  padding:7px 9px;
+  border-radius:var(--radius-sm);
+}
+.dash-price-input:focus{border-color:var(--brass-dim);outline:none;}
+.dash-actions{text-align:right;}
+
+/* ---------- settings copy ---------- */
+.settings-copy{
+  font-size:12.5px;
+  color:var(--text-dim);
+  line-height:1.6;
+  margin-bottom:15px;
+}
+.settings-copy strong{color:var(--brass-bright);font-family:var(--mono);font-weight:400;}
+
+/* ---------- modal ---------- */
+.modal-overlay{
+  display:none;
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.65);
+  backdrop-filter:blur(3px);
+  align-items:center;
+  justify-content:center;
+  z-index:100;
+  padding:20px;
+}
+.modal-overlay.open{display:flex;animation:fadeIn 0.2s ease-out;}
+.modal{
+  background:linear-gradient(165deg, var(--bg-raised-2), var(--bg-raised));
+  border:1px solid var(--border-bright);
+  border-radius:var(--radius);
+  padding:22px;
+  width:100%;
+  max-width:430px;
+  box-shadow:0 20px 60px rgba(0,0,0,0.5);
+}
+.modal h3{font-family:var(--display);font-size:17px;margin-bottom:13px;color:var(--text);}
+.modal textarea{
+  width:100%;
+  min-height:100px;
+  background:var(--bg);
+  border:1px solid var(--border-soft);
+  color:var(--text);
+  font-size:13px;
+  font-family:var(--sans);
+  padding:11px;
+  border-radius:var(--radius-sm);
+  resize:vertical;
+}
+.modal textarea:focus{border-color:var(--brass-dim);outline:none;}
+.modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:16px;}
+
+.lightbox{max-width:90vw;max-height:90vh;}
+.lightbox img{max-width:90vw;max-height:90vh;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,0.6);}
+
+/* ---------- toast ---------- */
+.toast{
+  position:fixed;
+  bottom:26px;
+  left:50%;
+  transform:translateX(-50%) translateY(20px);
+  background:linear-gradient(165deg, var(--bg-raised-3), var(--bg-raised-2));
+  border:1px solid var(--border-bright);
+  color:var(--text);
+  padding:12px 22px;
+  border-radius:10px;
+  font-size:12.5px;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity 0.2s, transform 0.2s;
+  z-index:200;
+  max-width:80vw;
+  box-shadow:0 10px 30px rgba(0,0,0,0.45);
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.toast.error{border-color:var(--ruby);color:var(--ruby-bright);}
+
+/* progress bar within analyze button area */
+.progress-wrap{
+  display:flex;
+  align-items:center;
+  gap:9px;
+  font-size:11.5px;
+  color:var(--text-dim);
+  font-family:var(--mono);
+}
+.progress-track{width:80px;height:5px;background:var(--border-soft);border-radius:3px;overflow:hidden;}
+.progress-fill{height:100%;background:linear-gradient(90deg, var(--brass), var(--brass-bright));border-radius:3px;transition:width 0.2s;}
+
+/* ---------- catalog file import/export ---------- */
+.catalog-io{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+
+@media (max-width:640px){
+  .topbar{padding:16px;gap:12px;}
+  .brand{flex:1;min-width:0;}
+  .brand-text h1{font-size:18px;}
+  .brand-text p{font-size:9.5px;}
+  .tabs{
+    order:3;
+    width:100%;
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    justify-content:flex-start;
+    scrollbar-width:none;
+  }
+  .tabs::-webkit-scrollbar{display:none;}
+  .tab{flex-shrink:0;}
+  main{padding:20px 16px;}
+  .panel-head{flex-direction:column;}
+  .compare-grid{grid-template-columns:1fr;}
+  .dash-table{display:block;overflow-x:auto;}
+  .match-pair-card{padding:14px;}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">&#9678;</span>
+      <div class="brand-text">
+        <h1>Stockmatch</h1>
+        <p>Inventory fingerprinting &amp; demand matching</p>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-view="stock">Today's stock <span class="count" id="stockCount">0</span></button>
+      <button class="tab" data-view="demand">Demand <span class="count" id="demandCount">0</span></button>
+      <button class="tab" data-view="results">Results <span class="count" id="resultsCount">0</span></button>
+      <button class="tab" data-view="dashboard">Dashboard <span class="count" id="dashboardCount">0</span></button>
+    </nav>
+    <button class="btn settings-btn" id="settingsBtn" title="API key settings">&#9881;</button>
+  </header>
+
+  <div class="key-banner" id="keyBanner" style="display:none;">
+    <span>No Anthropic API key set &mdash; analysis won't work until you add one.</span>
+    <button class="btn small primary" id="keyBannerBtn">Add API key</button>
+  </div>
+
+  <main id="views">
+
+    <!-- STOCK VIEW -->
+    <section class="view active" id="view-stock">
+      <div class="panel-head">
+        <div>
+          <h2>Today's stock</h2>
+          <p class="sub">Upload watch photos. Each gets fingerprinted by Claude's vision &mdash; if the reference number isn't legible, it's looked up via Google search rather than guessed blind. <span class="paste-hint">Tip: you can also paste an image directly (Ctrl/Cmd+V).</span></p>
+        </div>
+        <div class="panel-actions">
+          <label class="btn primary file-btn">
+            Add images
+            <input type="file" id="stockFileInput" accept="image/*" multiple hidden>
+          </label>
+          <button class="btn" id="analyzeStockBtn" disabled>Analyze pending</button>
+          <button class="btn danger-text" id="clearStockBtn">Clear all</button>
+        </div>
+      </div>
+
+      <div class="empty-state" id="stockEmpty">
+        <div class="empty-icon">&#9676;</div>
+        <p>No stock yet.</p>
+        <p class="sub">Add images to start building today's catalog. You can attach a caption or filename note to each before analyzing.</p>
+      </div>
+
+      <div class="grid" id="stockGrid"></div>
+    </section>
+
+    <!-- DEMAND VIEW -->
+    <section class="view" id="view-demand">
+      <div class="panel-head">
+        <div>
+          <h2>Demand</h2>
+          <p class="sub">Add a request &mdash; an image, free text, or both. Text gets parsed into the same fingerprint fields as stock. <span class="paste-hint">Tip: you can also paste an image directly (Ctrl/Cmd+V).</span></p>
+        </div>
+        <div class="panel-actions">
+          <button class="btn" id="addTextDemandBtn">Add text request</button>
+          <label class="btn primary file-btn">
+            Add image request
+            <input type="file" id="demandFileInput" accept="image/*" multiple hidden>
+          </label>
+          <button class="btn" id="analyzeDemandBtn" disabled>Analyze pending</button>
+          <button class="btn danger-text" id="clearDemandBtn">Clear all</button>
+        </div>
+      </div>
+
+      <div class="empty-state" id="demandEmpty">
+        <div class="empty-icon">&#9676;</div>
+        <p>No demand requests yet.</p>
+        <p class="sub">Add a customer request as a photo, a typed description, or both.</p>
+      </div>
+
+      <div class="grid" id="demandGrid"></div>
+    </section>
+
+    <!-- RESULTS VIEW -->
+    <section class="view" id="view-results">
+      <div class="panel-head">
+        <div>
+          <h2>Match results</h2>
+          <p class="sub">Matching is based on reference number only &mdash; if a stock item's reference number matches a demand request's reference number (read directly or confirmed via web search), it's a match. Nothing else factors in.</p>
+        </div>
+        <div class="panel-actions">
+          <button class="btn primary" id="runMatchBtn" disabled>Run matching</button>
+          <button class="btn danger-text" id="clearResultsBtn">Clear all</button>
+        </div>
+      </div>
+
+      <div class="empty-state" id="resultsEmpty">
+        <div class="empty-icon">&#9676;</div>
+        <p>No results yet.</p>
+        <p class="sub">Fingerprint your stock and demand first, then run matching.</p>
+      </div>
+
+      <div id="resultsList"></div>
+    </section>
+
+    <!-- DASHBOARD VIEW -->
+    <section class="view" id="view-dashboard">
+      <div class="panel-head">
+        <div>
+          <h2>Dashboard</h2>
+          <p class="sub">Confirmed matches at the top, full stock list below &mdash; price, dial, gender, and analysis status. Mark items sold to remove them, or update price inline.</p>
+        </div>
+        <div class="panel-actions catalog-io">
+          <button class="btn small" id="exportCatalogBtn" title="Save your analyzed catalog to a file as a backup">Backup catalog</button>
+          <label class="btn small file-btn" title="Restore a previously saved catalog backup">
+            Restore catalog
+            <input type="file" id="importCatalogInput" accept="application/json" hidden>
+          </label>
+          <button class="btn small" id="pushImagesBtn" title="Upload all local images to cloud so other devices can see them">Push images to cloud</button>
+          <button class="btn small danger-text" id="clearCloudBtn" title="Delete all images from cloud storage (local images are not affected)">Clear cloud images</button>
+        </div>
+      </div>
+
+      <div class="dash-section-label" id="matchesSectionLabel" style="display:none;">Matches found</div>
+      <div id="dashboardMatches"></div>
+
+      <div class="dash-section-label" id="stockSectionLabel" style="display:none;">All stock</div>
+
+      <div class="empty-state" id="dashboardEmpty">
+        <div class="empty-icon">&#9676;</div>
+        <p>No stock yet.</p>
+        <p class="sub">Add items in the Today's stock tab and they'll appear here.</p>
+      </div>
+
+      <table class="dash-table" id="dashboardTable" style="display:none;">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Item</th>
+            <th>Gender</th>
+            <th>Dial</th>
+            <th>Case</th>
+            <th>Status</th>
+            <th>Price</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="dashboardBody"></tbody>
+      </table>
+    </section>
+
+  </main>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<!-- Text demand modal -->
+<div class="modal-overlay" id="textModalOverlay">
+  <div class="modal">
+    <h3>Add text request</h3>
+    <textarea id="textDemandInput" placeholder="e.g. Looking for a steel Daytona, panda dial, box and papers preferred"></textarea>
+    <div class="modal-actions">
+      <button class="btn" id="textModalCancel">Cancel</button>
+      <button class="btn primary" id="textModalSave">Add request</button>
+    </div>
+  </div>
+</div>
+
+<!-- Image lightbox -->
+<div class="modal-overlay" id="lightboxOverlay">
+  <div class="lightbox">
+    <img id="lightboxImg" src="" alt="">
+  </div>
+</div>
+
+<!-- Settings / API key modal -->
+<div class="modal-overlay" id="settingsModalOverlay">
+  <div class="modal">
+    <h3>API keys</h3>
+    <p class="settings-copy">
+      This app uses Claude's vision API to read watch photos. This requires a paid Anthropic API key with billing enabled &mdash; usage is billed per request.
+      Get a key at <strong>console.anthropic.com</strong> and add some credit.
+    </p>
+    <input type="password" id="apiKeyInput" class="card-caption-input" placeholder="Paste your Anthropic API key" autocomplete="off" spellcheck="false">
+
+    <p class="settings-copy" style="margin-top:16px;">
+      When a reference number isn't legible, it's looked up via <strong>Gemini with Google Search</strong> &mdash; Gemini looks at the photo directly and grounds its answer in real Google results. Get a key at <strong>aistudio.google.com/apikey</strong>, and make sure billing is enabled on the linked Google Cloud project for reliable quota. Free for several thousand lookups/month, then a small per-lookup charge after that. Leave blank to skip lookup (no reference will be shown for unclear photos rather than a guess).
+    </p>
+    <input type="password" id="geminiApiKeyInput" class="card-caption-input" placeholder="Paste your Gemini API key" autocomplete="off" spellcheck="false">
+
+    <p class="settings-copy" style="margin-top:10px;font-size:11.5px;">
+      Both keys are stored only in this browser, never sent anywhere except directly to Anthropic's and Google's APIs.
+    </p>
+
+    <p class="settings-copy" style="margin-top:16px;">
+      <strong>Cross-device sync (optional):</strong> by default everything you analyze stays only on this device. To see the same stock/demand on your phone and your PC, fill in both pieces below and use the exact same values on every device you want synced. Leave both blank to keep this device-only.
+    </p>
+    <p class="settings-copy" style="font-size:11.5px;">
+      <strong>1. Catalog data &amp; images</strong> &mdash; both are now stored in Supabase. Firebase is no longer needed. Just fill in Supabase below and set a Sync ID.
+    </p>
+    <textarea id="firebaseConfigInput" class="card-caption-input" rows="3" style="resize:vertical;font-family:var(--mono);font-size:11px;" placeholder='Paste your Firebase config, e.g. {"apiKey":"...","projectId":"...",...}' autocomplete="off" spellcheck="false"></textarea>
+    <p class="settings-copy" style="font-size:11.5px;margin-top:10px;">
+      <strong>2. Images</strong> (free, no card) &mdash; Firebase Storage now requires a paid plan, so images use <strong>Supabase</strong> instead. Create a free project at <strong>supabase.com</strong>, make a Storage bucket named exactly <strong>stockmatch-images</strong> (set it Public), then paste its Project URL and anon/public API key (both found in Project Settings &rarr; API).
+    </p>
+    <input type="text" id="supabaseUrlInput" class="card-caption-input" placeholder="Supabase Project URL (e.g. https://xyzcompany.supabase.co)" autocomplete="off" spellcheck="false">
+    <input type="password" id="supabaseAnonKeyInput" class="card-caption-input" placeholder="Supabase anon/public API key" autocomplete="off" spellcheck="false">
+    <p class="settings-copy" style="font-size:11.5px;margin-top:10px;">
+      <strong>3. Sync ID</strong> &mdash; any name you choose, used to keep your data separate from anyone else using the same Firebase/Supabase project.
+    </p>
+    <input type="text" id="syncIdInput" class="card-caption-input" placeholder="Choose a Sync ID (use the same one on every device)" autocomplete="off" spellcheck="false">
+
+    <div class="modal-actions">
+      <button class="btn" id="settingsModalCancel">Cancel</button>
+      <button class="btn primary" id="settingsModalSave">Save keys</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/12.15.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* ===================== state ===================== */
+
+let stockItems = [];   // {id, type:'image', filename, caption, imageData(base64,session-only), status, fingerprint, error}
+let demandItems = [];  // {id, type:'image'|'text', filename, caption, text, imageData, status, fingerprint, error}
+let matchResults = []; // {demandId, demandLabel, demandThumb, matches:[{stockId,label,thumb,confidence,reasoning}], topConfidence}
+
+let currentView = 'stock';
+
+/* ===================== IndexedDB image store ===================== */
+
+const IMAGE_DB_NAME = 'stockmatch-images';
+const IMAGE_DB_VERSION = 1;
+const IMAGE_STORE_NAME = 'images';
+let _imageDbPromise = null;
+
+function openImageDb(){
+  if (_imageDbPromise) return _imageDbPromise;
+  _imageDbPromise = new Promise((resolve, reject) => {
+    if (!window.indexedDB){ reject(new Error('IndexedDB not available in this browser')); return; }
+    const req = window.indexedDB.open(IMAGE_DB_NAME, IMAGE_DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(IMAGE_STORE_NAME)){
+        db.createObjectStore(IMAGE_STORE_NAME);
+      }
+    };
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = (e) => reject(e.target.error || new Error('failed to open image database'));
+  });
+  return _imageDbPromise;
+}
+
+const imageStore = {
+  async set(id, base64){
+    try{
+      const db = await openImageDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(IMAGE_STORE_NAME, 'readwrite');
+        tx.objectStore(IMAGE_STORE_NAME).put(base64, id);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      });
+    }catch(e){ console.error('imageStore.set failed', e); return false; }
+  },
+  async get(id){
+    try{
+      const db = await openImageDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(IMAGE_STORE_NAME, 'readonly');
+        const req = tx.objectStore(IMAGE_STORE_NAME).get(id);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+      });
+    }catch(e){ console.error('imageStore.get failed', e); return null; }
+  },
+  async delete(id){
+    try{
+      const db = await openImageDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(IMAGE_STORE_NAME, 'readwrite');
+        tx.objectStore(IMAGE_STORE_NAME).delete(id);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      });
+    }catch(e){ console.error('imageStore.delete failed', e); return false; }
+  },
+  async getMany(ids){
+    try{
+      const db = await openImageDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(IMAGE_STORE_NAME, 'readonly');
+        const store = tx.objectStore(IMAGE_STORE_NAME);
+        const results = {};
+        let remaining = ids.length;
+        if (!remaining){ resolve(results); return; }
+        ids.forEach(id => {
+          const req = store.get(id);
+          req.onsuccess = () => {
+            results[id] = req.result || null;
+            remaining--;
+            if (remaining === 0) resolve(results);
+          };
+          req.onerror = () => {
+            results[id] = null;
+            remaining--;
+            if (remaining === 0) resolve(results);
+          };
+        });
+      });
+    }catch(e){ console.error('imageStore.getMany failed', e); return {}; }
+  }
+};
+
+/* ===================== cloud sync (Firestore + Supabase) ===================== */
+
+let _firebaseApp = null;
+let _firestoreDb = null;
+let _firebaseInitError = null;
+let _supabaseClient = null;
+let _supabaseInitError = null;
+
+function firebaseSyncConfigured(){
+  return !!(getFirebaseConfigRaw() && getSyncId());
+}
+function supabaseSyncConfigured(){
+  return !!(getSupabaseUrl() && getSupabaseAnonKey() && getSyncId());
+}
+
+function ensureFirebaseInit(){
+  if (_firebaseApp || _firebaseInitError) return !_firebaseInitError;
+  try{
+    const raw = getFirebaseConfigRaw();
+    if (!raw) throw new Error('no config set');
+    const config = JSON.parse(raw);
+    if (!window.firebase || !window.firebase.initializeApp){
+      throw new Error('Firebase SDK did not load');
+    }
+    _firebaseApp = window.firebase.initializeApp(config);
+    _firestoreDb = window.firebase.firestore();
+    return true;
+  }catch(e){
+    console.error('Firebase init failed:', e);
+    _firebaseInitError = e;
+    return false;
+  }
+}
+
+function ensureSupabaseInit(){
+  if (_supabaseClient || _supabaseInitError) return !_supabaseInitError;
+  try{
+    const url = getSupabaseUrl();
+    const key = getSupabaseAnonKey();
+    if (!url || !key) throw new Error('no Supabase config set');
+    if (!window.supabase || !window.supabase.createClient){
+      throw new Error('Supabase SDK did not load');
+    }
+    _supabaseClient = window.supabase.createClient(url, key);
+    return true;
+  }catch(e){
+    console.error('Supabase init failed:', e);
+    _supabaseInitError = e;
+    return false;
+  }
+}
+
+function base64ToBlob(base64, mimeType){
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mimeType || 'application/octet-stream' });
+}
+
+const SUPABASE_BUCKET = 'stockmatch-images';
+
+const cloudSync = {
+  async saveCatalog(key, jsonString){
+    // Catalog JSON stored in Supabase storage — no Firebase needed
+    if (!supabaseSyncConfigured() || !ensureSupabaseInit()) return false;
+    try{
+      const syncId = getSyncId();
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const { error } = await _supabaseClient.storage
+        .from(SUPABASE_BUCKET)
+        .upload(`${syncId}/${key}.json`, blob, { contentType: 'application/json', upsert: true });
+      if (error) throw error;
+      return true;
+    }catch(e){ console.error('cloudSync.saveCatalog failed', e); return false; }
+  },
+  async loadCatalog(key){
+    if (!supabaseSyncConfigured() || !ensureSupabaseInit()) return null;
+    try{
+      const syncId = getSyncId();
+      const { data, error } = await _supabaseClient.storage
+        .from(SUPABASE_BUCKET)
+        .download(`${syncId}/${key}.json`);
+      if (error || !data) return null;
+      return await data.text();
+    }catch(e){ return null; }
+  },
+  async clearAll(){
+    // No-op — individual catalog files cleared via clearCloudImages
+    return true;
+  },
+  async saveImage(id, base64, mimeType){
+    if (!supabaseSyncConfigured() || !ensureSupabaseInit()) return false;
+    try{
+      const syncId = getSyncId();
+      const blob = base64ToBlob(base64, mimeType);
+      const { error } = await _supabaseClient.storage
+        .from(SUPABASE_BUCKET)
+        .upload(`${syncId}/${id}`, blob, { contentType: mimeType || 'application/octet-stream', upsert: true });
+      if (error) throw error;
+      return true;
+    }catch(e){ console.error('cloudSync.saveImage failed', e); return false; }
+  },
+  async getImage(id){
+    if (!supabaseSyncConfigured() || !ensureSupabaseInit()) return null;
+    try{
+      const syncId = getSyncId();
+      const { data, error } = await _supabaseClient.storage
+        .from(SUPABASE_BUCKET)
+        .download(`${syncId}/${id}`);
+      if (error || !data) return null;
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(data);
+      });
+    }catch(e){ return null; }
+  },
+  async getImages(ids){
+    const results = {};
+    await Promise.all(ids.map(async (id) => { results[id] = await cloudSync.getImage(id); }));
+    return results;
+  },
+  async deleteImage(id){
+    if (!supabaseSyncConfigured() || !ensureSupabaseInit()) return false;
+    try{
+      const syncId = getSyncId();
+      const { error } = await _supabaseClient.storage.from(SUPABASE_BUCKET).remove([`${syncId}/${id}`]);
+      if (error) throw error;
+      return true;
+    }catch(e){ return false; }
+  }
+};
+
+/* ===================== local storage shim ===================== */
+
+const localStore = {
+  async get(key){
+    if (window.storage && typeof window.storage.get === 'function'){
+      try{ return await window.storage.get(key, false); }catch(e){ return null; }
+    }
+    try{
+      const raw = window.localStorage.getItem('sm:' + key);
+      return raw === null ? null : { key, value: raw, shared: false };
+    }catch(e){ return null; }
+  },
+  async set(key, value){
+    if (window.storage && typeof window.storage.set === 'function'){
+      try{ return await window.storage.set(key, value, false); }catch(e){ return null; }
+    }
+    try{
+      window.localStorage.setItem('sm:' + key, value);
+      return { key, value, shared: false };
+    }catch(e){ return null; }
+  }
+};
+
+function getApiKey(){
+  try{ return window.localStorage.getItem('sm:anthropic-api-key') || ''; }catch(e){ return ''; }
+}
+function setApiKey(key){
+  try{ window.localStorage.setItem('sm:anthropic-api-key', key.trim()); }catch(e){}
+}
+const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
+const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
+
+function getFirebaseConfigRaw(){
+  try{ return window.localStorage.getItem('sm:firebase-config') || ''; }catch(e){ return ''; }
+}
+function setFirebaseConfigRaw(raw){
+  try{ window.localStorage.setItem('sm:firebase-config', raw.trim()); }catch(e){}
+}
+function getSyncId(){
+  try{ return window.localStorage.getItem('sm:sync-id') || ''; }catch(e){ return ''; }
+}
+function setSyncId(id){
+  try{ window.localStorage.setItem('sm:sync-id', id.trim()); }catch(e){}
+}
+function getSupabaseUrl(){
+  try{ return window.localStorage.getItem('sm:supabase-url') || ''; }catch(e){ return ''; }
+}
+function setSupabaseUrl(url){
+  try{ window.localStorage.setItem('sm:supabase-url', url.trim()); }catch(e){}
+}
+function getSupabaseAnonKey(){
+  try{ return window.localStorage.getItem('sm:supabase-anon-key') || ''; }catch(e){ return ''; }
+}
+function setSupabaseAnonKey(key){
+  try{ window.localStorage.setItem('sm:supabase-anon-key', key.trim()); }catch(e){}
+}
+
+function getGeminiApiKey(){
+  try{ return window.localStorage.getItem('sm:gemini-api-key') || ''; }catch(e){ return ''; }
+}
+function setGeminiApiKey(key){
+  try{ window.localStorage.setItem('sm:gemini-api-key', key.trim()); }catch(e){}
+}
+
+/* ===================== utils ===================== */
+
+function uid(){
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+function showToast(msg, isError){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.className = 'toast'; }, 3200);
+}
+
+function fileToBase64(file){
+  return new Promise((resolve, reject) => {
+    if (!file){ reject(new Error('no file')); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (!result || typeof result !== 'string' || !result.includes(',')){
+        reject(new Error('empty read result'));
+        return;
+      }
+      resolve(result.split(',')[1]);
+    };
+    reader.onerror = () => reject(reader.error || new Error('file read error'));
+    reader.onabort = () => reject(new Error('file read aborted'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function detectImageMimeTypeFromBytes(base64){
+  try{
+    if (!base64 || base64.length < 12) return null;
+    const binary = atob(base64.slice(0, 24));
+    const b = [];
+    for (let i = 0; i < Math.min(binary.length, 12); i++) b.push(binary.charCodeAt(i));
+
+    if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return 'image/png';
+    if (b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return 'image/jpeg';
+    if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return 'image/gif';
+    if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
+    if (b[0] === 0x42 && b[1] === 0x4D) return 'image/bmp';
+  }catch(e){}
+  return null;
+}
+
+function imageMimeTypeOf(item){
+  if (item && item.imageData){
+    const sniffed = detectImageMimeTypeFromBytes(item.imageData);
+    if (sniffed) return sniffed;
+  }
+  return (item && item.imageMimeType && item.imageMimeType.startsWith('image/')) ? item.imageMimeType : 'image/jpeg';
+}
+
+function lookupNotesHtml(fp){
+  if (!fp || !fp.confidence_notes) return '';
+  return `<details class="lookup-notes"><summary>Lookup details</summary><p>${escapeHtml(fp.confidence_notes)}</p></details>`;
+}
+
+function escapeHtml(str){
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function fpLine(fp){
+  if (!fp) return '';
+  const parts = [fp.brand, fp.model_line].filter(Boolean);
+  return parts.join(' ') || 'unidentified';
+}
+
+/* ===================== persistence ===================== */
+
+async function saveStockCatalog(){
+  try{
+    const persistable = stockItems.map(it => ({
+      id: it.id, filename: it.filename, caption: it.caption,
+      status: it.status, fingerprint: it.fingerprint || null, error: it.error || null,
+      hasImage: !!it.imageData, imageMimeType: it.imageMimeType || null,
+      priceOverride: it.priceOverride !== undefined ? it.priceOverride : null
+    }));
+    const json = JSON.stringify(persistable);
+    await localStore.set('stock-catalog', json);
+    if (supabaseSyncConfigured()) await cloudSync.saveCatalog('stockCatalog', json);
+  }catch(e){ console.error('save stock failed', e); }
+}
+
+async function saveStockImage(id, base64, mimeType){
+  if (!base64) return;
+  await imageStore.set(id, base64);
+  if (supabaseSyncConfigured()) await cloudSync.saveImage(id, base64, mimeType);
+}
+
+async function loadStockCatalog(){
+  try{
+    let json = null;
+    if (supabaseSyncConfigured()) json = await cloudSync.loadCatalog('stockCatalog');
+    if (!json){
+      const res = await localStore.get('stock-catalog');
+      json = res && res.value;
+    }
+    if (json){
+      const parsed = JSON.parse(json);
+      stockItems = parsed.map(it => ({...it, imageData: null}));
+      const idsWithImages = stockItems.filter(it => it.hasImage).map(it => it.id);
+      if (idsWithImages.length){
+        const images = supabaseSyncConfigured()
+          ? await cloudSync.getImages(idsWithImages)
+          : await imageStore.getMany(idsWithImages);
+        stockItems.forEach(it => {
+          if (images[it.id]) it.imageData = images[it.id];
+        });
+      }
+    }
+  }catch(e){}
+}
+
+async function saveDemandCatalog(){
+  try{
+    const persistable = demandItems.map(it => ({
+      id: it.id, type: it.type, filename: it.filename, caption: it.caption, text: it.text,
+      status: it.status, fingerprint: it.fingerprint || null, error: it.error || null,
+      hasImage: !!it.imageData, imageMimeType: it.imageMimeType || null
+    }));
+    const json = JSON.stringify(persistable);
+    await localStore.set('demand-catalog', json);
+    if (supabaseSyncConfigured()) await cloudSync.saveCatalog('demandCatalog', json);
+  }catch(e){ console.error('save demand failed', e); }
+}
+
+async function saveDemandImage(id, base64, mimeType){
+  if (!base64) return;
+  await imageStore.set('demand:' + id, base64);
+  if (supabaseSyncConfigured()) await cloudSync.saveImage('demand_' + id, base64, mimeType);
+}
+
+async function loadDemandCatalog(){
+  try{
+    let json = null;
+    if (supabaseSyncConfigured()) json = await cloudSync.loadCatalog('demandCatalog');
+    if (!json){
+      const res = await localStore.get('demand-catalog');
+      json = res && res.value;
+    }
+    if (json){
+      const parsed = JSON.parse(json);
+      demandItems = parsed.map(it => ({...it, imageData: null}));
+      const idsWithImages = demandItems.filter(it => it.hasImage).map(it => it.id);
+      if (idsWithImages.length){
+        if (supabaseSyncConfigured()){
+          const images = await cloudSync.getImages(idsWithImages.map(id => 'demand_' + id));
+          demandItems.forEach(it => {
+            if (images['demand_' + it.id]) it.imageData = images['demand_' + it.id];
+          });
+        } else {
+          const images = await imageStore.getMany(idsWithImages.map(id => 'demand:' + id));
+          demandItems.forEach(it => {
+            if (images['demand:' + it.id]) it.imageData = images['demand:' + it.id];
+          });
+        }
+      }
+    }
+  }catch(e){}
+}
+
+/* ===================== rendering: view switching ===================== */
+
+function setView(view){
+  currentView = view;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
+}
+
+/* ===================== rendering: stock ===================== */
+
+function renderStock(){
+  const grid = document.getElementById('stockGrid');
+  const empty = document.getElementById('stockEmpty');
+  document.getElementById('stockCount').textContent = stockItems.length;
+
+  empty.style.display = stockItems.length ? 'none' : '';
+  grid.innerHTML = stockItems.map(renderStockCard).join('');
+
+  const pendingCount = stockItems.filter(it => it.status === 'pending').length;
+  const errorCount = stockItems.filter(it => it.status === 'error').length;
+  const analyzeBtn = document.getElementById('analyzeStockBtn');
+  analyzeBtn.disabled = (pendingCount + errorCount) === 0;
+  if (errorCount && !pendingCount) analyzeBtn.textContent = `Retry failed (${errorCount})`;
+  else if (errorCount) analyzeBtn.textContent = `Analyze pending (${pendingCount + errorCount}, ${errorCount} retry)`;
+  else analyzeBtn.textContent = pendingCount ? `Analyze pending (${pendingCount})` : 'Analyze pending';
+
+  updateRunMatchAvailability();
+  attachStockCardHandlers();
+}
+
+function renderStockCard(it){
+  const fp = it.fingerprint;
+  const priceVal = it.priceOverride !== undefined && it.priceOverride !== null ? it.priceOverride : (fp ? fp.price : null);
+
+  const fpHtml = fp ? `
+    ${(genderBadge(fp) || refBadge(fp)) ? `<div class="card-badges">${genderBadge(fp)}${refBadge(fp)}</div>` : ''}
+    <div class="fingerprint">
+      <span class="fp-label">brand</span><span class="fp-val">${escapeHtml(fp.brand || '\u2014')}</span>
+      <span class="fp-label">model</span><span class="fp-val">${escapeHtml(fp.model_line || '\u2014')}</span>
+      <span class="fp-label">dial</span><span class="fp-val">${escapeHtml(fp.dial_color || '\u2014')}</span>
+      <span class="fp-label">case</span><span class="fp-val">${escapeHtml(fp.case_material || '\u2014')}${fp.case_size ? ', ' + escapeHtml(fp.case_size) : ''}</span>
+      <span class="fp-label">strap</span><span class="fp-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}</span>
+    </div>
+    ${fp.message_text ? `<div class="msg-text"><span class="fp-label">message</span><p>${escapeHtml(fp.message_text)}</p></div>` : ''}
+    ${lookupNotesHtml(fp)}
+    <div class="price-row">
+      <span class="fp-label">price</span>
+      <input class="price-input" type="text" placeholder="not detected" value="${escapeHtml(priceVal || '')}" data-id="${it.id}" data-field="price">
+    </div>` : '';
+
+  return `
+  <div class="card" data-id="${it.id}" data-kind="stock">
+    <div class="card-img-wrap ${it.imageData ? '' : 'no-image'}" data-action="${it.imageData ? 'lightbox' : 'readd'}" data-id="${it.id}">
+      ${it.imageData ? `<img src="data:${imageMimeTypeOf(it)};base64,${it.imageData}" alt="${escapeHtml(it.filename)}">` : `image not loaded this session<br>click to re-attach`}
+    </div>
+    <div class="card-body">
+      <input class="card-caption-input" type="text" placeholder="Caption / filename note"
+        value="${escapeHtml(it.caption || '')}" data-id="${it.id}" data-field="caption">
+      <div class="card-status">
+        <span class="status-badge ${it.status}">${it.status}</span>
+        <button class="card-remove" data-action="remove" data-id="${it.id}" aria-label="Remove">&times;</button>
+      </div>
+      ${it.status === 'error' ? `<p style="font-size:11px;color:var(--ruby-bright);margin-top:6px;">${escapeHtml(it.error || 'analysis failed')}</p>` : ''}
+      ${fpHtml}
+      ${it.status === 'done' ? `
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <button class="btn small" data-action="reanalyze" data-id="${it.id}" style="flex:1;">Reanalyze</button>
+        <button class="btn small sold-btn" data-action="sold" data-id="${it.id}" style="flex:1;">Sold out</button>
+      </div>` : ''}
+    </div>
+  </div>`;
+}
+
+function attachStockCardHandlers(){
+  const grid = document.getElementById('stockGrid');
+  grid.querySelectorAll('[data-field="caption"]').forEach(input => {
+    input.oninput = (e) => {
+      const item = stockItems.find(s => s.id === e.target.dataset.id);
+      if (item) item.caption = e.target.value;
+    };
+    input.onblur = saveStockCatalog;
+  });
+  grid.querySelectorAll('[data-field="price"]').forEach(input => {
+    input.oninput = (e) => {
+      const item = stockItems.find(s => s.id === e.target.dataset.id);
+      if (item) item.priceOverride = e.target.value;
+    };
+    input.onblur = () => { saveStockCatalog(); renderDashboard(); };
+  });
+  grid.querySelectorAll('[data-action="remove"]').forEach(btn => {
+    btn.onclick = (e) => {
+      const removedId = e.target.dataset.id;
+      stockItems = stockItems.filter(s => s.id !== removedId);
+      imageStore.delete(removedId);
+      if (supabaseSyncConfigured()) cloudSync.deleteImage(removedId);
+      matchResults = matchResults.map(r => ({
+        ...r,
+        matches: r.matches.filter(m => m.stockId !== removedId),
+        similarModels: (r.similarModels || []).filter(m => m.stockId !== removedId)
+      }));
+      saveStockCatalog();
+      renderStock();
+      renderDashboard();
+      renderResults();
+    };
+  });
+  grid.querySelectorAll('[data-action="sold"]').forEach(btn => {
+    btn.onclick = (e) => markSold(e.target.dataset.id);
+  });
+  grid.querySelectorAll('[data-action="reanalyze"]').forEach(btn => {
+    btn.onclick = (e) => reanalyzeItem(e.target.dataset.id, 'stock');
+  });
+  grid.querySelectorAll('[data-action="lightbox"]').forEach(el => {
+    el.onclick = (e) => {
+      const item = stockItems.find(s => s.id === el.dataset.id);
+      if (item && item.imageData) openLightbox(item.imageData, imageMimeTypeOf(item));
+    };
+  });
+  grid.querySelectorAll('[data-action="readd"]').forEach(el => {
+    el.onclick = () => triggerReattach(el.dataset.id, 'stock');
+  });
+}
+
+function markSold(id){
+  const item = stockItems.find(s => s.id === id);
+  if (!item) return;
+  if (!confirm(`Mark "${itemLabel(item)}" as sold out? It will be removed from stock.`)) return;
+  stockItems = stockItems.filter(s => s.id !== id);
+  imageStore.delete(id);
+  if (supabaseSyncConfigured()) cloudSync.deleteImage(id);
+  matchResults = matchResults.map(r => ({
+    ...r,
+    matches: r.matches.filter(m => m.stockId !== id),
+    similarModels: (r.similarModels || []).filter(m => m.stockId !== id)
+  }));
+  saveStockCatalog();
+  renderStock();
+  renderDashboard();
+  renderResults();
+  showToast('Marked sold out and removed from stock');
+}
+
+function reanalyzeItem(id, kind){
+  const list = kind === 'stock' ? stockItems : demandItems;
+  const item = list.find(s => s.id === id);
+  if (!item) return;
+  if (item.type === 'image' && !item.imageData){
+    showToast('Image isn\u2019t loaded this session \u2014 re-attach it first', true);
+    return;
+  }
+  item.status = 'pending';
+  item.error = null;
+  if (kind === 'stock'){
+    renderStock();
+    analyzeBatch(stockItems, 'stock', renderStock);
+  } else {
+    renderDemand();
+    analyzeBatch(demandItems, 'demand', renderDemand);
+  }
+}
+
+function triggerReattach(id, kind){
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = async () => {
+    if (!input.files[0]) return;
+    const file = input.files[0];
+    const base64 = await fileToBase64(file);
+    const list = kind === 'stock' ? stockItems : demandItems;
+    const item = list.find(s => s.id === id);
+    if (item){
+      item.imageData = base64;
+      item.imageMimeType = file.type;
+      item.hasImage = true;
+      if (kind === 'stock'){
+        saveStockImage(id, base64, file.type);
+        saveStockCatalog();
+      } else {
+        saveDemandImage(id, base64, file.type);
+        saveDemandCatalog();
+      }
+    }
+    kind === 'stock' ? renderStock() : renderDemand();
+  };
+  input.click();
+}
+
+function openLightbox(base64, mimeType){
+  document.getElementById('lightboxImg').src = 'data:' + (mimeType || 'image/jpeg') + ';base64,' + base64;
+  document.getElementById('lightboxOverlay').classList.add('open');
+}
+
+/* ===================== rendering: demand ===================== */
+
+function renderDemand(){
+  const grid = document.getElementById('demandGrid');
+  const empty = document.getElementById('demandEmpty');
+  document.getElementById('demandCount').textContent = demandItems.length;
+
+  empty.style.display = demandItems.length ? 'none' : '';
+  grid.innerHTML = demandItems.map(renderDemandCard).join('');
+
+  const pendingCount = demandItems.filter(it => it.status === 'pending').length;
+  const errorCount = demandItems.filter(it => it.status === 'error').length;
+  const analyzeBtn = document.getElementById('analyzeDemandBtn');
+  analyzeBtn.disabled = (pendingCount + errorCount) === 0;
+  if (errorCount && !pendingCount) analyzeBtn.textContent = `Retry failed (${errorCount})`;
+  else if (errorCount) analyzeBtn.textContent = `Analyze pending (${pendingCount + errorCount}, ${errorCount} retry)`;
+  else analyzeBtn.textContent = pendingCount ? `Analyze pending (${pendingCount})` : 'Analyze pending';
+
+  updateRunMatchAvailability();
+  attachDemandCardHandlers();
+}
+
+function renderDemandCard(it){
+  const fp = it.fingerprint;
+  const fpHtml = fp ? `
+    ${(genderBadge(fp) || refBadge(fp)) ? `<div class="card-badges">${genderBadge(fp)}${refBadge(fp)}</div>` : ''}
+    <div class="fingerprint">
+      <span class="fp-label">brand</span><span class="fp-val">${escapeHtml(fp.brand || '\u2014')}</span>
+      <span class="fp-label">model</span><span class="fp-val">${escapeHtml(fp.model_line || '\u2014')}</span>
+      <span class="fp-label">dial</span><span class="fp-val">${escapeHtml(fp.dial_color || '\u2014')}</span>
+      <span class="fp-label">case</span><span class="fp-val">${escapeHtml(fp.case_material || '\u2014')}${fp.case_size ? ', ' + escapeHtml(fp.case_size) : ''}</span>
+      <span class="fp-label">strap</span><span class="fp-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}</span>
+    </div>
+    ${lookupNotesHtml(fp)}` : '';
+
+  const mediaHtml = it.type === 'image'
+    ? `<div class="card-img-wrap ${it.imageData ? '' : 'no-image'}" data-action="${it.imageData ? 'lightbox' : 'readd'}" data-id="${it.id}">
+        ${it.imageData ? `<img src="data:${imageMimeTypeOf(it)};base64,${it.imageData}" alt="">` : `image not loaded this session<br>click to re-attach`}
+      </div>`
+    : '';
+
+  const textHtml = it.type === 'text'
+    ? `<div class="card-body" style="padding-top:14px;">
+        <textarea class="card-caption-input" rows="3" style="resize:vertical;" placeholder="Customer request text"
+          data-id="${it.id}" data-field="text">${escapeHtml(it.text || '')}</textarea>
+      </div>`
+    : `<div class="card-body">
+        <input class="card-caption-input" type="text" placeholder="Caption / note (optional)"
+          value="${escapeHtml(it.caption || '')}" data-id="${it.id}" data-field="caption">
+      </div>`;
+
+  return `
+  <div class="card" data-id="${it.id}" data-kind="demand">
+    ${mediaHtml}
+    ${textHtml}
+    <div class="card-body" style="padding-top:0;">
+      <div class="card-status">
+        <span class="status-badge ${it.status}">${it.status}</span>
+        <button class="card-remove" data-action="remove" data-id="${it.id}" aria-label="Remove">&times;</button>
+      </div>
+      ${it.status === 'error' ? `<p style="font-size:11px;color:var(--ruby-bright);margin-top:6px;">${escapeHtml(it.error || 'analysis failed')}</p>` : ''}
+      ${fpHtml}
+      ${it.status === 'done' ? `<button class="btn small" data-action="reanalyze" data-id="${it.id}" style="margin-top:10px;width:100%;">Reanalyze</button>` : ''}
+    </div>
+  </div>`;
+}
+
+function attachDemandCardHandlers(){
+  const grid = document.getElementById('demandGrid');
+  grid.querySelectorAll('[data-field="caption"], [data-field="text"]').forEach(input => {
+    input.oninput = (e) => {
+      const item = demandItems.find(s => s.id === e.target.dataset.id);
+      if (!item) return;
+      if (e.target.dataset.field === 'text') item.text = e.target.value;
+      else item.caption = e.target.value;
+    };
+    input.onblur = saveDemandCatalog;
+  });
+  grid.querySelectorAll('[data-action="remove"]').forEach(btn => {
+    btn.onclick = (e) => {
+      const removedId = e.target.dataset.id;
+      demandItems = demandItems.filter(s => s.id !== removedId);
+      imageStore.delete('demand:' + removedId);
+      if (supabaseSyncConfigured()) cloudSync.deleteImage('demand_' + removedId);
+      matchResults = matchResults.filter(r => r.demandId !== removedId);
+      saveDemandCatalog();
+      renderDemand();
+      renderResults();
+      renderDashboard();
+    };
+  });
+  grid.querySelectorAll('[data-action="lightbox"]').forEach(el => {
+    el.onclick = () => {
+      const item = demandItems.find(s => s.id === el.dataset.id);
+      if (item && item.imageData) openLightbox(item.imageData, imageMimeTypeOf(item));
+    };
+  });
+  grid.querySelectorAll('[data-action="reanalyze"]').forEach(btn => {
+    btn.onclick = (e) => reanalyzeItem(e.target.dataset.id, 'demand');
+  });
+  grid.querySelectorAll('[data-action="readd"]').forEach(el => {
+    el.onclick = () => triggerReattach(el.dataset.id, 'demand');
+  });
+}
+
+/* ===================== vision extraction ===================== */
+
+const FINGERPRINT_SCHEMA_PROMPT = `You are inspecting a watch listing screenshot for a dealer's inventory system. The screenshot is typically a chat message (e.g. WhatsApp) containing a watch photo AND message text baked into the same image \u2014 the text may include price, description, condition, or seller notes layered over or alongside the photo. Read both the watch itself and any visible text in the image.
+
+Extract a structured fingerprint as STRICT JSON ONLY (no markdown fences, no preamble, no commentary). Use null for any field you cannot determine. Fields:
+{
+  "brand": string or null,
+  "model_line": string or null,
+  "reference_number": string or null,
+  "reference_number_source": "visible" or null,
+  "gender": "mens" or "ladies" or "unisex" or null,
+  "gender_basis": string or null,
+  "dial_color": string or null,
+  "bezel": string or null,
+  "case_material": string or null,
+  "case_size": string or null,
+  "bracelet_or_strap": string or null,
+  "distinguishing_markings": string or null,
+  "message_text": string or null,
+  "price": string or null,
+  "confidence_notes": string or null
+}
+
+REFERENCE NUMBER RULE: only set "reference_number" if it is legibly visible \u2014 engraved, printed, or stated in message text. Set "reference_number_source" to "visible" in that case. If it is NOT legible anywhere, set both "reference_number" and "reference_number_source" to null \u2014 do not guess here. A separate lookup step will handle that using the other fields you extract below, so describe the watch as precisely as possible even when the reference itself isn't visible.
+
+CASE MATERIAL CAUTION: platinum and white gold are visually almost indistinguishable in a photo \u2014 both appear as bright white/silvery metal. If you cannot find a hallmark, engraving, or stated material confirming which one it is, name your best guess but add a note in "confidence_notes" that it could plausibly be either, so a later step can search both possibilities rather than treating your guess as certain.
+
+GENDER RULES (important, this affects matching \u2014 never blur this):
+- Set "gender" based on case size, dial design, and known model conventions (e.g. Datejust 36mm+ is typically mens, Lady-Datejust / smaller diamond-marker dials are typically ladies). Some models are unisex by design (e.g. many modern 36-41mm steel sport watches) \u2014 use "unisex" only when that's a genuine, well-known convention, not as a default when unsure.
+- Set "gender_basis" to a short phrase explaining the signal used (e.g. "case size ~36mm + model name", "small dial with diamond hour markers", "known unisex sport model").
+- Do not guess gender from styling alone if it conflicts with known model conventions for that exact reference \u2014 model convention takes priority over surface styling.
+
+For "message_text": transcribe any visible chat/message text in the screenshot verbatim (price, description, condition notes, seller comments). If there is no visible text, use null.
+For "price": extract just the price/amount if stated anywhere in the visible text (keep currency symbol or code as shown, e.g. "PKR 450,000" or "$3,200"). If no price is stated, use null.
+Only state what is visually evident or stated in the caption. If the caption conflicts with the image or message text, prefer the image/message text but note the conflict in confidence_notes. Respond with the JSON object only.`;
+
+const REFERENCE_LOOKUP_PROMPT = `You are finding the exact reference number of a watch using Chrono24.com ONLY.
+
+RULES:
+- Search Chrono24.com only. Every search query MUST include "site:chrono24.com". Do NOT use any other website (no brand sites, no WatchCharts, no forums — nothing except Chrono24).
+- You MUST actually call the search tool. Never answer from memory or training knowledge.
+- If Chrono24 genuinely has no result after multiple attempts, return null. Do not guess.
+- When a search snippet looks promising, open that Chrono24 listing page with the URL context tool to confirm the exact reference number.
+
+HOW TO SEARCH (run at least 3 different queries):
+- "[brand] [model] [case material] site:chrono24.com"
+- "[brand] [model] [dial color] reference site:chrono24.com"
+- "[brand] [model] [case size] site:chrono24.com"
+
+Keep confidence_notes to 1-2 sentences max (e.g. "chrono24.com listing for [model] confirmed ref [X]").
+
+Respond with STRICT JSON ONLY (no markdown, no extra text):
+{
+  "reference_number": string or null,
+  "reference_number_source": "looked_up" or "best_match" or null,
+  "sources_agreed": number,
+  "confirming_source": "chrono24.com" or null,
+  "confidence_notes": string or null
+}
+
+"looked_up" = Chrono24 search ran and a listing confirmed the reference.
+"best_match" = Chrono24 returned multiple candidates; you picked the closest one.
+null source = search ran but found nothing. Return null for reference_number in that case.`;
+
+function extractRetryDelaySeconds(response, errJson){
+  try{
+    const headerVal = response && response.headers && response.headers.get && response.headers.get('retry-after');
+    if (headerVal){
+      const n = parseFloat(headerVal);
+      if (!isNaN(n)) return Math.ceil(n);
+    }
+    const msg = errJson?.error?.message || '';
+    const match = msg.match(/([\d.]+)\s*s(econds)?/i);
+    if (match) return Math.ceil(parseFloat(match[1]));
+  }catch(e){}
+  return 15;
+}
+
+const GEMINI_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash'];
+function geminiUrlFor(model){
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+}
+
+async function callGeminiWithSearch({ base64Image, mimeType, promptText }, attempt = 1, modelIndex = 0){
+  const apiKey = getGeminiApiKey();
+  if (!apiKey){
+    throw new Error('No Gemini API key set \u2014 add one in settings to enable reference lookups');
+  }
+
+  const parts = [];
+  if (base64Image) parts.push({ inline_data: { mime_type: mimeType || 'image/jpeg', data: base64Image } });
+  parts.push({ text: promptText });
+
+  const model = GEMINI_MODELS[modelIndex] || GEMINI_MODELS[0];
+  let response;
+  try{
+    response = await fetch(`${geminiUrlFor(model)}?key=${encodeURIComponent(apiKey)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts }],
+        tools: [{ urlContext: {} }, { googleSearch: {} }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 2500 }
+      })
+    });
+  }catch(networkErr){
+    if (attempt <= 4){
+      const waitSeconds = attempt * 4;
+      await new Promise(r => setTimeout(r, waitSeconds * 1000));
+      return callGeminiWithSearch({ base64Image, mimeType, promptText }, attempt + 1, modelIndex);
+    }
+    if (modelIndex < GEMINI_MODELS.length - 1){
+      return callGeminiWithSearch({ base64Image, mimeType, promptText }, 1, modelIndex + 1);
+    }
+    throw new Error('Network error reaching Gemini (' + (networkErr.message || 'connection failed') + ') \u2014 check your connection and try again');
+  }
+
+  if (!response.ok){
+    let errJson = null;
+    try{ errJson = await response.json(); }catch(e){}
+    const detail = errJson?.error?.message || '';
+
+    const isRateLimit = response.status === 429;
+    const isTransientServerError = [500, 502, 503, 504].includes(response.status);
+    if ((isRateLimit || isTransientServerError) && attempt <= 4){
+      const waitSeconds = isRateLimit ? extractRetryDelaySeconds(response, errJson) : (attempt * 4);
+      await new Promise(r => setTimeout(r, waitSeconds * 1000));
+      return callGeminiWithSearch({ base64Image, mimeType, promptText }, attempt + 1, modelIndex);
+    }
+
+    if (isTransientServerError && modelIndex < GEMINI_MODELS.length - 1){
+      return callGeminiWithSearch({ base64Image, mimeType, promptText }, 1, modelIndex + 1);
+    }
+
+    throw new Error('Gemini API error ' + response.status + (detail ? ': ' + detail : ''));
+  }
+  const data = await response.json();
+  const candidate = data.candidates && data.candidates[0];
+  const textParts = (candidate && candidate.content && candidate.content.parts || []).filter(p => p.text).map(p => p.text);
+  if (!textParts.length){
+    const finishReason = candidate && candidate.finishReason;
+    throw new Error('No text response from Gemini' + (finishReason ? ' (finishReason: ' + finishReason + ')' : ''));
+  }
+
+  const grounding = candidate && candidate.groundingMetadata;
+  const searchQueries = (grounding && grounding.webSearchQueries) || [];
+  const sources = ((grounding && grounding.groundingChunks) || [])
+    .map(c => c.web && c.web.title)
+    .filter(Boolean);
+
+  const urlMeta = (candidate && candidate.urlContextMetadata && candidate.urlContextMetadata.urlMetadata) || [];
+  const pagesRead = urlMeta
+    .filter(u => u.urlRetrievalStatus === 'URL_RETRIEVAL_STATUS_SUCCESS')
+    .map(u => u.retrievedUrl)
+    .filter(Boolean);
+
+  return { text: textParts.join('\n'), searchQueries, sources, pagesRead };
+}
+
+const BRAND_OFFICIAL_SITES = {
+  'rolex': 'rolex.com', 'tudor': 'tudorwatch.com', 'patek philippe': 'patek.com',
+  'audemars piguet': 'audemarspiguet.com', 'omega': 'omegawatches.com', 'cartier': 'cartier.com',
+  'richard mille': 'richardmille.com', 'iwc': 'iwc.com', 'iwc schaffhausen': 'iwc.com',
+  'panerai': 'panerai.com', 'vacheron constantin': 'vacheron-constantin.com',
+  'jaeger-lecoultre': 'jaeger-lecoultre.com', 'jaeger lecoultre': 'jaeger-lecoultre.com',
+  'breitling': 'breitling.com', 'tag heuer': 'tagheuer.com', 'hublot': 'hublot.com',
+  'chopard': 'chopard.com', 'bvlgari': 'bulgari.com', 'bulgari': 'bulgari.com',
+  'zenith': 'zenith-watches.com', 'piaget': 'piaget.com',
+  'a. lange & sohne': 'alange-soehne.com', 'a. lange & söhne': 'alange-soehne.com',
+  'lange & sohne': 'alange-soehne.com', 'breguet': 'breguet.com', 'bell & ross': 'bellross.com',
+  'longines': 'longines.com', 'tissot': 'tissot.ch', 'seiko': 'seikowatches.com',
+  'grand seiko': 'grand-seiko.com', 'chanel': 'chanel.com', 'franck muller': 'franckmuller.com',
+  'girard-perregaux': 'girard-perregaux.com', 'ulysse nardin': 'ulysse-nardin.com',
+  'h. moser & cie': 'h-moser.com', 'rado': 'rado.com', 'oris': 'oris.ch', 'montblanc': 'montblanc.com'
+};
+
+function getOfficialSiteForBrand(brand){
+  if (!brand) return null;
+  const normalized = brand.toLowerCase().trim();
+  if (BRAND_OFFICIAL_SITES[normalized]) return BRAND_OFFICIAL_SITES[normalized];
+  for (const key in BRAND_OFFICIAL_SITES){
+    if (normalized.includes(key) || key.includes(normalized)) return BRAND_OFFICIAL_SITES[key];
+  }
+  return null;
+}
+
+async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt){
+  const MAX_LOOKUP_ATTEMPTS = 2; // 2 Chrono24 attempts then null
+  // Chrono24-only mode — no official site lookup needed
+  const officialSiteInstruction = '';
+
+  const detailsText = `Watch details extracted so far:\n${JSON.stringify(fp, null, 2)}`;
+  const promptText = base64Image
+    ? `${detailsText}\n\nThe photo is attached. Identify the exact reference number using the photo plus multiple Google searches, per your instructions.${officialSiteInstruction}`
+    : `${detailsText}\n\nNo photo is available, only the description above. Identify the exact reference number using multiple Google searches based on these details, per your instructions.${officialSiteInstruction}`;
+
+  let lastResult = null;
+  for (let attempt = 1; attempt <= MAX_LOOKUP_ATTEMPTS; attempt++){
+    if (onAttempt) onAttempt(attempt, MAX_LOOKUP_ATTEMPTS);
+    try{
+      // Only send the image on attempt 1 — retries use text description only.
+      // Images are the biggest token cost; the text fingerprint is enough for retries.
+      const { text, searchQueries, sources, pagesRead } = await callGeminiWithSearch({
+        base64Image: attempt === 1 ? base64Image : null,
+        mimeType: attempt === 1 ? mimeType : null,
+        promptText: REFERENCE_LOOKUP_PROMPT + '\n\n' + promptText +
+          (attempt > 1 ? `\n\n(This is retry attempt ${attempt} \u2014 a previous attempt did not reach a confirmed result. The photo is not re-attached for this retry to save tokens \u2014 use the extracted watch details above plus different search query angles. Try broader searches without the specific dial color if color-specific searches keep failing.)` : '')
+      });
+      const result = parseJsonLoose(text);
+
+      const reallySearched = searchQueries.length > 0 || pagesRead.length > 0;
+      const claimsGrounded = result.reference_number_source === 'looked_up' || result.reference_number_source === 'best_match';
+      if (claimsGrounded && !reallySearched){
+        // No inferred guesses — Chrono24 only. Discard if no real search was done.
+        result.reference_number = null;
+        result.reference_number_source = null;
+        result.confidence_notes = 'No Chrono24 search performed — result discarded.';
+      }
+
+      const searchSummary = searchQueries.length
+        ? `Searched: ${searchQueries.map(q => `"${q}"`).join(', ')}.${sources.length ? ' Sources seen: ' + sources.join(', ') + '.' : ''}${pagesRead.length ? ' Pages read in full: ' + pagesRead.join(', ') + '.' : ''}`
+        : 'No web search was actually performed for this lookup (model answered without grounding).';
+      result.confidence_notes = result.confidence_notes ? `${result.confidence_notes} | ${searchSummary}` : searchSummary;
+
+      lastResult = result;
+      // Best case: grounded result confirmed by real search
+      if (claimsGrounded && reallySearched){
+        if (attempt > 1) result.confidence_notes = `(confirmed on attempt ${attempt}/${MAX_LOOKUP_ATTEMPTS}) ${result.confidence_notes}`;
+        return result;
+      }
+      // Final attempt: accept any non-null reference as inferred fallback.
+      // A reference the dealer can verify is better than no reference at all.
+    }catch(e){
+      console.warn(`Reference lookup attempt ${attempt} failed:`, e.message);
+      lastResult = { reference_number: null, reference_number_source: null, confidence_notes: 'Lookup step failed: ' + e.message };
+    }
+  }
+
+  if (lastResult){
+    lastResult.confidence_notes = `(tried ${MAX_LOOKUP_ATTEMPTS} times, never reached a search-grounded match) ${lastResult.confidence_notes || ''}`.trim();
+  }
+  return lastResult || { reference_number: null, reference_number_source: null, confidence_notes: `Lookup failed after ${MAX_LOOKUP_ATTEMPTS} attempts.` };
+}
+
+async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWait, enableWebSearch }, attempt = 1){
+  const key = getApiKey();
+  if (!key){
+    throw new Error('No Anthropic API key set \u2014 click the settings (gear) icon to add one');
+  }
+
+  const content = userParts.map(p => {
+    if (p.text !== undefined) return { type: 'text', text: p.text };
+    if (p.inline_data) return { type: 'image', source: { type: 'base64', media_type: p.inline_data.mime_type, data: p.inline_data.data } };
+    return null;
+  }).filter(Boolean);
+
+  const body = {
+    model: ANTHROPIC_MODEL,
+    max_tokens: maxOutputTokens || 1000,
+    system: systemText,
+    messages: [{ role: 'user', content }]
+  };
+  if (enableWebSearch){
+    body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }];
+  }
+
+  let response;
+  try{
+    response = await fetch(ANTHROPIC_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify(body)
+    });
+  }catch(networkErr){
+    if (attempt <= 4){
+      const waitSeconds = attempt * 3;
+      if (onRetryWait) onRetryWait(waitSeconds, attempt);
+      await new Promise(r => setTimeout(r, waitSeconds * 1000));
+      return callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWait, enableWebSearch }, attempt + 1);
+    }
+    throw new Error('Network error reaching Anthropic (' + (networkErr.message || 'connection failed') + ') \u2014 check your connection and try again');
+  }
+
+  if (!response.ok){
+    let errJson = null;
+    try{ errJson = await response.json(); }catch(e){}
+    const detail = errJson?.error?.message || '';
+
+    const isRateLimit = response.status === 429;
+    const isTransientServerError = [500, 502, 503, 504].includes(response.status);
+    if ((isRateLimit || isTransientServerError) && attempt <= 4){
+      const waitSeconds = isRateLimit ? extractRetryDelaySeconds(response, errJson) : (attempt * 3);
+      if (onRetryWait) onRetryWait(waitSeconds, attempt);
+      await new Promise(r => setTimeout(r, waitSeconds * 1000));
+      return callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWait, enableWebSearch }, attempt + 1);
+    }
+
+    if (enableWebSearch && /web.?search/i.test(detail)){
+      throw new Error('Web search tool isn\u2019t enabled for this API key \u2014 enable it in the Anthropic Console under your organization\u2019s tool settings, or this feature won\u2019t work. (' + detail + ')');
+    }
+
+    throw new Error('Anthropic API error ' + response.status + (detail ? ': ' + detail : ''));
+  }
+  const data = await response.json();
+  const textParts = (data.content || []).filter(b => b.type === 'text' && b.text).map(b => b.text);
+  if (!textParts.length) throw new Error('No text response from Anthropic');
+
+  const searchQueries = (data.content || [])
+    .filter(b => b.type === 'server_tool_use' && b.name === 'web_search' && b.input && b.input.query)
+    .map(b => b.input.query);
+  const sources = (data.content || [])
+    .filter(b => b.type === 'web_search_tool_result' && Array.isArray(b.content))
+    .flatMap(b => b.content.map(r => r.title).filter(Boolean));
+
+  return { text: textParts.join('\n'), searchQueries, sources };
+}
+
+async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeType, onLookupAttempt, allowLookup){
+  const userText = caption
+    ? `Caption / filename provided by the dealer: "${caption}". Use this as supporting signal alongside the image.`
+    : 'No caption was provided. Rely on the image alone.';
+  const effectiveMimeType = (mimeType && mimeType.startsWith('image/')) ? mimeType : 'image/jpeg';
+
+  const { text } = await callAnthropic({
+    systemText: FINGERPRINT_SCHEMA_PROMPT,
+    userParts: [
+      { inline_data: { mime_type: effectiveMimeType, data: base64 } },
+      { text: userText }
+    ],
+    maxOutputTokens: 1200,
+    onRetryWait
+  });
+  const fp = parseJsonLoose(text);
+
+  // Always lookup when no ref visible — stock images need this too.
+  if (!fp.reference_number){
+    const lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType, onLookupAttempt);
+    fp.reference_number = lookup.reference_number || null;
+    fp.reference_number_source = lookup.reference_number_source || null;
+    fp.reference_source_site = lookup.confirming_source || null;
+    if (lookup.confidence_notes){
+      fp.confidence_notes = fp.confidence_notes ? fp.confidence_notes + ' | ' + lookup.confidence_notes : lookup.confidence_notes;
+    }
+  }
+  return fp;
+}
+
+async function extractFingerprintFromText(text, onRetryWait, onLookupAttempt){
+  const textSystemPrompt = FINGERPRINT_SCHEMA_PROMPT
+    .replace('You are inspecting a watch listing screenshot for a dealer\'s inventory system. The screenshot is typically a chat message (e.g. WhatsApp) containing a watch photo AND message text baked into the same image \u2014 the text may include price, description, condition, or seller notes layered over or alongside the photo. Read both the watch itself and any visible text in the image.',
+      'You are parsing a free-text customer demand request describing a watch they want. There is no image \u2014 work only from the text.')
+    .replace('For "message_text": transcribe any visible chat/message text in the screenshot verbatim (price, description, condition notes, seller comments). If there is no visible text, use null.',
+      'For "message_text": set this to the original request text verbatim.');
+
+  const { text: responseText } = await callAnthropic({
+    systemText: textSystemPrompt,
+    userParts: [{ text: `Customer request text: "${text}"` }],
+    maxOutputTokens: 1200,
+    onRetryWait
+  });
+  const fp = parseJsonLoose(responseText);
+
+  if (!fp.reference_number){
+    const lookup = await lookupReferenceNumber(fp, null, null, onLookupAttempt);
+    fp.reference_number = lookup.reference_number || null;
+    fp.reference_number_source = lookup.reference_number_source || null;
+    fp.reference_source_site = lookup.confirming_source || null;
+    if (lookup.confidence_notes){
+      fp.confidence_notes = fp.confidence_notes ? fp.confidence_notes + ' | ' + lookup.confidence_notes : lookup.confidence_notes;
+    }
+  }
+  return fp;
+}
+
+function findMatchingBraceStringAware(text, start){
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i++){
+    const ch = text[i];
+    if (inString){
+      if (ch === '\\'){ i++; continue; }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"'){ inString = true; continue; }
+    if (ch === '{') depth++;
+    else if (ch === '}'){
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function attemptStructuralRepair(candidate){
+  let quoteCount = 0;
+  for (let i = 0; i < candidate.length; i++){
+    if (candidate[i] === '\\'){ i++; continue; }
+    if (candidate[i] === '"') quoteCount++;
+  }
+  let repaired = candidate;
+  if (quoteCount % 2 !== 0){
+    repaired += '"';
+  }
+  let depth = 0;
+  let inStr = false;
+  for (let i = 0; i < repaired.length; i++){
+    const ch = repaired[i];
+    if (inStr){
+      if (ch === '\\'){ i++; continue; }
+      if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"'){ inStr = true; continue; }
+    if (ch === '{') depth++;
+    else if (ch === '}') depth--;
+  }
+  while (depth > 0){ repaired += '}'; depth--; }
+  return repaired;
+}
+
+function extractFieldsByRegex(text){
+  const get = (key) => {
+    const m = text.match(new RegExp(`"${key}"\\s*:\\s*(null|"((?:[^"\\\\]|\\\\.)*)"|\\d+)`));
+    if (!m) return undefined;
+    if (m[1] === 'null') return null;
+    if (m[2] !== undefined) return m[2];
+    return m[1];
+  };
+  const referenceNumber = get('reference_number');
+  if (referenceNumber === undefined) return null;
+  return {
+    reference_number: referenceNumber,
+    reference_number_source: get('reference_number_source') ?? null,
+    sources_agreed: (() => { const v = get('sources_agreed'); return v !== undefined ? parseInt(v, 10) : 0; })(),
+    confidence_notes: get('confidence_notes') ?? null
+  };
+}
+
+function parseJsonLoose(text){
+  const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '');
+
+  try{ return JSON.parse(cleaned); }catch(e){}
+
+  const start = cleaned.indexOf('{');
+  if (start !== -1){
+    const end = findMatchingBraceStringAware(cleaned, start);
+    if (end !== -1){
+      const candidate = cleaned.slice(start, end + 1);
+      try{ return JSON.parse(candidate); }catch(e){}
+    } else {
+      const candidate = cleaned.slice(start);
+      try{ return JSON.parse(attemptStructuralRepair(candidate)); }catch(e){}
+    }
+  }
+
+  const recovered = extractFieldsByRegex(cleaned);
+  if (recovered) return recovered;
+
+  throw new Error('Could not parse a usable JSON object from the response');
+}
+
+/* ===================== batch analysis with progress ===================== */
+
+let _wakeLockSentinel = null;
+
+async function acquireWakeLock(){
+  try{
+    if ('wakeLock' in navigator){
+      _wakeLockSentinel = await navigator.wakeLock.request('screen');
+    }
+  }catch(e){
+    _wakeLockSentinel = null;
+  }
+}
+
+function releaseWakeLock(){
+  try{
+    if (_wakeLockSentinel){
+      _wakeLockSentinel.release();
+      _wakeLockSentinel = null;
+    }
+  }catch(e){}
+}
+
+async function analyzeBatch(items, kind, renderFn){
+  const toProcess = items.filter(it => it.status === 'pending' || it.status === 'error');
+  if (!toProcess.length) return;
+
+  await acquireWakeLock();
+
+  const btn = document.getElementById(kind === 'stock' ? 'analyzeStockBtn' : 'analyzeDemandBtn');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+
+  let done = 0;
+  const total = toProcess.length;
+  const CONCURRENCY = 4;
+  let idx = 0;
+  let rateLimitNotice = '';
+
+  function updateProgress(){
+    const pct = Math.round(done / total * 100);
+    btn.innerHTML = `<span class="progress-wrap">${rateLimitNotice || 'Analyzing'} <span class="progress-track"><span class="progress-fill" style="width:${pct}%"></span></span> ${done}/${total}</span>`;
+  }
+  updateProgress();
+
+  async function worker(){
+    while (idx < toProcess.length){
+      const item = toProcess[idx++];
+      item.status = 'analyzing';
+      renderFn();
+      try{
+        let fp;
+        const onRetryWait = (waitSeconds) => {
+          rateLimitNotice = `Rate limited, waiting ${waitSeconds}s\u2026`;
+          updateProgress();
+        };
+        const onLookupAttempt = (attempt, max) => {
+          rateLimitNotice = attempt > 1 ? `Verifying with Google (attempt ${attempt}/${max})\u2026` : 'Verifying with Google\u2026';
+          updateProgress();
+        };
+        if (item.type === 'image'){
+          if (!item.imageData) throw new Error('image not attached this session');
+          fp = await extractFingerprintFromImage(item.imageData, item.caption, onRetryWait, imageMimeTypeOf(item), onLookupAttempt, true);
+        } else {
+          fp = await extractFingerprintFromText(item.text || '', onRetryWait, onLookupAttempt);
+        }
+        item.fingerprint = fp;
+        item.status = 'done';
+        item.error = null;
+      }catch(e){
+        item.status = 'error';
+        item.error = e.message || 'analysis failed';
+      }
+      rateLimitNotice = '';
+      done++;
+      updateProgress();
+      renderFn();
+      if (kind === 'stock') renderDashboard();
+    }
+  }
+
+  const workers = Array.from({length: Math.min(CONCURRENCY, toProcess.length)}, worker);
+  await Promise.all(workers);
+  releaseWakeLock();
+
+  btn.disabled = false;
+  btn.textContent = originalText;
+  if (kind === 'stock') { saveStockCatalog(); renderDashboard(); }
+  else { saveDemandCatalog(); }
+  renderFn();
+
+  const failed = toProcess.filter(it => it.status === 'error').length;
+  if (failed) showToast(`${failed} item${failed > 1 ? 's' : ''} failed to analyze`, true);
+  else showToast(`Analyzed ${total} item${total > 1 ? 's' : ''}`);
+
+  if (kind === 'stock' && !failed && !window._backupNudgeShown){
+    window._backupNudgeShown = true;
+    setTimeout(() => showToast('Tip: use "Backup catalog" on the Dashboard tab to save this analysis to a file'), 3500);
+  }
+
+  if (kind === 'demand' && stockItems.some(it => it.status === 'done')){
+    runMatching({ silent: true });
+  } else if (kind === 'stock' && demandItems.some(it => it.status === 'done')){
+    runMatching({ silent: true });
+  }
+}
+
+/* ===================== matching ===================== */
+
+function updateRunMatchAvailability(){
+  const stockReady = stockItems.some(it => it.status === 'done');
+  const demandReady = demandItems.some(it => it.status === 'done');
+  document.getElementById('runMatchBtn').disabled = !(stockReady && demandReady);
+}
+
+// Strip ALL separators. Used for exact comparison.
+function normalizeRefNumber(ref) {
+  if (!ref) return '';
+  return String(ref)
+    .trim()
+    .replace(/[^a-zA-Z0-9]/g, '') // strip / - . spaces
+    .toUpperCase();
+}
+
+// Strip trailing dial-variant codes before normalizing.
+//   Patek  5711/1A-001  ->  base 57111A  (strips -NNN)
+//   AP     15400ST.OO.1220ST.02  ->  base 15400STOO1220ST  (strips .XX)
+//   Rolex  228238-0042  ->  base 228238  (strips -XXXX)
+// Letter suffixes (Rolex LN/LV, AP ST/RG) are NOT stripped — different watches.
+function baseRefNumber(ref) {
+  if (!ref) return '';
+  const withoutDialVariant = String(ref).trim()
+    .replace(/-\d+$/, '')       // Patek/Rolex: strips -NNN numeric suffix
+    .replace(/\.\d{1,2}$/, ''); // AP: strips .01, .02 (last dot-segment)
+  return normalizeRefNumber(withoutDialVariant);
+}
+
+// 3-tier matcher.
+function matchRefs(ref1, ref2) {
+  if (!ref1 || !ref2) return { match: false, confidence: null };
+
+  const n1 = normalizeRefNumber(ref1);
+  const n2 = normalizeRefNumber(ref2);
+
+  if (n1 === n2) return { match: true, confidence: 'exact' };
+
+  if (n1.length < n2.length && n2.startsWith(n1))
+    return { match: true, confidence: 'prefix' };
+
+  if (n2.length < n1.length && n1.startsWith(n2))
+    return { match: true, confidence: 'prefix' };
+
+  const b1 = baseRefNumber(ref1);
+  const b2 = baseRefNumber(ref2);
+
+  if (b1 === b2 && b1.length > 3)
+    return { match: true, confidence: 'base_model' };
+
+  return { match: false, confidence: null };
+}
+
+function extractRefBase(ref){
+  if (!ref) return null;
+  const trimmed = String(ref).trim();
+  const match = trimmed.match(/^(.+?)[-_.]([A-Za-z0-9]{1,4})$/);
+  if (match && match[1].replace(/[^A-Za-z0-9]/g, '').length >= 4){
+    return normalizeRefNumber(match[1]);
+  }
+  return null;
+}
+
+function areSimilarRefs(refA, refB){
+  const normA = normalizeRefNumber(refA);
+  const normB = normalizeRefNumber(refB);
+  if (!normA || !normB || normA === normB) return false;
+  const baseA = extractRefBase(refA);
+  const baseB = extractRefBase(refB);
+  if (!baseA || !baseB) return false;
+  return baseA === baseB;
+}
+
+function refSourceRank(source){
+  if (source === 'visible') return 3;
+  if (source === 'looked_up') return 2;
+  if (source === 'best_match') return 1;
+  if (source === 'inferred') return 1; // training-knowledge guess, same weight as best_match
+  return 0;
+}
+
+function refSourceLabel(source){
+  if (source === 'visible') return 'read directly';
+  if (source === 'looked_up') return 'found via Google search';
+  if (source === 'best_match') return 'best estimate among real candidates';
+  if (source === 'inferred') return 'inferred from watch details (verify manually)';
+  return 'unconfirmed';
+}
+
+function runMatching(opts){
+  const silent = opts && opts.silent;
+  const stockReady = stockItems.filter(it => it.status === 'done' && it.fingerprint && it.fingerprint.reference_number);
+  const demandReady = demandItems.filter(it => it.status === 'done' && it.fingerprint && it.fingerprint.reference_number);
+
+  const stockMissingRef = stockItems.filter(it => it.status === 'done' && it.fingerprint && !it.fingerprint.reference_number).length;
+  const demandMissingRef = demandItems.filter(it => it.status === 'done' && it.fingerprint && !it.fingerprint.reference_number).length;
+
+  if (!stockReady.length || !demandReady.length){
+    if (!silent) showToast('Need at least one analyzed stock item and one analyzed demand item, each with a reference number', true);
+    matchResults = [];
+    renderResults();
+    renderDashboard();
+    return;
+  }
+
+  matchResults = demandReady.map(d => {
+    const demandRank = refSourceRank(d.fingerprint.reference_number_source);
+    const demandLabel = refSourceLabel(d.fingerprint.reference_number_source);
+
+    const matches = stockReady
+      .filter(s => matchRefs(d.fingerprint.reference_number, s.fingerprint.reference_number).match)
+      .map(s => {
+        const stockRank = refSourceRank(s.fingerprint.reference_number_source);
+        const stockLabel = refSourceLabel(s.fingerprint.reference_number_source);
+        const combinedRank = Math.min(demandRank, stockRank);
+        const refMatch = matchRefs(d.fingerprint.reference_number, s.fingerprint.reference_number);
+
+        // Base confidence from source reliability
+        let basePct;
+        if (combinedRank === 3) basePct = 97;
+        else if (combinedRank === 2) basePct = 82;
+        else basePct = 55;
+
+        // Tier penalty for non-exact reference match
+        if (refMatch.confidence === 'prefix') basePct = Math.max(basePct - 5, 40);
+        else if (refMatch.confidence === 'base_model') basePct = Math.max(basePct - 15, 35);
+
+        const confidence = basePct;
+        const referenceMatchType = combinedRank === 3 ? 'visible_exact' : combinedRank === 2 ? 'looked_up' : 'best_match';
+
+        const refTierNote = refMatch.confidence === 'prefix'
+          ? ` Demand didn\u2019t specify a dial variant \u2014 stock carries ${s.fingerprint.reference_number}; confirm that suits the customer.`
+          : refMatch.confidence === 'base_model'
+            ? ` Same base model but different dial variants (demand: ${d.fingerprint.reference_number} vs stock: ${s.fingerprint.reference_number}) \u2014 confirm dial preference before proceeding.`
+            : '';
+
+        let reasoning;
+        if (combinedRank === 3){
+          reasoning = `Reference ${s.fingerprint.reference_number} read directly from both the stock photo and the demand request \u2014 exact match.${refTierNote}`;
+        } else if (combinedRank === 2){
+          reasoning = `Reference ${s.fingerprint.reference_number} matches \u2014 stock side ${stockLabel}, demand side ${demandLabel}. Google-search-verified; treat as reliable but worth a quick visual confirmation.${refTierNote}`;
+        } else {
+          reasoning = `Reference ${s.fingerprint.reference_number} matches \u2014 stock side ${stockLabel}, demand side ${demandLabel}. Best estimate; treat as a lead worth checking, not a certainty.${refTierNote}`;
+        }
+        return { stockId: s.id, stockItem: s, confidence, referenceMatchType, reasoning };
+      })
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, 3);
+
+    const matchedStockIds = new Set(matches.map(m => m.stockId));
+    const similarModels = stockReady
+      .filter(s => !matchedStockIds.has(s.id) && areSimilarRefs(s.fingerprint.reference_number, d.fingerprint.reference_number))
+      .map(s => ({ stockId: s.id, stockItem: s }))
+      .slice(0, 3);
+
+    return { demandId: d.id, demandItem: d, matches, similarModels };
+  });
+
+  renderResults();
+  renderDashboard();
+
+  if (!silent){
+    setView('results');
+    const totalMatched = matchResults.filter(r => r.matches.length).length;
+    let msg = `Matching complete \u2014 ${totalMatched} of ${demandReady.length} demand item${demandReady.length === 1 ? '' : 's'} matched on reference number`;
+    if (demandMissingRef || stockMissingRef){
+      msg += ` (${demandMissingRef} demand / ${stockMissingRef} stock item${(demandMissingRef + stockMissingRef) === 1 ? '' : 's'} skipped \u2014 no reference number found)`;
+    }
+    showToast(msg);
+  }
+  updateRunMatchAvailability();
+}
+
+/* ===================== rendering: dashboard ===================== */
+
+function genderBadge(fp){
+  if (!fp || !fp.gender) return '';
+  const label = fp.gender === 'mens' ? 'Mens' : fp.gender === 'ladies' ? 'Ladies' : 'Unisex';
+  const cls = fp.gender === 'mens' ? 'mens' : fp.gender === 'ladies' ? 'ladies' : 'unisex';
+  return `<span class="gender-badge ${cls}" title="${escapeHtml(fp.gender_basis || '')}">${label}</span>`;
+}
+
+function refBadge(fp){
+  if (!fp || !fp.reference_number) return '';
+  const source = fp.reference_number_source;
+  const site = fp.reference_source_site || null;
+  const cls = source === 'visible' ? 'visible'
+    : source === 'looked_up' ? 'looked-up'
+    : source === 'inferred' ? 'inferred'
+    : 'best-match';
+  let label, title;
+  if (source === 'visible'){
+    label = ''; title = 'Read directly from the photo or message text';
+  } else if (source === 'looked_up'){
+    label = site ? ` (via ${site})` : ' (Google-verified)';
+    title = site ? `Confirmed via Google search \u2014 source: ${site}` : 'Not directly legible \u2014 confirmed via Google search';
+  } else if (source === 'inferred'){
+    label = ' (inferred \u2014 verify)';
+    title = 'Inferred from training knowledge \u2014 no search confirmed this. Verify before presenting to customer.';
+  } else {
+    label = site ? ` (est. via ${site})` : ' (best estimate)';
+    title = 'Best estimate from multiple real candidates. Treat as a strong lead, not a certainty.';
+  }
+  return `<span class="ref-badge ${cls}" title="${title}">${escapeHtml(fp.reference_number)}${escapeHtml(label)}</span>`;
+}
+
+function renderDashboardMatches(){
+  const wrap = document.getElementById('dashboardMatches');
+  const label = document.getElementById('matchesSectionLabel');
+  const stockLabel = document.getElementById('stockSectionLabel');
+
+  const withMatches = matchResults.filter(r => r.matches && r.matches.length && r.matches[0].stockItem);
+  if (!withMatches.length){
+    wrap.innerHTML = '';
+    label.style.display = 'none';
+    stockLabel.style.display = stockItems.length ? '' : 'none';
+    return;
+  }
+
+  label.style.display = '';
+  stockLabel.style.display = stockItems.length ? '' : 'none';
+
+  wrap.innerHTML = withMatches.map(r => {
+    const demandItem = r.demandItem;
+    const top = r.matches[0];
+    const stockItem = top.stockItem;
+    const pct = Math.round(top.confidence || 0);
+    const tier = confidenceTier(pct);
+    const matchTypeBadge = top.referenceMatchType === 'looked_up'
+      ? '<span class="ref-badge looked-up">Google-verified match</span>'
+      : top.referenceMatchType === 'best_match'
+        ? '<span class="ref-badge best-match">best-estimate match \u2014 verify</span>'
+        : '';
+
+    return `
+    <div class="match-pair-card">
+      <div class="match-pair-photos">
+        <button class="match-photo-btn" data-action="goto-demand" data-id="${demandItem.id}" title="Open this demand request">
+          ${thumbHtml(demandItem, 64)}
+          <span class="match-photo-label">Demand</span>
+        </button>
+        <span class="match-pair-arrow">&harr;</span>
+        <button class="match-photo-btn" data-action="goto-stock" data-id="${stockItem.id}" title="Open this stock item">
+          ${thumbHtml(stockItem, 64)}
+          <span class="match-photo-label">Stock</span>
+        </button>
+      </div>
+      <div class="match-pair-info">
+        <div class="match-pair-title">${escapeHtml(itemLabel(demandItem))} <span class="match-pair-sep">matched</span> ${escapeHtml(itemLabel(stockItem))}</div>
+        <div class="match-pair-badges">
+          ${genderBadge(stockItem.fingerprint)}
+          ${refBadge(stockItem.fingerprint)}
+          ${matchTypeBadge}
+        </div>
+        <div class="match-pair-reasoning">${escapeHtml(top.reasoning || '')}</div>
+      </div>
+      <div class="confidence">
+        <span class="confidence-label">confidence</span>
+        <div class="confidence-meter"><div class="confidence-fill ${tier}" style="width:${pct}%"></div></div>
+        <span class="confidence-pct">${pct}%</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  wrap.querySelectorAll('[data-action="goto-demand"]').forEach(btn => {
+    btn.onclick = () => { setView('demand'); setTimeout(() => scrollToCard('demand', btn.dataset.id), 50); };
+  });
+  wrap.querySelectorAll('[data-action="goto-stock"]').forEach(btn => {
+    btn.onclick = () => { setView('stock'); setTimeout(() => scrollToCard('stock', btn.dataset.id), 50); };
+  });
+}
+
+function scrollToCard(kind, id){
+  const grid = document.getElementById(kind === 'stock' ? 'stockGrid' : 'demandGrid');
+  const card = grid && grid.querySelector(`[data-id="${id}"]`);
+  if (card){
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('highlight-flash');
+    setTimeout(() => card.classList.remove('highlight-flash'), 1600);
+  }
+}
+
+function renderDashboard(){
+  renderDashboardMatches();
+
+  const tbody = document.getElementById('dashboardBody');
+  const empty = document.getElementById('dashboardEmpty');
+  const table = document.getElementById('dashboardTable');
+  document.getElementById('dashboardCount').textContent = stockItems.length;
+
+  if (!stockItems.length){
+    empty.style.display = '';
+    table.style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none';
+  table.style.display = '';
+
+  tbody.innerHTML = stockItems.map(it => {
+    const fp = it.fingerprint;
+    const priceVal = it.priceOverride !== undefined && it.priceOverride !== null && it.priceOverride !== '' ? it.priceOverride : (fp ? fp.price : null);
+    const thumb = it.imageData
+      ? `<img class="dash-thumb" src="data:${imageMimeTypeOf(it)};base64,${it.imageData}" alt="">`
+      : `<div class="dash-thumb placeholder">no img</div>`;
+    return `
+    <tr data-id="${it.id}">
+      <td>${thumb}</td>
+      <td>
+        <div class="dash-name">${escapeHtml(fp ? fpLine(fp) : (it.caption || it.filename || 'Unidentified'))}</div>
+        ${fp ? refBadge(fp) : ''}
+      </td>
+      <td>${genderBadge(fp) || '\u2014'}</td>
+      <td>${fp ? escapeHtml(fp.dial_color || '\u2014') : '\u2014'}</td>
+      <td>${fp ? escapeHtml(fp.case_material || '\u2014') : '\u2014'}</td>
+      <td><span class="status-badge ${it.status}">${it.status}</span></td>
+      <td>
+        <input class="dash-price-input" type="text" placeholder="\u2014" value="${escapeHtml(priceVal || '')}" data-id="${it.id}" data-field="dashprice">
+      </td>
+      <td class="dash-actions">
+        <button class="btn small" data-action="dashsold" data-id="${it.id}">Sold out</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  tbody.querySelectorAll('[data-field="dashprice"]').forEach(input => {
+    input.oninput = (e) => {
+      const item = stockItems.find(s => s.id === e.target.dataset.id);
+      if (item) item.priceOverride = e.target.value;
+    };
+    input.onblur = () => { saveStockCatalog(); renderStock(); };
+  });
+  tbody.querySelectorAll('[data-action="dashsold"]').forEach(btn => {
+    btn.onclick = (e) => markSold(e.target.dataset.id);
+  });
+}
+
+function confidenceTier(pct){
+  if (pct >= 70) return 'high';
+  if (pct >= 40) return 'medium';
+  return 'low';
+}
+
+function thumbHtml(item, size){
+  if (item && item.type === 'image' && item.imageData){
+    return `<img class="thumb" style="width:${size}px;height:${size}px;" src="data:${imageMimeTypeOf(item)};base64,${item.imageData}" alt="">`;
+  }
+  const label = item ? (item.fingerprint ? fpLine(item.fingerprint).slice(0,3).toUpperCase() : 'TXT') : '?';
+  return `<div class="thumb placeholder" style="width:${size}px;height:${size}px;">${escapeHtml(label)}</div>`;
+}
+
+function itemLabel(item){
+  if (!item) return 'Unknown';
+  if (item.fingerprint){
+    const line = fpLine(item.fingerprint);
+    return line !== 'unidentified' ? line : (item.caption || item.filename || (item.type === 'text' ? item.text?.slice(0,40) : 'Unidentified'));
+  }
+  return item.caption || item.filename || 'Unidentified';
+}
+
+function renderResults(){
+  const list = document.getElementById('resultsList');
+  const empty = document.getElementById('resultsEmpty');
+  document.getElementById('resultsCount').textContent = matchResults.length;
+
+  empty.style.display = matchResults.length ? 'none' : '';
+  list.innerHTML = matchResults.map(renderResultRow).join('');
+
+  list.querySelectorAll('.result-summary').forEach(el => {
+    el.onclick = () => {
+      el.closest('.result-row').classList.toggle('expanded');
+    };
+  });
+}
+
+function renderResultRow(r){
+  const demandItem = r.demandItem;
+  const top = r.matches[0];
+  const pct = top ? Math.round(top.confidence) : 0;
+  const tier = confidenceTier(pct);
+
+  const altMatches = r.matches.slice(1).map(m => `
+    <div class="alt-match-item">
+      ${thumbHtml(m.stockItem, 30)}
+      <span>${escapeHtml(itemLabel(m.stockItem))} &middot; ${Math.round(m.confidence)}%</span>
+    </div>
+  `).join('');
+
+  const similarModels = r.similarModels || [];
+  const similarModelsHtml = similarModels.length ? `
+    <div class="alt-matches similar-models">
+      <h4>Similar models in stock (different reference, not a match)</h4>
+      ${similarModels.map(m => `
+        <div class="alt-match-item">
+          ${thumbHtml(m.stockItem, 30)}
+          <span>${escapeHtml(itemLabel(m.stockItem))} ${refBadge(m.stockItem.fingerprint)}</span>
+        </div>
+      `).join('')}
+    </div>` : '';
+
+  return `
+  <div class="result-row" data-demand-id="${r.demandId}">
+    <div class="result-summary">
+      <div class="result-thumbs">
+        ${thumbHtml(demandItem, 46)}
+        ${top ? `<span style="color:var(--text-faint);font-size:13px;">&rarr;</span>${thumbHtml(top.stockItem, 46)}` : ''}
+      </div>
+      <span class="result-arrow">&#9656;</span>
+      <div class="result-text">
+        <div class="demand-name">${escapeHtml(itemLabel(demandItem))}</div>
+        ${top
+          ? `<div class="match-name">matched: ${escapeHtml(itemLabel(top.stockItem))}</div>`
+          : similarModels.length
+            ? `<div class="no-match">no exact match \u2014 ${similarModels.length} similar model${similarModels.length > 1 ? 's' : ''} in stock</div>`
+            : `<div class="no-match">no confident match in current stock</div>`}
+      </div>
+      ${top ? `
+      <div class="confidence">
+        <span class="confidence-label">confidence</span>
+        <div class="confidence-meter"><div class="confidence-fill ${tier}" style="width:${pct}%"></div></div>
+        <span class="confidence-pct">${pct}%</span>
+      </div>` : ''}
+    </div>
+    <div class="result-detail">
+      ${top ? `
+      <div class="compare-grid">
+        <div class="compare-col">
+          <h4>Demand</h4>
+          ${fingerprintMini(demandItem.fingerprint)}
+        </div>
+        <div class="compare-col">
+          <h4>Matched stock</h4>
+          ${fingerprintMini(top.stockItem.fingerprint)}
+        </div>
+      </div>
+      <div class="reasoning-block">
+        <div class="rb-label">Reasoning</div>
+        <p>${escapeHtml(top.reasoning || '')}</p>
+      </div>
+      ${altMatches ? `<div class="alt-matches"><h4>Other possible matches</h4>${altMatches}</div>` : ''}
+      ${similarModelsHtml}
+      ` : `<p style="font-size:12.5px;color:var(--text-faint);padding-top:14px;">No stock item shared the same reference number as this request.</p>${similarModelsHtml}`}
+    </div>
+  </div>`;
+}
+
+function fingerprintMini(fp){
+  if (!fp) return '<p style="font-size:12px;color:var(--text-faint);">No fingerprint</p>';
+  const rows = [
+    ['brand', fp.brand], ['model', fp.model_line],
+    ['dial', fp.dial_color], ['case', fp.case_material], ['strap', fp.bracelet_or_strap]
+  ];
+  const badges = (genderBadge(fp) || refBadge(fp)) ? `<div class="card-badges">${genderBadge(fp)}${refBadge(fp)}</div>` : '';
+  return badges + `<div class="fingerprint">${rows.map(([k,v]) => `<span class="fp-label">${k}</span><span class="fp-val">${escapeHtml(v || '\u2014')}</span>`).join('')}</div>`;
+}
+
+/* ===================== event wiring ===================== */
+
+async function handleStockFiles(fileList){
+  const files = Array.from(fileList || []);
+  if (!files.length){ showToast('No images were received from the picker \u2014 try selecting again', true); return; }
+  showToast(`Loading ${files.length} image${files.length > 1 ? 's' : ''}\u2026`);
+  let added = 0, failed = 0;
+  for (const file of files){
+    try{
+      if (!file.type || !file.type.startsWith('image/')){ failed++; continue; }
+      const base64 = await fileToBase64(file);
+      const newId = uid();
+      stockItems.push({ id: newId, type: 'image', filename: file.name || 'untitled', caption: '', imageData: base64, imageMimeType: file.type, hasImage: true, status: 'pending', fingerprint: null, error: null });
+      saveStockImage(newId, base64, file.type);
+      added++;
+      renderStock();
+    }catch(e){ failed++; console.error('failed to read file', file && file.name, e); }
+  }
+  saveStockCatalog();
+  renderDashboard();
+  if (added && !failed) showToast(`Added ${added} image${added > 1 ? 's' : ''} to stock`);
+  else if (added && failed) showToast(`Added ${added}, ${failed} failed to load`, true);
+  else showToast('Could not load any of the selected images', true);
+}
+
+async function handleDemandFiles(fileList){
+  const files = Array.from(fileList || []);
+  if (!files.length){ showToast('No images were received from the picker \u2014 try selecting again', true); return; }
+  showToast(`Loading ${files.length} image${files.length > 1 ? 's' : ''}\u2026`);
+  let added = 0, failed = 0;
+  for (const file of files){
+    try{
+      if (!file.type || !file.type.startsWith('image/')){ failed++; continue; }
+      const base64 = await fileToBase64(file);
+      const newId = uid();
+      demandItems.push({ id: newId, type: 'image', filename: file.name || 'untitled', caption: '', imageData: base64, imageMimeType: file.type, hasImage: true, status: 'pending', fingerprint: null, error: null });
+      saveDemandImage(newId, base64, file.type);
+      added++;
+      renderDemand();
+    }catch(e){ failed++; console.error('failed to read file', file && file.name, e); }
+  }
+  saveDemandCatalog();
+  if (added && !failed) showToast(`Added ${added} image${added > 1 ? 's' : ''} to demand`);
+  else if (added && failed) showToast(`Added ${added}, ${failed} failed to load`, true);
+  else showToast('Could not load any of the selected images', true);
+}
+
+function handlePaste(e){
+  if (document.getElementById('textModalOverlay').classList.contains('open')) return;
+  if (currentView !== 'stock' && currentView !== 'demand') return;
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  const imageFiles = [];
+  for (const item of items){
+    if (item.type && item.type.startsWith('image/')){ const file = item.getAsFile(); if (file) imageFiles.push(file); }
+  }
+  if (!imageFiles.length) return;
+  e.preventDefault();
+  if (currentView === 'stock'){ handleStockFiles(imageFiles); showToast(`Pasted ${imageFiles.length} image${imageFiles.length > 1 ? 's' : ''} into stock`); }
+  else { handleDemandFiles(imageFiles); showToast(`Pasted ${imageFiles.length} image${imageFiles.length > 1 ? 's' : ''} into demand`); }
+}
+
+function wireFileInput(inputId, handlerFn){
+  const input = document.getElementById(inputId);
+  let lastHandledAt = 0;
+  function handle(e){
+    const fl = (e.target && e.target.files) || input.files;
+    if (!fl || !fl.length) return;
+    const now = Date.now();
+    if (now - lastHandledAt < 600) return;
+    lastHandledAt = now;
+    handlerFn(fl);
+    setTimeout(() => { input.value = ''; }, 500);
+  }
+  input.addEventListener('change', handle, false);
+  input.addEventListener('input', handle, false);
+  input.addEventListener('blur', () => {
+    setTimeout(() => {
+      if (input.files && input.files.length && Date.now() - lastHandledAt > 600){
+        lastHandledAt = Date.now();
+        handlerFn(input.files);
+        setTimeout(() => { input.value = ''; }, 500);
+      }
+    }, 700);
+  }, false);
+}
+
+function init(){
+  document.querySelectorAll('.tab').forEach(tab => { tab.onclick = () => setView(tab.dataset.view); });
+  wireFileInput('stockFileInput', handleStockFiles);
+  wireFileInput('demandFileInput', handleDemandFiles);
+  document.getElementById('analyzeStockBtn').onclick = () => analyzeBatch(stockItems, 'stock', renderStock);
+  document.getElementById('analyzeDemandBtn').onclick = () => analyzeBatch(demandItems, 'demand', renderDemand);
+  document.getElementById('runMatchBtn').onclick = runMatching;
+  document.getElementById('addTextDemandBtn').onclick = () => {
+    document.getElementById('textDemandInput').value = '';
+    document.getElementById('textModalOverlay').classList.add('open');
+  };
+  document.getElementById('textModalCancel').onclick = () => { document.getElementById('textModalOverlay').classList.remove('open'); };
+  document.getElementById('textModalSave').onclick = () => {
+    const text = document.getElementById('textDemandInput').value.trim();
+    if (!text){ showToast('Enter some text first', true); return; }
+    demandItems.push({ id: uid(), type: 'text', filename: null, caption: '', text, imageData: null, status: 'pending', fingerprint: null, error: null });
+    saveDemandCatalog();
+    document.getElementById('textModalOverlay').classList.remove('open');
+    renderDemand();
+  };
+  document.getElementById('lightboxOverlay').onclick = (e) => { if (e.target.id === 'lightboxOverlay') e.target.classList.remove('open'); };
+  function openSettingsModal(){
+    document.getElementById('apiKeyInput').value = getApiKey();
+    document.getElementById('geminiApiKeyInput').value = getGeminiApiKey();
+    document.getElementById('firebaseConfigInput').value = getFirebaseConfigRaw();
+    document.getElementById('supabaseUrlInput').value = getSupabaseUrl();
+    document.getElementById('supabaseAnonKeyInput').value = getSupabaseAnonKey();
+    document.getElementById('syncIdInput').value = getSyncId();
+    document.getElementById('settingsModalOverlay').classList.add('open');
+  }
+  document.getElementById('settingsBtn').onclick = openSettingsModal;
+  document.getElementById('keyBannerBtn').onclick = openSettingsModal;
+  document.getElementById('settingsModalCancel').onclick = () => { document.getElementById('settingsModalOverlay').classList.remove('open'); };
+  document.getElementById('settingsModalSave').onclick = () => {
+    const key = document.getElementById('apiKeyInput').value.trim();
+    const geminiKey = document.getElementById('geminiApiKeyInput').value.trim();
+    const firebaseConfigRaw = document.getElementById('firebaseConfigInput').value.trim();
+    const supabaseUrl = document.getElementById('supabaseUrlInput').value.trim();
+    const supabaseAnonKey = document.getElementById('supabaseAnonKeyInput').value.trim();
+    const syncId = document.getElementById('syncIdInput').value.trim();
+    if (firebaseConfigRaw){ try{ JSON.parse(firebaseConfigRaw); }catch(e){ showToast('Firebase config isn\u2019t valid JSON \u2014 check it was pasted correctly', true); return; } }
+    if ((firebaseConfigRaw || supabaseUrl || supabaseAnonKey) && !syncId){ showToast('Add a Sync ID too \u2014 it\u2019s needed alongside Firebase/Supabase', true); return; }
+    if (supabaseUrl && !/^https?:\/\//i.test(supabaseUrl)){ showToast('Supabase URL should start with https://', true); return; }
+    const wasSupabaseConfigured = supabaseSyncConfigured();
+    setApiKey(key); setGeminiApiKey(geminiKey); setFirebaseConfigRaw(firebaseConfigRaw);
+    setSupabaseUrl(supabaseUrl); setSupabaseAnonKey(supabaseAnonKey); setSyncId(syncId);
+    _firebaseApp = null; _firestoreDb = null; _firebaseInitError = null;
+    _supabaseClient = null; _supabaseInitError = null;
+    document.getElementById('settingsModalOverlay').classList.remove('open');
+    updateKeyBanner();
+    showToast(key ? 'Settings saved' : 'Anthropic key cleared');
+    if (!wasSupabaseConfigured && supabaseSyncConfigured()){ setTimeout(() => pushLocalImagesToCloud(), 600); }
+  };
+  document.addEventListener('paste', handlePaste);
+  document.getElementById('exportCatalogBtn').onclick = exportCatalog;
+  document.getElementById('clearCloudBtn').onclick = clearCloudImages;
+  document.getElementById('pushImagesBtn').onclick = pushLocalImagesToCloud;
+  document.getElementById('importCatalogInput').onchange = (e) => { if (e.target.files && e.target.files[0]) importCatalog(e.target.files[0]); e.target.value = ''; };
+  document.getElementById('clearStockBtn').onclick = () => {
+    if (!stockItems.length){ showToast('Stock is already empty'); return; }
+    if (!confirm(`Remove all ${stockItems.length} stock item${stockItems.length === 1 ? '' : 's'}? This can\u2019t be undone.`)) return;
+    const ids = stockItems.map(it => it.id);
+    ids.forEach(id => { imageStore.delete(id); if (supabaseSyncConfigured()) cloudSync.deleteImage(id); });
+    stockItems = []; matchResults = matchResults.map(r => ({ ...r, matches: [] }));
+    saveStockCatalog(); renderStock(); renderDashboard(); renderResults();
+    showToast('Stock cleared');
+  };
+  document.getElementById('clearDemandBtn').onclick = () => {
+    if (!demandItems.length){ showToast('Demand is already empty'); return; }
+    if (!confirm(`Remove all ${demandItems.length} demand item${demandItems.length === 1 ? '' : 's'}? This can\u2019t be undone.`)) return;
+    const ids = demandItems.map(it => it.id);
+    ids.forEach(id => { imageStore.delete('demand:' + id); if (supabaseSyncConfigured()) cloudSync.deleteImage('demand_' + id); });
+    demandItems = []; matchResults = [];
+    saveDemandCatalog(); renderDemand(); renderResults(); renderDashboard();
+    showToast('Demand cleared');
+  };
+  document.getElementById('clearResultsBtn').onclick = () => {
+    if (!matchResults.length){ showToast('Results are already empty'); return; }
+    if (!confirm('Clear all match results? Stock and demand items themselves won\u2019t be affected \u2014 just re-run matching to rebuild this list.')) return;
+    matchResults = []; renderResults(); renderDashboard();
+    showToast('Results cleared');
+  };
+  updateKeyBanner();
+  loadStockCatalog().then(() => { renderStock(); renderDashboard(); });
+  loadDemandCatalog().then(() => { renderDemand(); });
+  renderResults();
+}
+
+function updateKeyBanner(){
+  const banner = document.getElementById('keyBanner');
+  banner.style.display = getApiKey() ? 'none' : '';
+}
+
+/* ===================== catalog backup / restore ===================== */
+
+async function pushLocalImagesToCloud(){
+  if (!supabaseSyncConfigured()){ showToast('Set up Supabase first — see settings', true); return; }
+
+  // Load any images that are in IndexedDB but not yet in memory this session
+  const allStock  = stockItems.filter(it => it.hasImage);
+  const allDemand = demandItems.filter(it => it.hasImage);
+  const missingStock  = allStock.filter(it => !it.imageData).map(it => it.id);
+  const missingDemand = allDemand.filter(it => !it.imageData).map(it => it.id);
+  if (missingStock.length){
+    const imgs = await imageStore.getMany(missingStock);
+    allStock.forEach(it => { if (imgs[it.id]) it.imageData = imgs[it.id]; });
+  }
+  if (missingDemand.length){
+    const imgs = await imageStore.getMany(missingDemand.map(id => 'demand:' + id));
+    allDemand.forEach(it => { if (imgs['demand:' + it.id]) it.imageData = imgs['demand:' + it.id]; });
+  }
+
+  const allToPush = [
+    ...allStock.filter(it => it.imageData).map(it => ({ id: it.id,              data: it.imageData, mime: imageMimeTypeOf(it) })),
+    ...allDemand.filter(it => it.imageData).map(it => ({ id: 'demand_' + it.id, data: it.imageData, mime: imageMimeTypeOf(it) }))
+  ];
+  const total = allToPush.length;
+  if (!total){ showToast('No images found locally to push'); return; }
+
+  const btn = document.getElementById('pushImagesBtn');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+
+  let pushed = 0, failed = 0;
+  for (const item of allToPush){
+    const current = pushed + failed + 1;
+    btn.textContent = `Pushing ${current}/${total}…`;
+    const ok = await cloudSync.saveImage(item.id, item.data, item.mime);
+    if (ok) pushed++; else failed++;
+  }
+
+  btn.disabled = false;
+  btn.textContent = originalText;
+
+  // Also push catalog JSON so the other device gets the full stock list
+  await cloudSync.saveCatalog('stockCatalog', JSON.stringify(stockItems.map(it => ({
+    id: it.id, filename: it.filename, caption: it.caption, status: it.status,
+    fingerprint: it.fingerprint || null, error: it.error || null,
+    hasImage: it.hasImage || !!it.imageData, imageMimeType: it.imageMimeType || null,
+    priceOverride: it.priceOverride !== undefined ? it.priceOverride : null
+  }))));
+  await cloudSync.saveCatalog('demandCatalog', JSON.stringify(demandItems.map(it => ({
+    id: it.id, type: it.type, filename: it.filename, caption: it.caption, text: it.text,
+    status: it.status, fingerprint: it.fingerprint || null, error: it.error || null,
+    hasImage: it.hasImage || !!it.imageData, imageMimeType: it.imageMimeType || null
+  }))));
+
+  if (failed) showToast(`Pushed ${pushed}/${total} images \u2014 ${failed} failed. Check Supabase bucket.`, true);
+  else showToast(`All synced \u2014 ${total} image${total === 1 ? '' : 's'} + catalog data pushed to cloud`);
+}
+
+async function clearCloudImages(){
+  if (!supabaseSyncConfigured() || !ensureSupabaseInit()){
+    showToast('Supabase not configured — set it up in settings first', true); return;
+  }
+  if (!confirm('Delete all images from cloud storage? Local images on this device are not affected.')) return;
+
+  const syncId = getSyncId();
+  const btn = document.getElementById('clearCloudBtn');
+  if (btn){ btn.disabled = true; btn.textContent = 'Clearing…'; }
+
+  try{
+    // List everything under this syncId folder
+    const { data, error } = await _supabaseClient.storage.from(SUPABASE_BUCKET).list(syncId);
+    if (error) throw error;
+    if (!data || !data.length){
+      showToast('No images found in cloud storage for this Sync ID');
+      if (btn){ btn.disabled = false; btn.textContent = 'Clear cloud images'; }
+      return;
+    }
+    const paths = data.map(f => `${syncId}/${f.name}`);
+    const { error: delErr } = await _supabaseClient.storage.from(SUPABASE_BUCKET).remove(paths);
+    if (delErr) throw delErr;
+    showToast(`Deleted ${paths.length} file${paths.length === 1 ? '' : 's'} from cloud storage (images + catalog data)`);
+  }catch(e){
+    showToast('Clear failed: ' + (e.message || e), true);
+  }
+  if (btn){ btn.disabled = false; btn.textContent = 'Clear cloud images'; }
+}
+
+function exportCatalog(){
+  const persistable = stockItems.map(it => ({ id: it.id, filename: it.filename, caption: it.caption, status: it.status, fingerprint: it.fingerprint || null, error: it.error || null, priceOverride: it.priceOverride !== undefined ? it.priceOverride : null }));
+  const blob = new Blob([JSON.stringify({ savedAt: new Date().toISOString(), stockItems: persistable }, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `stockmatch-catalog-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  showToast('Catalog backup downloaded');
+}
+
+function importCatalog(file){
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const parsed = JSON.parse(reader.result);
+      const items = Array.isArray(parsed) ? parsed : parsed.stockItems;
+      if (!Array.isArray(items)) throw new Error('not a valid catalog file');
+      stockItems = items.map(it => ({ ...it, imageData: null }));
+      saveStockCatalog(); renderStock(); renderDashboard();
+      showToast(`Restored ${items.length} stock item${items.length === 1 ? '' : 's'} from backup`);
+    }catch(e){ showToast('Could not read that file as a catalog backup', true); }
+  };
+  reader.onerror = () => showToast('Could not read that file', true);
+  reader.readAsText(file);
+}
+
+init();
+</script>
+</body>
+</html>
 /* ============================================================
    STOCKMATCH — instrument-panel design system
    Inspired by the inside of a fine watch movement: gunmetal,
