@@ -1088,9 +1088,9 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
       <strong>Cross-device sync (optional):</strong> by default everything you analyze stays only on this device. To see the same stock/demand on your phone and your PC, fill in both pieces below and use the exact same values on every device you want synced. Leave both blank to keep this device-only.
     </p>
     <p class="settings-copy" style="font-size:11.5px;">
-      <strong>1. Catalog data &amp; images</strong> &mdash; both are now stored in Supabase. Firebase is no longer needed. Just fill in Supabase below and set a Sync ID.
+      <strong>1. Catalog data &amp; images</strong> &mdash; both are stored in Supabase (Firebase not needed). Fill in Supabase URL, anon key, and Sync ID below.
     </p>
-    <textarea id="firebaseConfigInput" class="card-caption-input" rows="3" style="resize:vertical;font-family:var(--mono);font-size:11px;" placeholder='Paste your Firebase config, e.g. {"apiKey":"...","projectId":"...",...}' autocomplete="off" spellcheck="false"></textarea>
+    <textarea id="firebaseConfigInput" style="display:none;" autocomplete="off"></textarea>
     <p class="settings-copy" style="font-size:11.5px;margin-top:10px;">
       <strong>2. Images</strong> (free, no card) &mdash; Firebase Storage now requires a paid plan, so images use <strong>Supabase</strong> instead. Create a free project at <strong>supabase.com</strong>, make a Storage bucket named exactly <strong>stockmatch-images</strong> (set it Public), then paste its Project URL and anon/public API key (both found in Project Settings &rarr; API).
     </p>
@@ -1174,6 +1174,41 @@ function openImageDb(){
     req.onerror = (e) => reject(e.target.error || new Error('failed to open image database'));
   });
   return _imageDbPromise;
+}
+
+const _loadingImages = new Set();
+
+// Lazy-load an image from Supabase when not found locally.
+// Caches into IndexedDB so subsequent loads are instant.
+async function lazyLoadImage(item, kind){
+  const key = kind + ':' + item.id;
+  if (_loadingImages.has(key) || item.imageData || !item.hasImage) return;
+  if (!supabaseSyncConfigured()) return;
+  _loadingImages.add(key);
+  try{
+    const cloudId = kind === 'demand' ? 'demand_' + item.id : item.id;
+    const data = await cloudSync.getImage(cloudId);
+    if (data){
+      item.imageData = data;
+      item.imageMimeType = 'image/jpeg';
+      // Cache locally so future sessions don't need to re-download
+      const dbKey = kind === 'demand' ? 'demand:' + item.id : item.id;
+      imageStore.set(dbKey, data);
+      // Update this card's image in-place — no full re-render needed
+      const card = document.querySelector(`.card[data-id="${item.id}"]`);
+      if (card){
+        const wrap = card.querySelector('.card-img-wrap');
+        if (wrap){
+          wrap.className = 'card-img-wrap';
+          wrap.dataset.action = 'lightbox';
+          wrap.onclick = () => openLightbox(data, 'image/jpeg');
+          wrap.innerHTML = `<img src="data:image/jpeg;base64,${data}" alt="">`;
+        }
+      }
+      renderDashboard(); // refresh dashboard thumbs
+    }
+  }catch(e){ console.warn('lazyLoadImage failed', kind, item.id, e); }
+  finally{ _loadingImages.delete(key); }
 }
 
 const imageStore = {
@@ -1532,7 +1567,7 @@ async function saveStockCatalog(){
     const persistable = stockItems.map(it => ({
       id: it.id, filename: it.filename, caption: it.caption,
       status: it.status, fingerprint: it.fingerprint || null, error: it.error || null,
-      hasImage: !!it.imageData, imageMimeType: it.imageMimeType || null,
+      hasImage: !!(it.hasImage || it.imageData), imageMimeType: it.imageMimeType || null,
       priceOverride: it.priceOverride !== undefined ? it.priceOverride : null
     }));
     const json = JSON.stringify(persistable);
@@ -1544,6 +1579,9 @@ async function saveStockCatalog(){
 async function saveStockImage(id, base64, mimeType){
   if (!base64) return;
   await imageStore.set(id, base64);
+  // Mark the item as having an image regardless of whether cloud save succeeds
+  const item = stockItems.find(s => s.id === id);
+  if (item) item.hasImage = true;
   if (supabaseSyncConfigured()) await cloudSync.saveImage(id, base64, mimeType);
 }
 
@@ -1558,15 +1596,13 @@ async function loadStockCatalog(){
     if (json){
       const parsed = JSON.parse(json);
       stockItems = parsed.map(it => ({...it, imageData: null}));
+      // Always load from IndexedDB first — it's local, fast, works offline
       const idsWithImages = stockItems.filter(it => it.hasImage).map(it => it.id);
       if (idsWithImages.length){
-        const images = supabaseSyncConfigured()
-          ? await cloudSync.getImages(idsWithImages)
-          : await imageStore.getMany(idsWithImages);
-        stockItems.forEach(it => {
-          if (images[it.id]) it.imageData = images[it.id];
-        });
+        const localImgs = await imageStore.getMany(idsWithImages);
+        stockItems.forEach(it => { if (localImgs[it.id]) it.imageData = localImgs[it.id]; });
       }
+      // Items still missing imageData will lazy-load from Supabase when their card renders
     }
   }catch(e){}
 }
@@ -1576,7 +1612,7 @@ async function saveDemandCatalog(){
     const persistable = demandItems.map(it => ({
       id: it.id, type: it.type, filename: it.filename, caption: it.caption, text: it.text,
       status: it.status, fingerprint: it.fingerprint || null, error: it.error || null,
-      hasImage: !!it.imageData, imageMimeType: it.imageMimeType || null
+      hasImage: !!(it.hasImage || it.imageData), imageMimeType: it.imageMimeType || null
     }));
     const json = JSON.stringify(persistable);
     await localStore.set('demand-catalog', json);
@@ -1587,6 +1623,8 @@ async function saveDemandCatalog(){
 async function saveDemandImage(id, base64, mimeType){
   if (!base64) return;
   await imageStore.set('demand:' + id, base64);
+  const item = demandItems.find(d => d.id === id);
+  if (item) item.hasImage = true;
   if (supabaseSyncConfigured()) await cloudSync.saveImage('demand_' + id, base64, mimeType);
 }
 
@@ -1601,20 +1639,13 @@ async function loadDemandCatalog(){
     if (json){
       const parsed = JSON.parse(json);
       demandItems = parsed.map(it => ({...it, imageData: null}));
+      // Always load from IndexedDB first
       const idsWithImages = demandItems.filter(it => it.hasImage).map(it => it.id);
       if (idsWithImages.length){
-        if (supabaseSyncConfigured()){
-          const images = await cloudSync.getImages(idsWithImages.map(id => 'demand_' + id));
-          demandItems.forEach(it => {
-            if (images['demand_' + it.id]) it.imageData = images['demand_' + it.id];
-          });
-        } else {
-          const images = await imageStore.getMany(idsWithImages.map(id => 'demand:' + id));
-          demandItems.forEach(it => {
-            if (images['demand:' + it.id]) it.imageData = images['demand:' + it.id];
-          });
-        }
+        const localImgs = await imageStore.getMany(idsWithImages.map(id => 'demand:' + id));
+        demandItems.forEach(it => { if (localImgs['demand:' + it.id]) it.imageData = localImgs['demand:' + it.id]; });
       }
+      // Items missing imageData lazy-load from Supabase when their card renders
     }
   }catch(e){}
 }
@@ -1652,6 +1683,8 @@ function renderStock(){
 
   updateRunMatchAvailability();
   attachStockCardHandlers();
+  // Trigger lazy cloud-load for any items missing imageData
+  filteredStock.filter(it => it.hasImage && !it.imageData).forEach(it => lazyLoadImage(it, 'stock'));
 }
 
 function renderStockCard(it){
@@ -1676,8 +1709,16 @@ function renderStockCard(it){
 
   return `
   <div class="card" data-id="${it.id}" data-kind="stock">
-    <div class="card-img-wrap ${it.imageData ? '' : 'no-image'}" data-action="${it.imageData ? 'lightbox' : 'readd'}" data-id="${it.id}">
-      ${it.imageData ? `<img src="data:${imageMimeTypeOf(it)};base64,${it.imageData}" alt="${escapeHtml(it.filename)}">` : `image not loaded this session<br>click to re-attach`}
+    <div class="card-img-wrap ${it.imageData ? '' : (it.hasImage ? 'no-image' : 'no-image')}"
+      data-action="${it.imageData ? 'lightbox' : (it.hasImage ? 'cloud-load' : 'readd')}"
+      data-id="${it.id}">
+      ${it.imageData
+        ? `<img src="data:${imageMimeTypeOf(it)};base64,${it.imageData}" alt="${escapeHtml(it.filename)}">`
+        : it.hasImage
+          ? `<div style="font-size:11px;color:var(--text-faint);text-align:center;padding:16px 10px;">
+               <div style="font-size:20px;margin-bottom:6px;">&#8659;</div>
+               Loading from cloud\u2026</div>`
+          : `no image<br><span style="font-size:10px;">tap to attach</span>`}
     </div>
     <div class="card-body">
       <input class="card-caption-input" type="text" placeholder="Caption / filename note"
@@ -1745,6 +1786,12 @@ function attachStockCardHandlers(){
   grid.querySelectorAll('[data-action="readd"]').forEach(el => {
     el.onclick = () => triggerReattach(el.dataset.id, 'stock');
   });
+  grid.querySelectorAll('[data-action="cloud-load"]').forEach(el => {
+    el.onclick = () => {
+      const item = stockItems.find(s => s.id === el.dataset.id);
+      if (item) lazyLoadImage(item, 'stock');
+    };
+  });
 }
 
 function markSold(id){
@@ -1776,6 +1823,7 @@ function reanalyzeItem(id, kind){
   }
   item.status = 'pending';
   item.error = null;
+  item.autoRetryCount = 0; // reset so auto-retry kicks in again if still no ref
   if (kind === 'stock'){
     renderStock();
     analyzeBatch(stockItems, 'stock', renderStock);
@@ -1797,7 +1845,7 @@ function triggerReattach(id, kind){
     const item = list.find(s => s.id === id);
     if (item){
       item.imageData = base64;
-      item.imageMimeType = file.type;
+      item.imageMimeType = 'image/jpeg'; // stored as compressed jpeg
       item.hasImage = true;
       if (kind === 'stock'){
         saveStockImage(id, base64, file.type);
@@ -1842,6 +1890,8 @@ function renderDemand(){
 
   updateRunMatchAvailability();
   attachDemandCardHandlers();
+  // Trigger lazy cloud-load for any items missing imageData
+  filteredDemand.filter(it => it.hasImage && !it.imageData).forEach(it => lazyLoadImage(it, 'demand'));
 }
 
 function renderDemandCard(it){
@@ -1858,8 +1908,16 @@ function renderDemandCard(it){
     ${lookupNotesHtml(fp)}` : '';
 
   const mediaHtml = it.type === 'image'
-    ? `<div class="card-img-wrap ${it.imageData ? '' : 'no-image'}" data-action="${it.imageData ? 'lightbox' : 'readd'}" data-id="${it.id}">
-        ${it.imageData ? `<img src="data:${imageMimeTypeOf(it)};base64,${it.imageData}" alt="">` : `image not loaded this session<br>click to re-attach`}
+    ? `<div class="card-img-wrap ${it.imageData ? '' : 'no-image'}"
+        data-action="${it.imageData ? 'lightbox' : (it.hasImage ? 'cloud-load' : 'readd')}"
+        data-id="${it.id}">
+        ${it.imageData
+          ? `<img src="data:${imageMimeTypeOf(it)};base64,${it.imageData}" alt="">`
+          : it.hasImage
+            ? `<div style="font-size:11px;color:var(--text-faint);text-align:center;padding:16px 10px;">
+                 <div style="font-size:20px;margin-bottom:6px;">&#8659;</div>
+                 Loading from cloud\u2026</div>`
+            : `no image<br><span style="font-size:10px;">tap to attach</span>`}
       </div>`
     : '';
 
@@ -1924,6 +1982,12 @@ function attachDemandCardHandlers(){
   });
   grid.querySelectorAll('[data-action="readd"]').forEach(el => {
     el.onclick = () => triggerReattach(el.dataset.id, 'demand');
+  });
+  grid.querySelectorAll('[data-action="cloud-load"]').forEach(el => {
+    el.onclick = () => {
+      const item = demandItems.find(d => d.id === el.dataset.id);
+      if (item) lazyLoadImage(item, 'demand');
+    };
   });
 }
 
@@ -3286,17 +3350,9 @@ async function pushLocalImagesToCloud(){
   btn.textContent = originalText;
 
   // Also push catalog JSON so the other device gets the full stock list
-  await cloudSync.saveCatalog('stockCatalog', JSON.stringify(stockItems.map(it => ({
-    id: it.id, filename: it.filename, caption: it.caption, status: it.status,
-    fingerprint: it.fingerprint || null, error: it.error || null,
-    hasImage: it.hasImage || !!it.imageData, imageMimeType: it.imageMimeType || null,
-    priceOverride: it.priceOverride !== undefined ? it.priceOverride : null
-  }))));
-  await cloudSync.saveCatalog('demandCatalog', JSON.stringify(demandItems.map(it => ({
-    id: it.id, type: it.type, filename: it.filename, caption: it.caption, text: it.text,
-    status: it.status, fingerprint: it.fingerprint || null, error: it.error || null,
-    hasImage: it.hasImage || !!it.imageData, imageMimeType: it.imageMimeType || null
-  }))));
+  // Re-use the same save functions so hasImage logic is consistent
+  await saveStockCatalog();
+  await saveDemandCatalog();
 
   if (failed) showToast(`Pushed ${pushed}/${total} images \u2014 ${failed} failed. Check Supabase bucket.`, true);
   else showToast(`All synced \u2014 ${total} image${total === 1 ? '' : 's'} + catalog data pushed to cloud`);
