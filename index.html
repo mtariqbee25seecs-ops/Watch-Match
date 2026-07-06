@@ -1451,20 +1451,20 @@ function setSyncId(id){
   try{ window.localStorage.setItem('sm:sync-id', id.trim()); }catch(e){}
 }
 function getSupabaseUrl(){
-  try{ return window.localStorage.getItem('sm:supabase-url') || ''; }catch(e){ return ''; }
+  try{ return window.localStorage.getItem('sm:supabase-url') || 'https://aybmnummbfavlqpzcoim.supabase.co'; }catch(e){ return 'https://aybmnummbfavlqpzcoim.supabase.co'; }
 }
 function setSupabaseUrl(url){
   try{ window.localStorage.setItem('sm:supabase-url', url.trim()); }catch(e){}
 }
 function getSupabaseAnonKey(){
-  try{ return window.localStorage.getItem('sm:supabase-anon-key') || ''; }catch(e){ return ''; }
+  try{ return window.localStorage.getItem('sm:supabase-anon-key') || 'sb_publishable_lFcDyEXE52dn_dQ8i_k95Q_lQvqlASf'; }catch(e){ return 'sb_publishable_lFcDyEXE52dn_dQ8i_k95Q_lQvqlASf'; }
 }
 function setSupabaseAnonKey(key){
   try{ window.localStorage.setItem('sm:supabase-anon-key', key.trim()); }catch(e){}
 }
 
 function getGeminiApiKey(){
-  try{ return window.localStorage.getItem('sm:gemini-api-key') || ''; }catch(e){ return ''; }
+  try{ return window.localStorage.getItem('sm:gemini-api-key') || 'AQ.Ab8RN6IPxkgNbHQxeBxDApCSVgX8JqqBglSZCqeXy_bEfDhjtw'; }catch(e){ return 'AQ.Ab8RN6IPxkgNbHQxeBxDApCSVgX8JqqBglSZCqeXy_bEfDhjtw'; }
 }
 function setGeminiApiKey(key){
   try{ window.localStorage.setItem('sm:gemini-api-key', key.trim()); }catch(e){}
@@ -1478,19 +1478,31 @@ function uid(){
 
 async function compressImage(base64, mimeType){
   return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const MAX = 900; // max dimension px
-      const scale = Math.min(1, MAX / Math.max(img.width || 1, img.height || 1));
-      const w = Math.round(img.width * scale);
-      const h = Math.round(img.height * scale);
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL('image/jpeg', 0.82).split(',')[1]);
-    };
-    img.onerror = () => resolve(base64); // fallback to original
-    img.src = 'data:' + (mimeType || 'image/jpeg') + ';base64,' + base64;
+    // 6 second timeout — if canvas can't load the image (e.g. HEIC on iOS), fall back to original
+    const timer = setTimeout(() => resolve(base64), 6000);
+    try{
+      const img = new Image();
+      img.onload = () => {
+        clearTimeout(timer);
+        try{
+          const MAX = 900;
+          const scale = Math.min(1, MAX / Math.max(img.width || 1, img.height || 1));
+          const w = Math.round(img.width * scale) || 1;
+          const h = Math.round(img.height * scale) || 1;
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          const result = canvas.toDataURL('image/jpeg', 0.82);
+          // If canvas returned a blank/empty result, fall back
+          resolve(result.length > 100 ? result.split(',')[1] : base64);
+        }catch(e){ resolve(base64); }
+      };
+      img.onerror = () => { clearTimeout(timer); resolve(base64); };
+      // Use JPEG as source type — avoids HEIC/HEIF issues on iOS
+      const safeMime = (mimeType && ['image/jpeg','image/png','image/webp','image/gif'].includes(mimeType))
+        ? mimeType : 'image/jpeg';
+      img.src = 'data:' + safeMime + ';base64,' + base64;
+    }catch(e){ clearTimeout(timer); resolve(base64); }
   });
 }
 
@@ -3135,7 +3147,8 @@ async function handleStockFiles(fileList){
   let added = 0, failed = 0;
   for (const file of files){
     try{
-      if (!file.type || !file.type.startsWith('image/')){ failed++; continue; }
+      // Accept any image type; also accept empty type (can happen on iOS with certain files)
+      if (file.type && !file.type.startsWith('image/') && file.type !== ''){ failed++; continue; }
       const raw = await fileToBase64(file);
       const base64 = await compressImage(raw, file.type);
       const newId = uid();
@@ -3159,7 +3172,7 @@ async function handleDemandFiles(fileList){
   let added = 0, failed = 0;
   for (const file of files){
     try{
-      if (!file.type || !file.type.startsWith('image/')){ failed++; continue; }
+      if (file.type && !file.type.startsWith('image/') && file.type !== ''){ failed++; continue; }
       const raw = await fileToBase64(file);
       const base64 = await compressImage(raw, file.type);
       const newId = uid();
@@ -3182,7 +3195,7 @@ function handlePaste(e){
   if (!items) return;
   const imageFiles = [];
   for (const item of items){
-    if (item.type && item.type.startsWith('image/')){ const file = item.getAsFile(); if (file) imageFiles.push(file); }
+    if (!item.type || item.type.startsWith('image/')){ const file = item.getAsFile(); if (file) imageFiles.push(file); }
   }
   if (!imageFiles.length) return;
   e.preventDefault();
