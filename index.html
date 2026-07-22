@@ -1806,13 +1806,15 @@ async function loadStockCatalog(){
     if (json){
       const parsed = JSON.parse(json);
       stockItems = parsed.map(it => ({...it, imageData: null}));
-      // Always load from IndexedDB first — it's local, fast, works offline
-      const idsWithImages = stockItems.filter(it => it.hasImage).map(it => it.id);
-      if (idsWithImages.length){
-        const localImgs = await imageStore.getMany(idsWithImages);
-        stockItems.forEach(it => { if (localImgs[it.id]) it.imageData = localImgs[it.id]; });
+      // Check ALL items in IndexedDB — heals legacy hasImage:false data.
+      if (stockItems.length){
+        const allImgs = await imageStore.getMany(stockItems.map(it => it.id));
+        stockItems.forEach(it => {
+          if (allImgs[it.id]){ it.imageData = allImgs[it.id]; it.hasImage = true; }
+        });
       }
-      // Items still missing imageData will lazy-load from Supabase when their card renders
+      // Items not in IndexedDB lazy-load from Supabase when cards render
+      if (supabaseSyncConfigured()) saveStockCatalog();
     }
   }catch(e){}
 }
@@ -1850,12 +1852,15 @@ async function loadDemandCatalog(){
       const parsed = JSON.parse(json);
       demandItems = parsed.map(it => ({...it, imageData: null}));
       // Always load from IndexedDB first
-      const idsWithImages = demandItems.filter(it => it.hasImage).map(it => it.id);
-      if (idsWithImages.length){
-        const localImgs = await imageStore.getMany(idsWithImages.map(id => 'demand:' + id));
-        demandItems.forEach(it => { if (localImgs['demand:' + it.id]) it.imageData = localImgs['demand:' + it.id]; });
+      // Check ALL items in IndexedDB — heals legacy hasImage:false data.
+      if (demandItems.length){
+        const allImgs = await imageStore.getMany(demandItems.map(it => 'demand:' + it.id));
+        demandItems.forEach(it => {
+          if (allImgs['demand:' + it.id]){ it.imageData = allImgs['demand:' + it.id]; it.hasImage = true; }
+        });
       }
-      // Items missing imageData lazy-load from Supabase when their card renders
+      // Items not in IndexedDB lazy-load from Supabase when their card renders
+      if (supabaseSyncConfigured()) saveDemandCatalog();
     }
   }catch(e){}
 }
@@ -2242,7 +2247,7 @@ GENDER RULES (important, this affects matching \u2014 never blur this):
 - Set "gender_basis" to a short phrase explaining the signal used (e.g. "case size ~36mm + model name", "small dial with diamond hour markers", "known unisex sport model").
 - Do not guess gender from styling alone if it conflicts with known model conventions for that exact reference \u2014 model convention takes priority over surface styling.
 
-For "year": the model year or purchase year if stated in message text (e.g. "2023 model", "bought in 2022"). Just the 4-digit year string. null if not stated.
+For "year": 4-digit year if stated in message text (e.g. "2023 model", "bought in 2022"). null if not stated.
 For "date_complication": set to "date" if the watch has a date window, "day-date" if it shows both day and date, "no-date" if explicitly no date, or null if unknown. Clues: "No-Date", "date window", "DateJust", "Day-Date", "without date".
 For "dial_color": also check any text next to the reference number — sellers often write the dial color alongside the ref (e.g. "5711/1A Blue", "126610LN Black Dial"). Extract that too.
 For "condition": extract from message text only. "new" = unworn/sealed/new/NOS/never worn. "used" = pre-owned/worn/used/secondhand/previously owned. Leave null if not stated.
@@ -2901,268 +2906,11 @@ function updateRunMatchAvailability(){
   document.getElementById('runMatchBtn').disabled = !(stockReady && demandReady);
 }
 
-// Brand fuzzy match — "Rolex" matches "ROLEX", "rolex" etc.
 function brandMatches(a, b){
   if (!a || !b) return false;
   const na = String(a).toLowerCase().trim();
   const nb = String(b).toLowerCase().trim();
   return na === nb || na.includes(nb) || nb.includes(na);
-}
-
-// Strip ALL separators. Used for exact comparison.
-function normalizeRefNumber(ref) {
-  if (!ref) return '';
-  return String(ref)
-    .trim()
-    .replace(/[^a-zA-Z0-9]/g, '') // strip / - . spaces
-    .toUpperCase();
-}
-
-// Strip trailing dial-variant codes before normalizing.
-//   Patek  5711/1A-001  ->  base 57111A  (strips -NNN)
-//   AP     15400ST.OO.1220ST.02  ->  base 15400STOO1220ST  (strips .XX)
-//   Rolex  228238-0042  ->  base 228238  (strips -XXXX)
-// Letter suffixes (Rolex LN/LV, AP ST/RG) are NOT stripped — different watches.
-function baseRefNumber(ref) {
-  if (!ref) return '';
-  const withoutDialVariant = String(ref).trim()
-    .replace(/-\d+$/, '')       // Patek/Rolex: strips -NNN numeric suffix
-    .replace(/\.\d{1,2}$/, ''); // AP: strips .01, .02 (last dot-segment)
-  return normalizeRefNumber(withoutDialVariant);
-}
-
-// 3-tier matcher.
-function matchRefs(ref1, ref2) {
-  if (!ref1 || !ref2) return { match: false, confidence: null };
-
-  const n1 = normalizeRefNumber(ref1);
-  const n2 = normalizeRefNumber(ref2);
-
-  if (n1 === n2) return { match: true, confidence: 'exact' };
-
-  if (n1.length < n2.length && n2.startsWith(n1))
-    return { match: true, confidence: 'prefix' };
-
-  if (n2.length < n1.length && n1.startsWith(n2))
-    return { match: true, confidence: 'prefix' };
-
-  const b1 = baseRefNumber(ref1);
-  const b2 = baseRefNumber(ref2);
-
-  if (b1 === b2 && b1.length > 3)
-    return { match: true, confidence: 'base_model' };
-
-  return { match: false, confidence: null };
-}
-
-// Extract a ref number from confidence_notes text when the ref field came back null
-// e.g. "Found ref 126610LN on chrono24.com" → "126610LN"
-function extractRefFromNotes(notes){
-  if (!notes) return null;
-  const patterns = [
-    /\bref(?:erence)?[:\s#.]+([A-Z0-9][A-Z0-9\/\-\.]{4,22})/i,
-    /\bfound[:\s]+([A-Z0-9][A-Z0-9\/\-\.]{4,22})\b/i,
-    /\bconfirmed[:\s]+([A-Z0-9][A-Z0-9\/\-\.]{4,22})\b/i,
-  ];
-  for (const pat of patterns){
-    const m = notes.match(pat);
-    if (m && m[1] && m[1].length >= 5) return m[1].trim();
-  }
-  return null;
-}
-
-function extractRefBase(ref){
-  if (!ref) return null;
-  const trimmed = String(ref).trim();
-  const match = trimmed.match(/^(.+?)[-_.]([A-Za-z0-9]{1,4})$/);
-  if (match && match[1].replace(/[^A-Za-z0-9]/g, '').length >= 4){
-    return normalizeRefNumber(match[1]);
-  }
-  return null;
-}
-
-function areSimilarRefs(refA, refB){
-  const normA = normalizeRefNumber(refA);
-  const normB = normalizeRefNumber(refB);
-  if (!normA || !normB || normA === normB) return false;
-  const baseA = extractRefBase(refA);
-  const baseB = extractRefBase(refB);
-  if (!baseA || !baseB) return false;
-  return baseA === baseB;
-}
-
-function refSourceRank(source){
-  if (source === 'visible') return 3;
-  if (source === 'looked_up') return 2;
-  if (source === 'best_match') return 1;
-  if (source === 'inferred') return 1; // training-knowledge guess, same weight as best_match
-  return 0;
-}
-
-function refSourceLabel(source){
-  if (source === 'visible') return 'read directly';
-  if (source === 'looked_up') return 'found via Google search';
-  if (source === 'best_match') return 'best estimate among real candidates';
-  if (source === 'inferred') return 'inferred from watch details (verify manually)';
-  return 'unconfirmed';
-}
-
-function runMatching(opts){
-  const silent = opts && opts.silent;
-
-  const allStockDone   = stockItems.filter(it  => it.status === 'done' && it.fingerprint);
-  const allDemandDone  = demandItems.filter(it => it.status === 'done' && it.fingerprint);
-
-  if (!allStockDone.length || !allDemandDone.length){
-    if (!silent) showToast('Need analyzed stock and demand items', true);
-    matchResults = []; renderResults(); renderDashboard(); return;
-  }
-
-  matchResults = allDemandDone.map(d => {
-    const dFp = d.fingerprint;
-
-    /* ── STEP 1: brand filter ─────────────────────────────────────────── */
-    const sameBrand = allStockDone.filter(s =>
-      !dFp.brand || !s.fingerprint.brand || brandMatches(dFp.brand, s.fingerprint.brand)
-    );
-
-    if (!dFp.reference_number){
-      // No ref on demand side — surface brand matches as similar only
-      const similar = sameBrand.slice(0, 4).map(s => ({
-        stockId: s.id, stockItem: s, similarTag: 'Brand match \u2014 no ref number on demand'
-      }));
-      return { demandId: d.id, demandItem: d, matches: [], similarModels: similar };
-    }
-
-    /* ── STEP 2: ref number match within same brand ──────────────────── */
-    const refMatched = sameBrand.filter(s =>
-      s.fingerprint.reference_number &&
-      matchRefs(dFp.reference_number, s.fingerprint.reference_number).match
-    );
-
-    /* ── STEP 3+4: score each ref-match by dial → strap ─────────────── */
-    const scored = refMatched.map(s => {
-      const sFp = s.fingerprint;
-      const refMatch = matchRefs(dFp.reference_number, sFp.reference_number);
-
-      // Source-based base confidence
-      const combinedRank = Math.min(
-        refSourceRank(dFp.reference_number_source),
-        refSourceRank(sFp.reference_number_source)
-      );
-      let basePct = combinedRank === 3 ? 97 : combinedRank === 2 ? 82 : 55;
-      if (refMatch.confidence === 'prefix')     basePct = Math.max(basePct - 5,  40);
-      if (refMatch.confidence === 'base_model') basePct = Math.max(basePct - 15, 35);
-
-      // Dial + strap compatibility
-      const dialResult  = detailsCompatible(dFp.dial_color,        sFp.dial_color);
-      const strapResult = detailsCompatible(dFp.bracelet_or_strap, sFp.bracelet_or_strap);
-      const dateResult  = detailsCompatible(dFp.date_complication,  sFp.date_complication);
-
-      // Determine match tier label
-      const dialOK  = dialResult  !== 'mismatch';
-      const strapOK = strapResult !== 'mismatch';
-      const dateOK  = dateResult  !== 'mismatch';
-
-      let matchLevel, levelPenalty;
-      if (dialOK && strapOK && dateOK)       { matchLevel = 'full';          levelPenalty = 0;  }
-      else if (dialOK && strapOK)            { matchLevel = 'date-differs';  levelPenalty = -8; }
-      else if (dialOK && !strapOK)           { matchLevel = 'strap-differs'; levelPenalty = -12;}
-      else if (!dialOK && strapOK)           { matchLevel = 'dial-differs';  levelPenalty = -18;}
-      else                                   { matchLevel = 'alt';           levelPenalty = -25;}
-
-      const confidence = Math.max(25, Math.min(99, basePct + levelPenalty));
-
-      // Build clear, step-by-step reasoning
-      let reasoning = `\u2713 Brand: ${escapeHtml(sFp.brand || '?')} \u2713 Ref: ${escapeHtml(sFp.reference_number)}`;
-
-      if (dialOK && dFp.dial_color)   reasoning += ` \u2713 Dial: ${escapeHtml(sFp.dial_color || '?')}`;
-      else if (!dialOK)               reasoning += ` \u26a0\ufe0f Dial: wanted \u201c${escapeHtml(dFp.dial_color)}\u201d \u2192 stock has \u201c${escapeHtml(sFp.dial_color || '?')}\u201d`;
-
-      if (strapOK && dFp.bracelet_or_strap)  reasoning += ` \u2713 Strap: ${escapeHtml(sFp.bracelet_or_strap || '?')}`;
-      else if (!strapOK)                     reasoning += ` \u26a0\ufe0f Strap: wanted \u201c${escapeHtml(dFp.bracelet_or_strap)}\u201d \u2192 stock has \u201c${escapeHtml(sFp.bracelet_or_strap || '?')}\u201d`;
-
-      if (!dateOK) reasoning += ` \u26a0\ufe0f Date: demand ${escapeHtml(dFp.date_complication)} / stock ${escapeHtml(sFp.date_complication)}`;
-
-      if (dFp.condition === 'new' && sFp.condition === 'used')
-        reasoning += ' \u26a0\ufe0f Customer wants new \u2014 stock is used.';
-
-      return {
-        stockId: s.id, stockItem: s,
-        confidence, matchLevel,
-        referenceMatchType: combinedRank >= 2 ? 'looked_up' : 'best_match',
-        reasoning,
-        detailScore: (dialOK ? 50 : 0) + (strapOK ? 30 : 0) + (dateOK ? 20 : 0)
-      };
-    });
-
-    // Sort: full → date-differs → strap-differs → dial-differs → alt; within tier by confidence
-    const tierOrder = { full: 0, 'date-differs': 1, 'strap-differs': 2, 'dial-differs': 3, alt: 4 };
-    const matches = scored
-      .sort((a, b) => (tierOrder[a.matchLevel] - tierOrder[b.matchLevel]) || (b.confidence - a.confidence))
-      .slice(0, 5);
-
-    /* ── STEP 5: year alternates + similar models ────────────────────── */
-    const matchedIds = new Set(matches.map(m => m.stockId));
-    const similarModels = [];
-
-    // Same brand + same model line but ref didn't match (includes date complication variants)
-    sameBrand
-      .filter(s => !matchedIds.has(s.id) && s.fingerprint.reference_number)
-      .forEach(s => {
-        const sFp = s.fingerprint;
-        const sameModelLine = dFp.model_line && sFp.model_line &&
-          (normalizeDetail(dFp.model_line).includes(normalizeDetail(sFp.model_line).split(' ')[0]) ||
-           normalizeDetail(sFp.model_line).includes(normalizeDetail(dFp.model_line).split(' ')[0]));
-
-        if (!sameModelLine && !areSimilarRefs(dFp.reference_number, sFp.reference_number)) return;
-
-        let tag = 'Similar model';
-        if (sFp.date_complication && dFp.date_complication && sFp.date_complication !== dFp.date_complication)
-          tag = `Alternate \u2014 ${escapeHtml(sFp.date_complication)} version`;
-        else if (sFp.year && dFp.year && sFp.year !== dFp.year){
-          const diff = Math.abs(parseInt(sFp.year) - parseInt(dFp.year));
-          if (diff <= 2) tag = `Year alternate \u2014 ${escapeHtml(sFp.year)} (demand: ${escapeHtml(dFp.year)})`;
-          else return; // too far apart — skip
-        } else if (sFp.dial_color && dFp.dial_color){
-          tag = `Different dial \u2014 stock: ${escapeHtml(sFp.dial_color)}`;
-        }
-
-        if (similarModels.length < 4) similarModels.push({ stockId: s.id, stockItem: s, similarTag: tag });
-      });
-
-    // Year alternates from full stock (not just same brand) — watches within ±2 years
-    if (dFp.year && !matches.length){
-      allStockDone
-        .filter(s => !matchedIds.has(s.id) && s.fingerprint.year)
-        .forEach(s => {
-          const diff = Math.abs(parseInt(s.fingerprint.year) - parseInt(dFp.year));
-          if (diff > 0 && diff <= 2 && brandMatches(dFp.brand, s.fingerprint.brand) && similarModels.length < 4)
-            similarModels.push({ stockId: s.id, stockItem: s, similarTag: `Year alternate \u2014 ${s.fingerprint.year}` });
-        });
-    }
-
-    return { demandId: d.id, demandItem: d, matches, similarModels };
-  });
-
-  renderResults();
-  renderDashboard();
-
-  if (!silent){
-    setView('results');
-    const totalMatched = matchResults.filter(r => r.matches.length).length;
-    const noRef = allDemandDone.filter(d => !d.fingerprint.reference_number).length;
-    let msg = `Matching complete \u2014 ${totalMatched} of ${allDemandDone.length} demand item${allDemandDone.length === 1 ? '' : 's'} matched`;
-    if (noRef) msg += ` (${noRef} skipped \u2014 no ref number)`;
-    showToast(msg);
-  }
-  updateRunMatchAvailability();
-}
-
-function updateRunMatchAvailability(){
-  const stockReady = stockItems.some(it => it.status === 'done');
-  const demandReady = demandItems.some(it => it.status === 'done');
-  document.getElementById('runMatchBtn').disabled = !(stockReady && demandReady);
 }
 
 // Strip ALL separators. Used for exact comparison.
@@ -3904,19 +3652,18 @@ function updateKeyBanner(){
 async function pushLocalImagesToCloud(){
   if (!supabaseSyncConfigured()){ showToast('Set up Supabase first — see settings', true); return; }
 
-  // Load any images that are in IndexedDB but not yet in memory this session
-  const allStock  = stockItems.filter(it => it.hasImage);
-  const allDemand = demandItems.filter(it => it.hasImage);
-  const missingStock  = allStock.filter(it => !it.imageData).map(it => it.id);
-  const missingDemand = allDemand.filter(it => !it.imageData).map(it => it.id);
-  if (missingStock.length){
-    const imgs = await imageStore.getMany(missingStock);
-    allStock.forEach(it => { if (imgs[it.id]) it.imageData = imgs[it.id]; });
+  // Scan ALL items in IndexedDB — including legacy items with hasImage:false.
+  // This is the definitive fix: heals old data and pushes everything.
+  if (stockItems.length){
+    const imgs = await imageStore.getMany(stockItems.map(it => it.id));
+    stockItems.forEach(it => { if (imgs[it.id]){ it.imageData = imgs[it.id]; it.hasImage = true; } });
   }
-  if (missingDemand.length){
-    const imgs = await imageStore.getMany(missingDemand.map(id => 'demand:' + id));
-    allDemand.forEach(it => { if (imgs['demand:' + it.id]) it.imageData = imgs['demand:' + it.id]; });
+  if (demandItems.length){
+    const imgs = await imageStore.getMany(demandItems.map(it => 'demand:' + it.id));
+    demandItems.forEach(it => { if (imgs['demand:' + it.id]){ it.imageData = imgs['demand:' + it.id]; it.hasImage = true; } });
   }
+  const allStock  = stockItems;
+  const allDemand = demandItems;
 
   const allToPush = [
     ...allStock.filter(it => it.imageData).map(it => ({ id: it.id,              data: it.imageData, mime: imageMimeTypeOf(it) })),
