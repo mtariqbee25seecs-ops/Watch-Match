@@ -1633,7 +1633,7 @@ function getApiKey(){
 function setApiKey(key){
   try{ window.localStorage.setItem('sm:anthropic-api-key', key.trim()); }catch(e){}
 }
-const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
+const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 
 function getFirebaseConfigRaw(){
@@ -2255,33 +2255,48 @@ For "message_text": transcribe any visible chat/message text in the screenshot v
 For "price": extract just the price/amount if stated anywhere in the visible text (keep currency symbol or code as shown, e.g. "PKR 450,000" or "$3,200"). If no price is stated, use null.
 Only state what is visually evident or stated in the caption. If the caption conflicts with the image or message text, prefer the image/message text but note the conflict in confidence_notes. Respond with the JSON object only.`;
 
-const REFERENCE_LOOKUP_PROMPT = `You are finding the exact reference number of a watch using Chrono24.com ONLY.
+const REFERENCE_LOOKUP_PROMPT = `You are finding the exact reference number AND date complication for a watch.
 
-RULES:
-- Search Chrono24.com only. Every search query MUST include "site:chrono24.com". Do NOT use any other website (no brand sites, no WatchCharts, no forums — nothing except Chrono24).
-- You MUST actually call the search tool. Never answer from memory or training knowledge.
-- If Chrono24 genuinely has no result after multiple attempts, return null. Do not guess.
-- When a search snippet looks promising, open that Chrono24 listing page with the URL context tool to confirm the exact reference number.
+SOURCES — try in this order, moving to the next only when the current one is unresponsive or unhelpful:
 
-HOW TO SEARCH (run at least 3 different queries):
-- "[brand] [model] [case material] site:chrono24.com"
-- "[brand] [model] [dial color] reference site:chrono24.com"
-- "[brand] [model] [case size] site:chrono24.com"
+1. chrono24.com — world's largest watch marketplace
+   Query: "[brand] [model] [case material] site:chrono24.com"
 
-Keep confidence_notes to 1-2 sentences max (e.g. "chrono24.com listing for [model] confirmed ref [X]").
+2. watchcharts.com — dedicated watch reference database
+   Query: "[brand] [model] site:watchcharts.com"
 
-Respond with STRICT JSON ONLY (no markdown, no extra text):
+3. watchbase.com — comprehensive watch specs database
+   Query: "[brand] [model] reference site:watchbase.com"
+
+4. bobswatches.com — strong on Rolex and major brands
+   Query: "[brand] [model] [dial color] site:bobswatches.com"
+
+5. crownandcaliber.com — large pre-owned marketplace
+   Query: "[brand] [model] site:crownandcaliber.com"
+
+For EACH source: run the search, then open the most promising listing page with the URL context tool to read the exact reference number and specs — don't rely on snippets alone.
+Move to the next source as soon as the current one fails to load pages or returns no useful results. You do NOT need to try all 5 — stop as soon as one source confirms the reference number.
+
+WHAT TO EXTRACT from each listing:
+- The exact reference number as written on the listing
+- Whether the watch has a date complication: "date", "day-date", or "no-date"
+
+STRICT RULES:
+- You MUST actually call the search tool. Never answer from memory.
+- If all 5 sources fail after genuine attempts, return null. Do not guess.
+- "looked_up" only when a real search ran AND a source stated the reference number.
+- "best_match" when multiple real candidates were found — pick the closest, note the others.
+- confidence_notes: 1-2 sentences max. Name which source confirmed it.
+
+Respond with STRICT JSON ONLY:
 {
   "reference_number": string or null,
   "reference_number_source": "looked_up" or "best_match" or null,
   "sources_agreed": number,
-  "confirming_source": "chrono24.com" or null,
+  "confirming_source": string or null,
+  "date_complication": "date" or "day-date" or "no-date" or null,
   "confidence_notes": string or null
-}
-
-"looked_up" = Chrono24 search ran and a listing confirmed the reference.
-"best_match" = Chrono24 returned multiple candidates; you picked the closest one.
-null source = search ran but found nothing. Return null for reference_number in that case.`;
+}`;
 
 function extractRetryDelaySeconds(response, errJson){
   try{
@@ -2564,6 +2579,10 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
     fp.reference_number = lookup.reference_number || null;
     fp.reference_number_source = lookup.reference_number_source || null;
     fp.reference_source_site = lookup.confirming_source || null;
+    // Also fill in date_complication from web lookup if Claude couldn't determine it
+    if (lookup.date_complication && !fp.date_complication){
+      fp.date_complication = lookup.date_complication;
+    }
     if (lookup.confidence_notes){
       fp.confidence_notes = fp.confidence_notes ? fp.confidence_notes + ' | ' + lookup.confidence_notes : lookup.confidence_notes;
     }
@@ -2591,6 +2610,9 @@ async function extractFingerprintFromText(text, onRetryWait, onLookupAttempt){
     fp.reference_number = lookup.reference_number || null;
     fp.reference_number_source = lookup.reference_number_source || null;
     fp.reference_source_site = lookup.confirming_source || null;
+    if (lookup.date_complication && !fp.date_complication){
+      fp.date_complication = lookup.date_complication;
+    }
     if (lookup.confidence_notes){
       fp.confidence_notes = fp.confidence_notes ? fp.confidence_notes + ' | ' + lookup.confidence_notes : lookup.confidence_notes;
     }
@@ -2961,6 +2983,14 @@ function matchRefs(ref1, ref2) {
 
 // Extract a ref number from confidence_notes text when the ref field came back null
 // e.g. "Found ref 126610LN on chrono24.com" → "126610LN"
+// Common English words that appear near "reference" in failed-lookup notes.
+// These must never be treated as a reference number.
+const REF_WORD_BLOCKLIST = new Set([
+  'number','visible','found','confirmed','search','result','lookup','match',
+  'model','serial','watch','brand','unknown','invalid','failed','error',
+  'grounded','attempt','query','source','detail','available','stated'
+]);
+
 function extractRefFromNotes(notes){
   if (!notes) return null;
   const patterns = [
@@ -2970,7 +3000,15 @@ function extractRefFromNotes(notes){
   ];
   for (const pat of patterns){
     const m = notes.match(pat);
-    if (m && m[1] && m[1].length >= 5) return m[1].trim();
+    if (!m || !m[1]) continue;
+    const candidate = m[1].trim();
+    // Must contain at least one digit — real ref numbers always do
+    if (!/\d/.test(candidate)) continue;
+    // Must not be a plain English word
+    if (REF_WORD_BLOCKLIST.has(candidate.toLowerCase())) continue;
+    // Must be at least 5 chars
+    if (candidate.length < 5) continue;
+    return candidate;
   }
   return null;
 }
