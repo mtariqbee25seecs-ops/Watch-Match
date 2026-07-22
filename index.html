@@ -1055,6 +1055,51 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
 }
 .match-photo-btn:hover::after{opacity:0.8;}
 
+/* ---------- client name badge ---------- */
+.client-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  font-size:11px;
+  font-family:var(--sans);
+  padding:4px 10px;
+  border-radius:20px;
+  background:rgba(90,143,176,0.12);
+  color:var(--steel-bright);
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.client-badge::before{
+  content:'\1F4F1';
+  font-size:11px;
+  flex-shrink:0;
+}
+.client-multi{
+  background:rgba(212,168,75,0.14);
+  color:var(--brass-bright);
+  font-size:10px;
+  padding:3px 9px;
+  border-radius:20px;
+  font-family:var(--mono);
+  margin-left:5px;
+}
+
+/* ---------- watch color badge ---------- */
+.watch-color-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  font-size:10.5px;
+  font-family:var(--mono);
+  padding:4px 9px;
+  border-radius:6px;
+  background:rgba(170,163,146,0.12);
+  color:var(--text-dim);
+  border:1px solid var(--border-soft);
+}
+
 /* ---------- condition badge ---------- */
 .condition-badge{
   display:inline-flex;
@@ -1320,6 +1365,47 @@ let matchResults = []; // {demandId, demandLabel, demandThumb, matches:[{stockId
 let currentView = 'stock';
 let stockFilter = 'all';
 let demandFilter = 'all';
+
+// Deduplicate demand: same client + same ref → keep most recent.
+// Different client + same ref → keep both (shown as multi-client demand).
+function deduplicateDemand(items){
+  const seen = new Map();
+  const result = [];
+  // Iterate in reverse so we keep the latest item for each (client, ref) pair
+  for (let i = items.length - 1; i >= 0; i--){
+    const it = items[i];
+    const fp = it.fingerprint;
+    if (!fp || !fp.reference_number){
+      result.unshift(it);
+      continue;
+    }
+    const client = (fp.client_name || '').toLowerCase().trim() || null;
+    if (!client){
+      result.unshift(it);
+      continue;
+    }
+    const key = client + '|' + fp.reference_number.toUpperCase();
+    if (!seen.has(key)){
+      seen.set(key, true);
+      result.unshift(it);
+    }
+    // else: duplicate — skip
+  }
+  return result;
+}
+
+// Returns map of refNumber → [clientName, ...] for multi-client detection
+function getMultiClientMap(items){
+  const map = new Map(); // ref → Set of client names
+  for (const it of items){
+    const fp = it.fingerprint;
+    if (!fp || !fp.reference_number || !fp.client_name) continue;
+    const ref = fp.reference_number.toUpperCase();
+    if (!map.has(ref)) map.set(ref, new Set());
+    map.get(ref).add(fp.client_name);
+  }
+  return map;
+}
 
 function filterItems(items, filter){
   if (filter === 'all') return items;
@@ -1917,6 +2003,7 @@ function renderStockCard(it){
       <span class="wkf-label">Date</span><span class="wkf-val">${escapeHtml(fp.date_complication || 'unknown')}</span>
       <span class="wkf-label">Strap</span><span class="wkf-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}</span>
       <span class="wkf-label">Case</span><span class="wkf-val">${escapeHtml(fp.case_material || '\u2014')}${fp.case_size ? ' ' + escapeHtml(fp.case_size) : ''}</span>
+      ${fp.watch_color ? `<span class="wkf-label">Color</span><span class="wkf-val">${escapeHtml(fp.watch_color)}</span>` : ''}
     </div>
     ${refBadge(fp) ? `<div class="card-badges">${refBadge(fp)}</div>` : ''}
     ${fp.message_text ? `<div class="msg-text" style="margin-top:8px;"><p>${escapeHtml(fp.message_text)}</p></div>` : ''}
@@ -2092,8 +2179,12 @@ function renderDemand(){
   document.getElementById('demandCount').textContent = demandItems.length;
 
   empty.style.display = demandItems.length ? 'none' : '';
-  const demandFilterBar = buildFilterBar(demandItems, demandFilter, f => { demandFilter = f; renderDemand(); });
-  const filteredDemand = filterItems(demandItems, demandFilter);
+  const dedupedDemand = deduplicateDemand(demandItems);
+  const multiClientMap = getMultiClientMap(demandItems); // for multi-client badges
+  const demandFilterBar = buildFilterBar(dedupedDemand, demandFilter, f => { demandFilter = f; renderDemand(); });
+  const filteredDemand = filterItems(dedupedDemand, demandFilter);
+  // Pass multiClientMap to renderDemandCard via a temp global
+  window._multiClientMap = multiClientMap;
   grid.innerHTML = demandFilterBar + filteredDemand.map(renderDemandCard).join('');
   grid.querySelectorAll('.filter-btn').forEach(btn => {
     btn.onclick = () => { demandFilter = btn.dataset.filter; renderDemand(); };
@@ -2125,7 +2216,15 @@ function renderDemandCard(it){
       <span class="wkf-label">Date</span><span class="wkf-val">${escapeHtml(fp.date_complication || 'unknown')}</span>
       <span class="wkf-label">Strap</span><span class="wkf-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}</span>
       <span class="wkf-label">Case</span><span class="wkf-val">${escapeHtml(fp.case_material || '\u2014')}${fp.case_size ? ' ' + escapeHtml(fp.case_size) : ''}</span>
+      ${fp.watch_color ? `<span class="wkf-label">Color</span><span class="wkf-val">${escapeHtml(fp.watch_color)}</span>` : ''}
     </div>
+    ${fp.client_name ? `<div style="margin:6px 0;">${(() => {
+      const map = window._multiClientMap;
+      const ref = fp.reference_number ? fp.reference_number.toUpperCase() : null;
+      const clients = ref && map ? map.get(ref) : null;
+      const extra = clients && clients.size > 1 ? ` <span class="client-multi">+${clients.size - 1} more client${clients.size > 2 ? 's' : ''}</span>` : '';
+      return `<span class="client-badge">${escapeHtml(fp.client_name)}</span>${extra}`;
+    })()}</div>` : ''}
     ${refBadge(fp) ? `<div class="card-badges">${refBadge(fp)}</div>` : ''}
     ${lookupNotesHtml(fp)}` : '';
 
@@ -2232,6 +2331,8 @@ Extract a structured fingerprint as STRICT JSON ONLY (no markdown fences, no pre
   "bracelet_or_strap": string or null,
   "date_complication": "date" or "day-date" or "no-date" or null,
   "year": string or null,
+  "client_name": string or null,
+  "watch_color": string or null,
   "distinguishing_markings": string or null,
   "condition": "new" or "used" or null,
   "message_text": string or null,
@@ -2248,6 +2349,8 @@ GENDER RULES (important, this affects matching \u2014 never blur this):
 - Set "gender_basis" to a short phrase explaining the signal used (e.g. "case size ~36mm + model name", "small dial with diamond hour markers", "known unisex sport model").
 - Do not guess gender from styling alone if it conflicts with known model conventions for that exact reference \u2014 model convention takes priority over surface styling.
 
+For "client_name": read the WhatsApp sender name or number shown at the very top of the screenshot (e.g. "Halid ~ watchtime.AH", "+971 50 123 4567", "Mohamed"). This is whoever sent the watch photo. null if not visible.
+For "watch_color": overall color/finish of the watch case and bracelet — NOT the dial. E.g. "rose gold", "yellow gold", "silver/steel", "two-tone gold & steel", "black PVD", "titanium grey", "white gold". Derive from case material + visible metal color. null if unclear.
 For "year": 4-digit year if stated in message text (e.g. "2023 model", "bought in 2022"). null if not stated.
 For "date_complication": set to "date" if the watch has a date window, "day-date" if it shows both day and date, "no-date" if explicitly no date, or null if unknown. Clues: "No-Date", "date window", "DateJust", "Day-Date", "without date".
 For "dial_color": also check any text next to the reference number — sellers often write the dial color alongside the ref (e.g. "5711/1A Blue", "126610LN Black Dial"). Extract that too.
@@ -2296,6 +2399,7 @@ Respond with STRICT JSON ONLY:
   "sources_agreed": number,
   "confirming_source": string or null,
   "date_complication": "date" or "day-date" or "no-date" or null,
+  "watch_color": string or null,
   "confidence_notes": string or null
 }`;
 
@@ -2581,9 +2685,8 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
     fp.reference_number_source = lookup.reference_number_source || null;
     fp.reference_source_site = lookup.confirming_source || null;
     // Also fill in date_complication from web lookup if Claude couldn't determine it
-    if (lookup.date_complication && !fp.date_complication){
-      fp.date_complication = lookup.date_complication;
-    }
+    if (lookup.date_complication && !fp.date_complication) fp.date_complication = lookup.date_complication;
+    if (lookup.watch_color && !fp.watch_color) fp.watch_color = lookup.watch_color;
     if (lookup.confidence_notes){
       fp.confidence_notes = fp.confidence_notes ? fp.confidence_notes + ' | ' + lookup.confidence_notes : lookup.confidence_notes;
     }
@@ -2611,9 +2714,8 @@ async function extractFingerprintFromText(text, onRetryWait, onLookupAttempt){
     fp.reference_number = lookup.reference_number || null;
     fp.reference_number_source = lookup.reference_number_source || null;
     fp.reference_source_site = lookup.confirming_source || null;
-    if (lookup.date_complication && !fp.date_complication){
-      fp.date_complication = lookup.date_complication;
-    }
+    if (lookup.date_complication && !fp.date_complication) fp.date_complication = lookup.date_complication;
+    if (lookup.watch_color && !fp.watch_color) fp.watch_color = lookup.watch_color;
     if (lookup.confidence_notes){
       fp.confidence_notes = fp.confidence_notes ? fp.confidence_notes + ' | ' + lookup.confidence_notes : lookup.confidence_notes;
     }
@@ -2884,12 +2986,13 @@ function scoreDetailMatch(demandFp, stockFp){
   if (!demandFp || !stockFp) return { score: 100, matchList: [], mismatchList: [] };
 
   const fields = [
-    { key: 'dial_color',        label: 'dial',  weight: 30 },
-    { key: 'bracelet_or_strap', label: 'strap', weight: 25 },
-    { key: 'date_complication', label: 'date',  weight: 25 },
-    { key: 'bezel',             label: 'bezel', weight: 12 },
-    { key: 'case_material',     label: 'case',  weight: 5  },
-    { key: 'case_size',         label: 'size',  weight: 3  },
+    { key: 'dial_color',        label: 'dial',        weight: 25 },
+    { key: 'watch_color',       label: 'watch color', weight: 20 },
+    { key: 'bracelet_or_strap', label: 'strap',       weight: 20 },
+    { key: 'date_complication', label: 'date',        weight: 20 },
+    { key: 'bezel',             label: 'bezel',       weight: 10 },
+    { key: 'case_material',     label: 'case',        weight: 3  },
+    { key: 'case_size',         label: 'size',        weight: 2  },
   ];
 
   let totalW = 0, matchedW = 0;
@@ -3283,6 +3386,25 @@ function renderDashboardMatches(){
           ${allMatches.length} match${allMatches.length > 1 ? 'es' : ''} found
           <button class="match-entry-goto" data-action="goto-demand" data-id="${demandItem.id}" style="margin-left:6px;">view demand \u2192</button>
         </div>
+        ${demandItem.fingerprint && demandItem.fingerprint.client_name ? `
+        <div style="margin:6px 0 4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <span class="client-badge">${escapeHtml(demandItem.fingerprint.client_name)}</span>
+          ${(() => {
+            const ref = demandItem.fingerprint.reference_number;
+            if (!ref) return '';
+            const others = matchResults
+              .filter(mr => mr.demandId !== demandItem.id && mr.demandItem.fingerprint &&
+                mr.demandItem.fingerprint.reference_number &&
+                mr.demandItem.fingerprint.reference_number.toUpperCase() === ref.toUpperCase() &&
+                mr.demandItem.fingerprint.client_name)
+              .map(mr => mr.demandItem.fingerprint.client_name);
+            const uniqueOthers = [...new Set(others)];
+            return uniqueOthers.length
+              ? `<span class="client-multi">+${uniqueOthers.length} more: ${uniqueOthers.map(n => escapeHtml(n)).join(', ')}</span>`
+              : '';
+          })()}
+          ${demandItem.fingerprint.watch_color ? `<span class="watch-color-badge">\u25cf ${escapeHtml(demandItem.fingerprint.watch_color)}</span>` : ''}
+        </div>` : ''}
         <div class="match-entries">${matchEntries}</div>
       </div>
       <div class="confidence">
