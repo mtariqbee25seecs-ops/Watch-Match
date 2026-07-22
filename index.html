@@ -1208,6 +1208,7 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
           </label>
           <button class="btn small" id="pushImagesBtn" title="Upload all local images to cloud so other devices can see them">Push images to cloud</button>
           <button class="btn small danger-text" id="clearCloudBtn" title="Delete all images from cloud storage (local images are not affected)">Clear cloud images</button>
+          <button class="btn small primary" id="exportPdfBtn" title="Export dashboard as PDF">&#128196; Export PDF</button>
         </div>
       </div>
 
@@ -3648,6 +3649,7 @@ function init(){
   document.addEventListener('paste', handlePaste);
   document.getElementById('exportCatalogBtn').onclick = exportCatalog;
   document.getElementById('clearCloudBtn').onclick = clearCloudImages;
+  document.getElementById('exportPdfBtn').onclick = generatePDF;
   document.getElementById('pushImagesBtn').onclick = pushLocalImagesToCloud;
   document.getElementById('importCatalogInput').onchange = (e) => { if (e.target.files && e.target.files[0]) importCatalog(e.target.files[0]); e.target.value = ''; };
   document.getElementById('clearStockBtn').onclick = () => {
@@ -3761,6 +3763,122 @@ async function clearCloudImages(){
     showToast('Clear failed: ' + (e.message || e), true);
   }
   if (btn){ btn.disabled = false; btn.textContent = 'Clear cloud images'; }
+}
+
+function generatePDF(){
+  const win = window.open('', '_blank');
+  if (!win){ showToast('Pop-up blocked \u2014 allow pop-ups for this site and try again', true); return; }
+
+  const analyzedStock = stockItems.filter(it => it.fingerprint);
+  const matchedPairs  = matchResults.filter(r => r.matches && r.matches.length);
+
+  function card(it){
+    const fp = it.fingerprint;
+    const price = it.priceOverride || (fp && fp.price) || null;
+    const imgTag = it.imageData
+      ? `<img class="pc-img" src="data:${imageMimeTypeOf(it)};base64,${it.imageData}" alt="">`
+      : `<div class="pc-no-img">No image</div>`;
+    return `
+    <div class="pc">
+      ${imgTag}
+      <div class="pc-body">
+        <div class="pc-brand">${escapeHtml(fp.brand || 'Unknown')}</div>
+        <div class="pc-model">${escapeHtml(fp.model_line || '')}${fp.date_complication ? ' \u00b7 ' + escapeHtml(fp.date_complication) : ''}</div>
+        <table class="pc-tbl">
+          <tr><td class="pc-lbl">Ref</td><td class="pc-val ref-val">${escapeHtml(fp.reference_number || '\u2014')}</td></tr>
+          <tr><td class="pc-lbl">Dial</td><td class="pc-val">${escapeHtml(fp.dial_color || '\u2014')}</td></tr>
+          <tr><td class="pc-lbl">Strap</td><td class="pc-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}</td></tr>
+          <tr><td class="pc-lbl">Case</td><td class="pc-val">${escapeHtml(fp.case_material || '\u2014')}</td></tr>
+          ${fp.condition ? `<tr><td class="pc-lbl">Cond</td><td class="pc-val">${escapeHtml(fp.condition)}</td></tr>` : ''}
+        </table>
+        ${price ? `<div class="pc-price">${escapeHtml(price)}</div>` : ''}
+      </div>
+    </div>`;
+  }
+
+  function matchCard(r){
+    const demand = r.demandItem;
+    const top    = r.matches[0];
+    const stock  = top.stockItem;
+    const dFp = demand.fingerprint || {};
+    const sFp = stock.fingerprint  || {};
+    function side(item, fp, label){
+      const imgTag = item.imageData
+        ? `<img class="pm-img" src="data:${imageMimeTypeOf(item)};base64,${item.imageData}" alt="">`
+        : `<div class="pm-no-img">No image</div>`;
+      return `
+      <div class="pm-side">
+        <div class="pm-lbl">${label}</div>
+        ${imgTag}
+        <div class="pm-brand">${escapeHtml(fp.brand || 'Unknown')}</div>
+        <div class="pm-ref">${escapeHtml(fp.reference_number || '\u2014')}</div>
+        <div class="pm-detail">${escapeHtml(fp.dial_color || '')}${fp.bracelet_or_strap ? ' \u00b7 ' + escapeHtml(fp.bracelet_or_strap) : ''}</div>
+      </div>`;
+    }
+    return `
+    <div class="pm">
+      ${side(demand, dFp, 'DEMAND')}
+      <div class="pm-arrow">&rarr;</div>
+      ${side(stock, sFp, 'MATCHED STOCK')}
+      <div class="pm-score">${Math.round(top.confidence)}%</div>
+    </div>`;
+  }
+
+  const stockHtml   = analyzedStock.map(card).join('');
+  const matchesHtml = matchedPairs.map(matchCard).join('');
+  const date = new Date().toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' });
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>Watch Inventory \u2014 ${date}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff;}
+@page{size:A4;margin:12mm 14mm;}
+h1{font-size:26px;font-weight:800;color:#0f172a;letter-spacing:0.02em;}
+.sub{color:#64748b;font-size:13px;margin-top:6px;}
+.dt{color:#94a3b8;font-size:11px;margin-top:4px;}
+.cover{padding:40px 0 28px;border-bottom:3px solid #d4a84b;margin-bottom:26px;}
+.sec{font-size:15px;font-weight:700;color:#0f172a;border-bottom:2px solid #d4a84b;padding-bottom:7px;margin:26px 0 16px;letter-spacing:0.02em;}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+.pc{border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;break-inside:avoid;}
+.pc-img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;}
+.pc-no-img{width:100%;aspect-ratio:4/3;background:#f8fafc;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;}
+.pc-body{padding:10px 12px 13px;}
+.pc-brand{font-size:13px;font-weight:700;color:#0f172a;margin-bottom:1px;}
+.pc-model{font-size:10.5px;color:#64748b;margin-bottom:8px;}
+.pc-tbl{width:100%;border-collapse:collapse;}
+.pc-lbl{color:#94a3b8;font-size:9.5px;text-transform:uppercase;letter-spacing:0.05em;padding:2px 6px 2px 0;white-space:nowrap;vertical-align:top;}
+.pc-val{font-size:11px;color:#1e293b;font-weight:500;padding:2px 0;vertical-align:top;}
+.pc-val.ref-val{color:#b8860b;font-family:monospace;font-size:10.5px;font-weight:700;}
+.pc-price{font-size:14px;font-weight:800;color:#b8860b;margin-top:8px;padding-top:7px;border-top:1px solid #f1f5f9;}
+.mgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.pm{border:1px solid #e2e8f0;border-radius:8px;padding:12px;display:flex;align-items:flex-start;gap:8px;break-inside:avoid;}
+.pm-side{flex:1;min-width:0;}
+.pm-lbl{font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#94a3b8;margin-bottom:6px;}
+.pm-img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:5px;margin-bottom:7px;display:block;}
+.pm-no-img{width:100%;aspect-ratio:4/3;background:#f8fafc;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:10px;margin-bottom:7px;}
+.pm-brand{font-size:12px;font-weight:700;color:#0f172a;}
+.pm-ref{font-size:11px;color:#b8860b;font-family:monospace;font-weight:700;margin:2px 0;}
+.pm-detail{font-size:10.5px;color:#64748b;}
+.pm-arrow{font-size:20px;color:#d4a84b;flex-shrink:0;padding-top:60px;}
+.pm-score{position:absolute;right:14px;top:14px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:3px 8px;border-radius:12px;}
+.pm{position:relative;}
+@media print{body{print-color-adjust:exact;-webkit-print-color-adjust:exact;}}
+</style></head><body>
+<div class="cover">
+  <h1>Watch Inventory Report</h1>
+  <div class="sub">${analyzedStock.length} items in stock &nbsp;&middot;&nbsp; ${matchedPairs.length} matched pair${matchedPairs.length !== 1 ? 's' : ''}</div>
+  <div class="dt">Generated ${date}</div>
+</div>
+<div class="sec">All Stock (${analyzedStock.length} watches)</div>
+<div class="grid">${stockHtml}</div>
+${matchesHtml ? `<div class="sec" style="page-break-before:always;">Matched Pairs (${matchedPairs.length})</div><div class="mgrid">${matchesHtml}</div>` : ''}
+<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});<\/script>
+</body></html>`;
+
+  win.document.write(html);
+  win.document.close();
+  showToast('PDF preview opened \u2014 use your browser\u2019s print dialog to save as PDF');
 }
 
 function exportCatalog(){
