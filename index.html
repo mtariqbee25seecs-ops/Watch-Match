@@ -1492,7 +1492,19 @@ async function lazyLoadImage(item, kind){
       }
       renderDashboard(); // refresh dashboard thumbs
     }
-  }catch(e){ console.warn('lazyLoadImage failed', kind, item.id, e); }
+  }catch(e){
+    console.warn('lazyLoadImage failed', kind, item.id, e);
+    // Update placeholder to show it failed
+    const card = document.querySelector(`.card[data-id="${item.id}"]`);
+    if (card){
+      const wrap = card.querySelector('.card-img-wrap');
+      if (wrap && !item.imageData){
+        wrap.innerHTML = `<div style="font-size:10px;color:var(--ruby-bright);text-align:center;padding:16px 10px;">
+          \u26a0\ufe0f Failed to load from cloud<br>
+          <span style="font-size:9px;opacity:0.7;">${escapeHtml(e.message||'unknown error')}</span></div>`;
+      }
+    }
+  }
   finally{ _loadingImages.delete(key); }
 }
 
@@ -1655,29 +1667,57 @@ const cloudSync = {
       const { error } = await _supabaseClient.storage
         .from(SUPABASE_BUCKET)
         .upload(`${syncId}/${id}`, blob, { contentType: mimeType || 'application/octet-stream', upsert: true });
-      if (error) throw error;
+      if (error){
+        console.error('Supabase upload error:', error.message, error.statusCode, id);
+        return error.message || 'Upload failed';
+      }
       return true;
-    }catch(e){ console.error('cloudSync.saveImage failed', e); return false; }
+    }catch(e){
+      console.error('cloudSync.saveImage failed', e);
+      return e.message || 'Unknown error';
+    }
   },
   async getImage(id){
     if (!supabaseSyncConfigured() || !ensureSupabaseInit()) return null;
+    const syncId = getSyncId();
+    const path = `${syncId}/${id}`;
+
+    // Method 1: direct public URL — fastest, no SDK auth needed for public buckets
     try{
-      const syncId = getSyncId();
+      const publicUrl = `${getSupabaseUrl()}/storage/v1/object/public/${SUPABASE_BUCKET}/${path}`;
+      const resp = await fetch(publicUrl);
+      if (resp.ok){
+        const blob = await resp.blob();
+        return await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload  = () => resolve(reader.result.split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      }
+    }catch(e){ /* fall through to SDK */ }
+
+    // Method 2: Supabase SDK download (fallback)
+    try{
       const { data, error } = await _supabaseClient.storage
-        .from(SUPABASE_BUCKET)
-        .download(`${syncId}/${id}`);
+        .from(SUPABASE_BUCKET).download(path);
       if (error || !data) return null;
       return await new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onload  = () => resolve(reader.result.split(',')[1]);
         reader.onerror = reject;
         reader.readAsDataURL(data);
       });
-    }catch(e){ return null; }
+    }catch(e){ console.warn('getImage failed for', id, e); return null; }
   },
   async getImages(ids){
     const results = {};
-    await Promise.all(ids.map(async (id) => { results[id] = await cloudSync.getImage(id); }));
+    // Load in batches of 6 to avoid overwhelming the connection pool
+    const BATCH = 6;
+    for (let i = 0; i < ids.length; i += BATCH){
+      const batch = ids.slice(i, i + BATCH);
+      await Promise.all(batch.map(async id => { results[id] = await cloudSync.getImage(id); }));
+    }
     return results;
   },
   async deleteImage(id){
@@ -3806,7 +3846,22 @@ function init(){
 
 function updateKeyBanner(){
   const banner = document.getElementById('keyBanner');
-  banner.style.display = getApiKey() ? 'none' : '';
+  const missingKey  = !getApiKey();
+  const missingSyncId = getSupabaseUrl() && getSupabaseAnonKey() && !getSyncId();
+  if (missingKey){
+    banner.style.display = '';
+    banner.innerHTML = `<span>No Anthropic API key set &mdash; analysis won't work until you add one.</span>
+      <button class="btn small primary" id="keyBannerBtn">Add API key</button>`;
+  } else if (missingSyncId){
+    banner.style.display = '';
+    banner.innerHTML = `<span style="color:var(--brass-bright);">\u26a0\ufe0f No Sync ID set &mdash; images won't load from cloud until you set one in settings (same ID on every device).</span>
+      <button class="btn small" onclick="document.getElementById('settingsBtn').click()">Open settings</button>`;
+  } else {
+    banner.style.display = 'none';
+  }
+  // Re-wire key banner button if it exists
+  const btn = document.getElementById('keyBannerBtn');
+  if (btn) btn.onclick = () => document.getElementById('settingsBtn').click();
 }
 
 /* ===================== catalog backup / restore ===================== */
@@ -3839,11 +3894,13 @@ async function pushLocalImagesToCloud(){
   btn.disabled = true;
 
   let pushed = 0, failed = 0;
+  let firstError = null;
   for (const item of allToPush){
     const current = pushed + failed + 1;
-    btn.textContent = `Pushing ${current}/${total}…`;
-    const ok = await cloudSync.saveImage(item.id, item.data, item.mime);
-    if (ok) pushed++; else failed++;
+    btn.textContent = `Pushing ${current}/${total}\u2026`;
+    const result = await cloudSync.saveImage(item.id, item.data, item.mime);
+    if (result === true) pushed++;
+    else { failed++; if (!firstError && typeof result === 'string') firstError = result; }
   }
 
   btn.disabled = false;
@@ -3854,8 +3911,12 @@ async function pushLocalImagesToCloud(){
   await saveStockCatalog();
   await saveDemandCatalog();
 
-  if (failed) showToast(`Pushed ${pushed}/${total} images \u2014 ${failed} failed. Check Supabase bucket.`, true);
-  else showToast(`All synced \u2014 ${total} image${total === 1 ? '' : 's'} + catalog data pushed to cloud`);
+  if (failed){
+    const errMsg = firstError || 'bucket may not exist or not set to Public';
+    showToast(`Pushed ${pushed}/${total} \u2014 ${failed} failed: ${errMsg}`, true);
+  } else {
+    showToast(`All synced \u2014 ${total} image${total === 1 ? '' : 's'} + catalog pushed to cloud`);
+  }
 }
 
 async function clearCloudImages(){
