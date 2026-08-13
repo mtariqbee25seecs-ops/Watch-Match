@@ -2041,7 +2041,7 @@ function renderStockCard(it){
       <span class="wkf-label">Ref</span><span class="wkf-val ref">${fp.reference_number ? escapeHtml(fp.reference_number) : '\u2014'}</span>
       <span class="wkf-label">Dial</span><span class="wkf-val">${escapeHtml(fp.dial_color || '\u2014')}</span>
       <span class="wkf-label">Date</span><span class="wkf-val">${escapeHtml(fp.date_complication || 'unknown')}</span>
-      <span class="wkf-label">Strap</span><span class="wkf-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}</span>
+      <span class="wkf-label">Strap</span><span class="wkf-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}${fp.strap_color ? ' \u00b7 ' + escapeHtml(fp.strap_color) : ''}</span>
       <span class="wkf-label">Case</span><span class="wkf-val">${escapeHtml(fp.case_material || '\u2014')}${fp.case_size ? ' ' + escapeHtml(fp.case_size) : ''}</span>
       ${fp.watch_color ? `<span class="wkf-label">Color</span><span class="wkf-val">${escapeHtml(fp.watch_color)}</span>` : ''}
     </div>
@@ -2254,7 +2254,7 @@ function renderDemandCard(it){
       <span class="wkf-label">Ref</span><span class="wkf-val ref">${fp.reference_number ? escapeHtml(fp.reference_number) : '\u2014'}</span>
       <span class="wkf-label">Dial</span><span class="wkf-val">${escapeHtml(fp.dial_color || '\u2014')}</span>
       <span class="wkf-label">Date</span><span class="wkf-val">${escapeHtml(fp.date_complication || 'unknown')}</span>
-      <span class="wkf-label">Strap</span><span class="wkf-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}</span>
+      <span class="wkf-label">Strap</span><span class="wkf-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}${fp.strap_color ? ' \u00b7 ' + escapeHtml(fp.strap_color) : ''}</span>
       <span class="wkf-label">Case</span><span class="wkf-val">${escapeHtml(fp.case_material || '\u2014')}${fp.case_size ? ' ' + escapeHtml(fp.case_size) : ''}</span>
       ${fp.watch_color ? `<span class="wkf-label">Color</span><span class="wkf-val">${escapeHtml(fp.watch_color)}</span>` : ''}
     </div>
@@ -2373,6 +2373,7 @@ Extract a structured fingerprint as STRICT JSON ONLY (no markdown fences, no pre
   "year": string or null,
   "client_name": string or null,
   "watch_color": string or null,
+  "strap_color": string or null,
   "distinguishing_markings": string or null,
   "condition": "new" or "used" or null,
   "message_text": string or null,
@@ -2390,6 +2391,7 @@ GENDER RULES (important, this affects matching \u2014 never blur this):
 - Do not guess gender from styling alone if it conflicts with known model conventions for that exact reference \u2014 model convention takes priority over surface styling.
 
 For "client_name": read the WhatsApp sender name or number shown at the very top of the screenshot (e.g. "Halid ~ watchtime.AH", "+971 50 123 4567", "Mohamed"). This is whoever sent the watch photo. null if not visible.
+For "strap_color": color of the bracelet or strap (separate from its type). For metal bracelets: "silver", "gold", "rose gold", "two-tone". For leather/rubber: "black", "brown", "blue", "green", "orange", "grey". null if unclear.
 For "watch_color": overall color/finish of the watch case and bracelet — NOT the dial. E.g. "rose gold", "yellow gold", "silver/steel", "two-tone gold & steel", "black PVD", "titanium grey", "white gold". Derive from case material + visible metal color. null if unclear.
 For "year": 4-digit year if stated in message text (e.g. "2023 model", "bought in 2022"). null if not stated.
 For "date_complication": set to "date" if the watch has a date window, "day-date" if it shows both day and date, "no-date" if explicitly no date, or null if unknown. Clues: "No-Date", "date window", "DateJust", "Day-Date", "without date".
@@ -2440,6 +2442,7 @@ Respond with STRICT JSON ONLY:
   "confirming_source": string or null,
   "date_complication": "date" or "day-date" or "no-date" or null,
   "watch_color": string or null,
+  "strap_color": string or null,
   "confidence_notes": string or null
 }`;
 
@@ -2727,6 +2730,7 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
     // Also fill in date_complication from web lookup if Claude couldn't determine it
     if (lookup.date_complication && !fp.date_complication) fp.date_complication = lookup.date_complication;
     if (lookup.watch_color && !fp.watch_color) fp.watch_color = lookup.watch_color;
+    if (lookup.strap_color && !fp.strap_color) fp.strap_color = lookup.strap_color;
     if (lookup.confidence_notes){
       fp.confidence_notes = fp.confidence_notes ? fp.confidence_notes + ' | ' + lookup.confidence_notes : lookup.confidence_notes;
     }
@@ -2756,6 +2760,7 @@ async function extractFingerprintFromText(text, onRetryWait, onLookupAttempt){
     fp.reference_source_site = lookup.confirming_source || null;
     if (lookup.date_complication && !fp.date_complication) fp.date_complication = lookup.date_complication;
     if (lookup.watch_color && !fp.watch_color) fp.watch_color = lookup.watch_color;
+    if (lookup.strap_color && !fp.strap_color) fp.strap_color = lookup.strap_color;
     if (lookup.confidence_notes){
       fp.confidence_notes = fp.confidence_notes ? fp.confidence_notes + ' | ' + lookup.confidence_notes : lookup.confidence_notes;
     }
@@ -2925,6 +2930,13 @@ async function analyzeBatch(items, kind, renderFn){
             fp.reference_number_source = 'inferred';
           }
         }
+        // Strict verification — only keep refs confirmed by direct reading or Google search
+        if (fp.reference_number && fp.reference_number_source !== 'visible' && fp.reference_number_source !== 'looked_up'){
+          fp.reference_number = null;
+          fp.reference_number_source = null;
+          if (!fp.confidence_notes) fp.confidence_notes = '';
+          fp.confidence_notes = (fp.confidence_notes + ' [Ref cleared: not Google-verified]').trim();
+        }
         item.fingerprint = fp;
         item.status = 'done';
         item.error = null;
@@ -3027,12 +3039,12 @@ function scoreDetailMatch(demandFp, stockFp){
 
   const fields = [
     { key: 'dial_color',        label: 'dial',        weight: 25 },
-    { key: 'watch_color',       label: 'watch color', weight: 20 },
-    { key: 'bracelet_or_strap', label: 'strap',       weight: 20 },
+    { key: 'watch_color',       label: 'watch color', weight: 15 },
+    { key: 'bracelet_or_strap', label: 'strap type',  weight: 20 },
+    { key: 'strap_color',       label: 'strap color', weight: 15 },
     { key: 'date_complication', label: 'date',        weight: 20 },
-    { key: 'bezel',             label: 'bezel',       weight: 10 },
-    { key: 'case_material',     label: 'case',        weight: 3  },
-    { key: 'case_size',         label: 'size',        weight: 2  },
+    { key: 'bezel',             label: 'bezel',       weight: 3  },
+    { key: 'case_material',     label: 'case',        weight: 2  },
   ];
 
   let totalW = 0, matchedW = 0;
@@ -3116,12 +3128,8 @@ function matchRefs(ref1, ref2) {
   if (n2.length < n1.length && n1.startsWith(n2))
     return { match: true, confidence: 'prefix' };
 
-  const b1 = baseRefNumber(ref1);
-  const b2 = baseRefNumber(ref2);
-
-  if (b1 === b2 && b1.length > 3)
-    return { match: true, confidence: 'base_model' };
-
+  // base_model tier removed — Patek -001/-014 are different dial colors, not the same watch.
+  // Only exact and prefix tiers allowed.
   return { match: false, confidence: null };
 }
 
@@ -3195,102 +3203,111 @@ function refSourceLabel(source){
 
 function runMatching(opts){
   const silent = opts && opts.silent;
-  const stockReady = stockItems.filter(it => it.status === 'done' && it.fingerprint && it.fingerprint.reference_number);
-  const demandReady = demandItems.filter(it => it.status === 'done' && it.fingerprint && it.fingerprint.reference_number);
+  const allStockDone  = stockItems.filter(it  => it.status === 'done' && it.fingerprint);
+  const allDemandDone = demandItems.filter(it => it.status === 'done' && it.fingerprint);
 
-  const stockMissingRef = stockItems.filter(it => it.status === 'done' && it.fingerprint && !it.fingerprint.reference_number).length;
-  const demandMissingRef = demandItems.filter(it => it.status === 'done' && it.fingerprint && !it.fingerprint.reference_number).length;
-
-  if (!stockReady.length || !demandReady.length){
-    if (!silent) showToast('Need at least one analyzed stock item and one analyzed demand item, each with a reference number', true);
-    matchResults = [];
-    renderResults();
-    renderDashboard();
-    return;
+  if (!allStockDone.length || !allDemandDone.length){
+    if (!silent) showToast('Need analyzed stock and demand items', true);
+    matchResults = []; renderResults(); renderDashboard(); return;
   }
 
-  matchResults = demandReady.map(d => {
-    const demandRank = refSourceRank(d.fingerprint.reference_number_source);
-    const demandLabel = refSourceLabel(d.fingerprint.reference_number_source);
+  matchResults = allDemandDone.map(d => {
+    const dFp = d.fingerprint;
 
-    const matches = stockReady
-      .filter(s => matchRefs(d.fingerprint.reference_number, s.fingerprint.reference_number).match)
-      .map(s => {
-        const stockRank = refSourceRank(s.fingerprint.reference_number_source);
-        const stockLabel = refSourceLabel(s.fingerprint.reference_number_source);
-        const combinedRank = Math.min(demandRank, stockRank);
-        const refMatch = matchRefs(d.fingerprint.reference_number, s.fingerprint.reference_number);
+    /* STEP 1: brand filter */
+    const sameBrand = allStockDone.filter(s =>
+      !dFp.brand || !s.fingerprint.brand || brandMatches(dFp.brand, s.fingerprint.brand)
+    );
 
-        // Base confidence from source reliability
-        let basePct;
-        if (combinedRank === 3) basePct = 97;
-        else if (combinedRank === 2) basePct = 82;
-        else basePct = 55;
+    if (!dFp.reference_number){
+      return { demandId: d.id, demandItem: d, matches: [],
+        similarModels: sameBrand.slice(0,3).map(s => ({ stockId: s.id, stockItem: s, similarTag: 'Brand match \u2014 no ref on demand' })) };
+    }
 
-        // Tier penalty for non-exact reference match
-        if (refMatch.confidence === 'prefix') basePct = Math.max(basePct - 5, 40);
-        else if (refMatch.confidence === 'base_model') basePct = Math.max(basePct - 15, 35);
+    /* STEP 2: ref match within same brand (exact + prefix only, no base_model) */
+    const refMatched = sameBrand.filter(s =>
+      s.fingerprint.reference_number &&
+      matchRefs(dFp.reference_number, s.fingerprint.reference_number).match
+    );
 
-        const referenceMatchType = combinedRank === 3 ? 'visible_exact' : combinedRank === 2 ? 'looked_up' : 'best_match';
+    /* STEP 3+4: STRICT filter — all specified fields must match exactly */
+    const strictMatches  = [];
+    const closeAlternates = [];
 
-        // Secondary: detail scoring (dial, strap, bezel, case, size)
-        const detail = scoreDetailMatch(d.fingerprint, s.fingerprint);
-        const detailAdj = detail.score >= 85 ? +5 : detail.score >= 60 ? 0 : detail.score >= 35 ? -10 : -22;
-        const confidence = Math.max(30, Math.min(99, basePct + detailAdj));
+    refMatched.forEach(s => {
+      const sFp = s.fingerprint;
+      const refMatch = matchRefs(dFp.reference_number, sFp.reference_number);
 
-        // Build reasoning
-        const refTierNote = refMatch.confidence === 'prefix'
-          ? ` Demand didn\u2019t specify full variant \u2014 stock carries ${s.fingerprint.reference_number}.`
-          : refMatch.confidence === 'base_model'
-            ? ` Same base, different dial variant (demand: ${d.fingerprint.reference_number} / stock: ${s.fingerprint.reference_number}).`
-            : '';
+      const dialResult     = detailsCompatible(dFp.dial_color,        sFp.dial_color);
+      const strapResult    = detailsCompatible(dFp.bracelet_or_strap, sFp.bracelet_or_strap);
+      const strapColResult = detailsCompatible(dFp.strap_color,       sFp.strap_color);
+      const dateResult     = detailsCompatible(dFp.date_complication,  sFp.date_complication);
+      const watchColResult = detailsCompatible(dFp.watch_color,        sFp.watch_color);
 
-        let reasoning;
-        if (combinedRank === 3) reasoning = `Ref ${s.fingerprint.reference_number} \u2014 exact match.${refTierNote}`;
-        else if (combinedRank === 2) reasoning = `Ref ${s.fingerprint.reference_number} \u2014 Google-verified.${refTierNote}`;
-        else reasoning = `Ref ${s.fingerprint.reference_number} \u2014 best estimate.${refTierNote}`;
+      const mismatches = [];
+      if (dialResult     === 'mismatch') mismatches.push(`dial: \u201c${dFp.dial_color}\u201d \u2260 \u201c${sFp.dial_color || '?'}\u201d`);
+      if (strapResult    === 'mismatch') mismatches.push(`strap: \u201c${dFp.bracelet_or_strap}\u201d \u2260 \u201c${sFp.bracelet_or_strap || '?'}\u201d`);
+      if (strapColResult === 'mismatch') mismatches.push(`strap color: \u201c${dFp.strap_color}\u201d \u2260 \u201c${sFp.strap_color || '?'}\u201d`);
+      if (dateResult     === 'mismatch') mismatches.push(`date: \u201c${dFp.date_complication}\u201d \u2260 \u201c${sFp.date_complication || '?'}\u201d`);
+      if (watchColResult === 'mismatch') mismatches.push(`watch color: \u201c${dFp.watch_color}\u201d \u2260 \u201c${sFp.watch_color || '?'}\u201d`);
 
-        if (detail.matchList.length > 0) reasoning += ` \u2713 ${detail.matchList.join(', ')} match.`;
-        if (detail.mismatchList.length > 0){
-          reasoning += ` \u26a0\ufe0f ` + detail.mismatchList.map(m => `${m.field}: wanted \u201c${m.wanted}\u201d \u2192 stock has \u201c${m.have}\u201d`).join(' | ') + '.';
-        }
+      // Diamond/modification check
+      const stockDiamonds  = sFp.distinguishing_markings && /diamond/i.test(sFp.distinguishing_markings);
+      const demandDiamonds = dFp.distinguishing_markings && /diamond/i.test(dFp.distinguishing_markings);
+      if (stockDiamonds && !demandDiamonds) mismatches.push('stock has aftermarket diamonds \u2014 demand did not request');
+      if (!stockDiamonds && demandDiamonds) mismatches.push('demand wants diamonds \u2014 stock is plain');
 
-        const demandCond = d.fingerprint.condition;
-        const stockCond  = s.fingerprint.condition;
-        if (demandCond === 'new' && stockCond === 'used') reasoning += ' \u26a0\ufe0f Customer wants new \u2014 stock is used.';
-        else if (demandCond === 'used' && stockCond === 'new') reasoning += ' Note: customer wants pre-owned \u2014 stock is new.';
+      if (mismatches.length > 0){
+        closeAlternates.push({ stockId: s.id, stockItem: s,
+          similarTag: `Same ref \u2014 differs: ${mismatches.join(' | ')}` });
+        return;
+      }
 
-        return { stockId: s.id, stockItem: s, confidence, referenceMatchType, reasoning, detailScore: detail.score };
-      })
-      .sort((a, b) => b.confidence - a.confidence || (b.detailScore||0) - (a.detailScore||0))
-      .slice(0, 5); // show up to 5 so all dial variants visible
+      // All fields match
+      const combinedRank = Math.min(
+        refSourceRank(dFp.reference_number_source),
+        refSourceRank(sFp.reference_number_source)
+      );
+      let confidence = combinedRank === 3 ? 97 : combinedRank === 2 ? 82 : 60;
+      if (refMatch.confidence === 'prefix') confidence = Math.max(confidence - 5, 40);
 
-    const matchedStockIds = new Set(matches.map(m => m.stockId));
+      let reasoning = `\u2713 Ref ${escapeHtml(sFp.reference_number)}`;
+      if (sFp.dial_color)        reasoning += ` \u2713 ${escapeHtml(sFp.dial_color)} dial`;
+      if (sFp.bracelet_or_strap) reasoning += ` \u2713 ${escapeHtml(sFp.bracelet_or_strap)}`;
+      if (sFp.strap_color)       reasoning += ` ${escapeHtml(sFp.strap_color)}`;
+      if (sFp.date_complication) reasoning += ` \u2713 ${escapeHtml(sFp.date_complication)}`;
+      if (sFp.watch_color)       reasoning += ` \u2713 ${escapeHtml(sFp.watch_color)}`;
+      if (dFp.condition === 'new' && sFp.condition === 'used') reasoning += ' \u26a0\ufe0f customer wants new, stock is used';
 
-    // Similar models: same base ref variant OR same brand+model but different date complication
-    const similarModels = stockReady
-      .filter(s => {
-        if (matchedStockIds.has(s.id)) return false;
-        if (areSimilarRefs(s.fingerprint.reference_number, d.fingerprint.reference_number)) return true;
-        // Same brand + model but different date complication
-        const sameBrand = d.fingerprint.brand && s.fingerprint.brand &&
-          normalizeDetail(d.fingerprint.brand).includes(normalizeDetail(s.fingerprint.brand).split(' ')[0]);
-        const sameModel = d.fingerprint.model_line && s.fingerprint.model_line &&
-          (normalizeDetail(d.fingerprint.model_line).includes(normalizeDetail(s.fingerprint.model_line)) ||
-           normalizeDetail(s.fingerprint.model_line).includes(normalizeDetail(d.fingerprint.model_line)));
-        const dateDiffers = d.fingerprint.date_complication && s.fingerprint.date_complication &&
-          d.fingerprint.date_complication !== s.fingerprint.date_complication;
-        return sameBrand && sameModel && dateDiffers;
-      })
-      .map(s => {
-        const dateDiffers = d.fingerprint.date_complication && s.fingerprint.date_complication &&
-          d.fingerprint.date_complication !== s.fingerprint.date_complication;
-        const tag = dateDiffers
-          ? `Similar model \u2014 demand: ${d.fingerprint.date_complication}, stock: ${s.fingerprint.date_complication}`
-          : 'Similar ref variant';
-        return { stockId: s.id, stockItem: s, similarTag: tag };
-      })
-      .slice(0, 4);
+      strictMatches.push({ stockId: s.id, stockItem: s, confidence, matchLevel: 'full',
+        referenceMatchType: combinedRank >= 2 ? 'looked_up' : 'best_match',
+        reasoning, detailScore: 100 });
+    });
+
+    const matches = strictMatches.sort((a,b) => b.confidence - a.confidence).slice(0,5);
+
+    /* STEP 5: similar models — close alternates + same brand/model variants */
+    const matchedIds = new Set(matches.map(m => m.stockId));
+    const altIds     = new Set(closeAlternates.map(a => a.stockId));
+    const similarModels = [...closeAlternates.filter(a => !matchedIds.has(a.stockId)).slice(0,3)];
+
+    sameBrand
+      .filter(s => !matchedIds.has(s.id) && !altIds.has(s.id) && s.fingerprint.reference_number)
+      .forEach(s => {
+        if (similarModels.length >= 4) return;
+        const sFp = s.fingerprint;
+        const sameModel = dFp.model_line && sFp.model_line &&
+          (normalizeDetail(dFp.model_line).includes(normalizeDetail(sFp.model_line).split(' ')[0]) ||
+           normalizeDetail(sFp.model_line).includes(normalizeDetail(dFp.model_line).split(' ')[0]));
+        if (!sameModel) return;
+        const dateDiff = dFp.date_complication && sFp.date_complication &&
+          dFp.date_complication !== sFp.date_complication;
+        const yearDiff = dFp.year && sFp.year && Math.abs(parseInt(sFp.year) - parseInt(dFp.year)) <= 2;
+        let tag = 'Similar model';
+        if (dateDiff) tag = `Alternate \u2014 ${escapeHtml(sFp.date_complication)} version`;
+        else if (yearDiff) tag = `Year alternate \u2014 ${escapeHtml(sFp.year)}`;
+        similarModels.push({ stockId: s.id, stockItem: s, similarTag: tag });
+      });
 
     return { demandId: d.id, demandItem: d, matches, similarModels };
   });
@@ -3300,11 +3317,11 @@ function runMatching(opts){
 
   if (!silent){
     setView('results');
-    const totalMatched = matchResults.filter(r => r.matches.length).length;
-    let msg = `Matching complete \u2014 ${totalMatched} of ${demandReady.length} demand item${demandReady.length === 1 ? '' : 's'} matched on reference number`;
-    if (demandMissingRef || stockMissingRef){
-      msg += ` (${demandMissingRef} demand / ${stockMissingRef} stock item${(demandMissingRef + stockMissingRef) === 1 ? '' : 's'} skipped \u2014 no reference number found)`;
-    }
+    const total = allDemandDone.length;
+    const matched = matchResults.filter(r => r.matches.length).length;
+    const noRef = allDemandDone.filter(d => !d.fingerprint.reference_number).length;
+    let msg = `Matching done \u2014 ${matched}/${total} demand item${total!==1?'s':''} strictly matched`;
+    if (noRef) msg += ` (${noRef} skipped \u2014 no verified ref)`;
     showToast(msg);
   }
   updateRunMatchAvailability();
