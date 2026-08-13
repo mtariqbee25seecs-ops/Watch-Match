@@ -2403,25 +2403,17 @@ Only state what is visually evident or stated in the caption. If the caption con
 
 const REFERENCE_LOOKUP_PROMPT = `You are finding the exact reference number AND date complication for a watch.
 
-SOURCES — try in this order, moving to the next only when the current one is unresponsive or unhelpful:
+SOURCES — try every single one of these before giving up:
 
-1. chrono24.com — world's largest watch marketplace
-   Query: "[brand] [model] [case material] site:chrono24.com"
+1. chrono24.com — "[brand] [model] [case material] site:chrono24.com"
+2. watchcharts.com — "[brand] [model] reference site:watchcharts.com"
+3. watchbase.com — "[brand] [model] specs site:watchbase.com"
+4. bobswatches.com — "[brand] [model] [dial color] site:bobswatches.com"
+5. crownandcaliber.com — "[brand] [model] site:crownandcaliber.com"
 
-2. watchcharts.com — dedicated watch reference database
-   Query: "[brand] [model] site:watchcharts.com"
+MANDATORY: You MUST try AT LEAST 3 different sources before concluding the reference number cannot be found. Do NOT give up after the first source. Chrono24 sometimes blocks access — that is NOT a reason to return null; move immediately to the next source. For each source: run the search query, then open the most relevant listing page to read the exact reference number.
 
-3. watchbase.com — comprehensive watch specs database
-   Query: "[brand] [model] reference site:watchbase.com"
-
-4. bobswatches.com — strong on Rolex and major brands
-   Query: "[brand] [model] [dial color] site:bobswatches.com"
-
-5. crownandcaliber.com — large pre-owned marketplace
-   Query: "[brand] [model] site:crownandcaliber.com"
-
-For EACH source: run the search, then open the most promising listing page with the URL context tool to read the exact reference number and specs — don't rely on snippets alone.
-Move to the next source as soon as the current one fails to load pages or returns no useful results. You do NOT need to try all 5 — stop as soon as one source confirms the reference number.
+If a source's pages cannot be opened, note it and move on. Keep trying until you have either confirmed the ref from a real listing or exhausted all 5 sources.
 
 WHAT TO EXTRACT from each listing:
 - The exact reference number as written on the listing
@@ -2569,7 +2561,7 @@ function getOfficialSiteForBrand(brand){
 }
 
 async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt){
-  const MAX_LOOKUP_ATTEMPTS = 2; // 2 Chrono24 attempts then null
+  const MAX_LOOKUP_ATTEMPTS = 4; // try all 5 sources across 4 attempts before giving up
   // Chrono24-only mode — no official site lookup needed
   const officialSiteInstruction = '';
 
@@ -2930,12 +2922,15 @@ async function analyzeBatch(items, kind, renderFn){
             fp.reference_number_source = 'inferred';
           }
         }
-        // Strict verification — only keep refs confirmed by direct reading or Google search
-        if (fp.reference_number && fp.reference_number_source !== 'visible' && fp.reference_number_source !== 'looked_up'){
+        // Only clear refs with NO source at all (training knowledge guesses).
+        // best_match = real web candidates were found, Gemini picked the closest one — keep it.
+        // looked_up  = confirmed from a specific source — keep it.
+        // visible    = read directly from photo — keep it.
+        // null source with a ref = unverified guess — clear it.
+        if (fp.reference_number && !fp.reference_number_source){
           fp.reference_number = null;
-          fp.reference_number_source = null;
           if (!fp.confidence_notes) fp.confidence_notes = '';
-          fp.confidence_notes = (fp.confidence_notes + ' [Ref cleared: not Google-verified]').trim();
+          fp.confidence_notes = (fp.confidence_notes + ' [Ref cleared: no web source confirmed it]').trim();
         }
         item.fingerprint = fp;
         item.status = 'done';
