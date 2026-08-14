@@ -2381,6 +2381,15 @@ Extract a structured fingerprint as STRICT JSON ONLY (no markdown fences, no pre
   "confidence_notes": string or null
 }
 
+CRITICAL \u2014 WHATSAPP HEADER IS NOT A SOURCE FOR REFERENCE NUMBERS:
+The WhatsApp chat header at the very top of the screenshot contains the contact name, phone number, or group name. Examples: "Halid ~ watchtime.AH", "+971 54 123 4567", "Me 2150", "Store 45", "Customer 12", "Cartier Group". ALL OF THESE ARE CONTACT LABELS \u2014 not reference numbers.
+Reference numbers ONLY come from:
+  (a) Engraved/printed ON THE WATCH ITSELF (caseback, dial, crown area)
+  (b) Explicitly written in the MESSAGE TEXT as a watch specification
+Never extract a reference number from the WhatsApp UI chrome (header bar, status, contact name).
+A valid watch reference looks like: 126610LN (Rolex), 5711/1A-014 (Patek), 15400ST.OO.1220ST.01 (AP).
+Numbers like "2150", "45", "Me 2150", "+971..." in the chat header are NOT reference numbers.
+
 REFERENCE NUMBER RULE: only set "reference_number" if it is legibly visible \u2014 engraved, printed, or stated in message text. Set "reference_number_source" to "visible" in that case. If it is NOT legible anywhere, set both "reference_number" and "reference_number_source" to null \u2014 do not guess here. A separate lookup step will handle that using the other fields you extract below, so describe the watch as precisely as possible even when the reference itself isn't visible.
 
 CASE MATERIAL CAUTION: platinum and white gold are visually almost indistinguishable in a photo \u2014 both appear as bright white/silvery metal. If you cannot find a hallmark, engraving, or stated material confirming which one it is, name your best guess but add a note in "confidence_notes" that it could plausibly be either, so a later step can search both possibilities rather than treating your guess as certain.
@@ -2401,32 +2410,85 @@ For "message_text": transcribe any visible chat/message text in the screenshot v
 For "price": extract just the price/amount if stated anywhere in the visible text (keep currency symbol or code as shown, e.g. "PKR 450,000" or "$3,200"). If no price is stated, use null.
 Only state what is visually evident or stated in the caption. If the caption conflicts with the image or message text, prefer the image/message text but note the conflict in confidence_notes. Respond with the JSON object only.`;
 
-const REFERENCE_LOOKUP_PROMPT = `You are finding the exact reference number AND date complication for a watch.
+const REFERENCE_LOOKUP_PROMPT = `You are finding the exact reference number AND date complication for a watch. Your job is critical — accuracy matters more than speed.
 
-SOURCES — try every single one of these before giving up:
-
+SOURCES — try every single one before giving up:
 1. chrono24.com — "[brand] [model] [case material] site:chrono24.com"
 2. watchcharts.com — "[brand] [model] reference site:watchcharts.com"
 3. watchbase.com — "[brand] [model] specs site:watchbase.com"
 4. bobswatches.com — "[brand] [model] [dial color] site:bobswatches.com"
 5. crownandcaliber.com — "[brand] [model] site:crownandcaliber.com"
 
-MANDATORY: You MUST try AT LEAST 3 different sources before concluding the reference number cannot be found. Do NOT give up after the first source. Chrono24 sometimes blocks access — that is NOT a reason to return null; move immediately to the next source. For each source: run the search query, then open the most relevant listing page to read the exact reference number.
+MANDATORY: Try AT LEAST 3 sources before returning null. For each source: run the query, open the most relevant listing page, read the exact reference number. Chrono24 blocking is NOT a reason to give up — move to the next source immediately.
 
-If a source's pages cannot be opened, note it and move on. Keep trying until you have either confirmed the ref from a real listing or exhausted all 5 sources.
+━━━ ROLEX — SPECIAL RULES (most commonly misidentified brand) ━━━
 
-WHAT TO EXTRACT from each listing:
-- The exact reference number as written on the listing
-- Whether the watch has a date complication: "date", "day-date", or "no-date"
+Rolex refs are 6 digits + mandatory letter suffix. Getting the suffix wrong means a completely wrong watch.
+
+LETTER SUFFIXES (critical — never omit or guess these):
+  LN = Lunette Noire = black ceramic bezel
+  LV = Lunette Verte = green "Hulk" bezel
+  BLNR = blue-black "Batman" bezel
+  BLRO = red-blue "Pepsi" bezel
+  WG = white gold case
+  RG / BRER = rose gold/Everose
+  YG = yellow gold
+
+GENERATION (both are common in secondary market):
+  126xxx = current gen (2020+) — larger crown guards, new bracelet clasp
+  116xxx = previous gen (pre-2020) — still very widely traded
+
+COMMON REFS (search these specifically when you see the model):
+  Submariner Date steel black: 126610LN (new) or 116610LN (old)
+  Submariner Date steel green: 126610LV (new) or 116610LV (old)
+  Submariner No-Date: 124060 (new) or 114060 (old)
+  GMT-Master II Batman (blue-black): 126710BLNR (new) or 116710BLNR (old)
+  GMT-Master II Pepsi (red-blue): 126710BLRO (new) or 116710LN (old)
+  GMT-Master II Rootbeer: 126711CHNR (Everose/steel) or 126715CHNR (Everose)
+  Daytona steel: 116500LN (black) or 116500 (white), newer = 126500LN
+  Daytona Everose: 116505, newer = 126505
+  Daytona yellow gold: 116508 or 116518
+  Datejust 41 steel: 126334; two-tone: 126333; yellow gold/steel: 126303
+  Datejust 36 steel: 126234; two-tone: 126231
+  Day-Date 40 yellow gold: 228238; Everose: 228235; white gold: 228239
+  Explorer I 36mm: 124270; 42mm: 226570
+  Explorer II: 226570 (white) or 226570 (black)
+  Sea-Dweller: 126600 (steel) or 126603 (two-tone)
+  Sky-Dweller: 326934 (steel) or 326935 (Everose) or 326938 (yellow gold)
+  Yacht-Master 40: 126622 (two-tone) or 116655 (Oysterflex Everose)
+  Oyster Perpetual 41: 124300 (steel)
+
+ROLEX SEARCH STRATEGY:
+  Step 1: Search "Rolex [model name] [metal/material] site:chrono24.com"
+  Step 2: Open a matching listing → read the ref number from the product title or specs
+  Step 3: If you see both old-gen (116xxx) and new-gen (126xxx) results, look at the photo details (clasp design, crown guard size) — both are valid refs depending on which generation the watch is
+  Step 4: NEVER guess or invent letter suffixes. If you cannot confirm LN vs LV from a listing, return the base 6 digits only OR null.
+
+━━━ PATEK PHILIPPE — SPECIAL RULES ━━━
+  Format: XXXX/YZ-NNN where -NNN is the dial color variant
+  5711/1A-001 (blue-grey), 5711/1A-014 (olive green) = SAME watch, DIFFERENT dials
+  NEVER match on base ref alone if the full ref including -NNN is available
+  Search "Patek Philippe [model] [material] site:chrono24.com" then open listing
+
+━━━ AUDEMARS PIGUET — SPECIAL RULES ━━━
+  Full format: 15400ST.OO.1220ST.01
+  Short form used by dealers: 15400ST (just first 7 chars, valid ref prefix)
+  .01/.02/.03 at the end = dial color variant
+  Search the short form first, then confirm full ref from listing
+
+━━━ WARNING — PHONE NUMBERS ━━━
+  WhatsApp screenshots show a phone number at the top (e.g. +971 50 XXX XXXX).
+  This is the CLIENT'S NUMBER. Never use it as a reference number.
+  Real refs: 126610LN, 5711/1A-014, 15400ST.OO.1220ST.01
+  Phone numbers: +971 50 123 4567, +92 300 1234567
 
 STRICT RULES:
-- You MUST actually call the search tool. Never answer from memory.
-- If all 5 sources fail after genuine attempts, return null. Do not guess.
-- "looked_up" only when a real search ran AND a source stated the reference number.
-- "best_match" when multiple real candidates were found — pick the closest, note the others.
-- confidence_notes: 1-2 sentences max. Name which source confirmed it.
+- You MUST actually call the search tool and open listing pages. Never answer from memory.
+- If all 5 sources genuinely fail, return null — do NOT guess.
+- "looked_up" = confirmed from a real listing page you actually opened
+- "best_match" = multiple real candidates found, you picked the closest based on visual details
 
-Respond with STRICT JSON ONLY:
+Respond STRICT JSON ONLY:
 {
   "reference_number": string or null,
   "reference_number_source": "looked_up" or "best_match" or null,
@@ -2452,7 +2514,7 @@ function extractRetryDelaySeconds(response, errJson){
   return 15;
 }
 
-const GEMINI_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash'];
+const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite']; // flash first — far better at multi-source lookup
 function geminiUrlFor(model){
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 }
@@ -2566,9 +2628,13 @@ async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt){
   const officialSiteInstruction = '';
 
   const detailsText = `Watch details extracted so far:\n${JSON.stringify(fp, null, 2)}`;
+  const rolexHints = getRolexRefHints(fp);
+  const hintsText = rolexHints
+    ? `\n\nROLEX REF HINTS: Based on the extracted details, the most likely reference numbers for this watch are:\n${rolexHints.map(h => '  • ' + h).join('\n')}\nSearch these SPECIFIC refs on Chrono24/WatchCharts first to confirm. Open a listing that matches the watch details (dial color, bezel, generation) and verify the exact ref.`
+    : '';
   const promptText = base64Image
-    ? `${detailsText}\n\nThe photo is attached. Identify the exact reference number using the photo plus multiple Google searches, per your instructions.${officialSiteInstruction}`
-    : `${detailsText}\n\nNo photo is available, only the description above. Identify the exact reference number using multiple Google searches based on these details, per your instructions.${officialSiteInstruction}`;
+    ? `${detailsText}${hintsText}\n\nThe photo is attached. Identify the exact reference number using the photo plus multiple Google searches, per your instructions.${officialSiteInstruction}`
+    : `${detailsText}${hintsText}\n\nNo photo is available, only the description above. Identify the exact reference number using multiple Google searches based on these details, per your instructions.${officialSiteInstruction}`;
 
   let lastResult = null;
   for (let attempt = 1; attempt <= MAX_LOOKUP_ATTEMPTS; attempt++){
@@ -2922,6 +2988,31 @@ async function analyzeBatch(items, kind, renderFn){
             fp.reference_number_source = 'inferred';
           }
         }
+        // Validate extracted ref looks like a real watch ref (not a WhatsApp label)
+        if (fp.reference_number){
+          const ref = fp.reference_number.trim();
+          const brand = (fp.brand || '').toLowerCase();
+          // Rolex refs must be 5-6 digits + optional uppercase letters
+          if (brand.includes('rolex')){
+            const cleaned = ref.replace(/[\s\.\-\/]/g, '');
+            const isValidRolex = /^\d{5,6}[A-Z]{0,8}$/.test(cleaned);
+            if (!isValidRolex){
+              fp.reference_number = null;
+              fp.reference_number_source = null;
+              fp.confidence_notes = ((fp.confidence_notes||'') + ' [Rolex ref rejected: "' + ref + '" does not match 5-6 digit Rolex format]').trim();
+            }
+          }
+          // All brands: reject very short numbers (< 4 digits total) — likely a label
+          else if (ref && (ref.replace(/\D/g,'').length < 4)){
+            fp.reference_number = null;
+            fp.reference_number_source = null;
+          }
+          // Reject if it looks like a phone number or pure short number
+          else if (fp.reference_number && looksLikePhoneNumber(fp.reference_number)){
+            fp.reference_number = null;
+            fp.reference_number_source = null;
+          }
+        }
         // Only clear refs with NO source at all (training knowledge guesses).
         // best_match = real web candidates were found, Gemini picked the closest one — keep it.
         // looked_up  = confirmed from a specific source — keep it.
@@ -3138,6 +3229,125 @@ const REF_WORD_BLOCKLIST = new Set([
   'grounded','attempt','query','source','detail','available','stated'
 ]);
 
+// Programmatic Rolex ref hints based on known model/material/bezel combinations.
+// Used to give Gemini specific refs to search, dramatically improving accuracy.
+function getRolexRefHints(fp){
+  if (!fp || !fp.brand || !fp.brand.toLowerCase().includes('rolex')) return null;
+  const model  = (fp.model_line || '').toLowerCase();
+  const mat    = (fp.case_material || '').toLowerCase();
+  const dial   = (fp.dial_color || '').toLowerCase();
+  const bezel  = (fp.bezel || '').toLowerCase();
+  const size   = (fp.case_size || '').toLowerCase();
+  const isSteel = mat.includes('steel') || mat.includes('oystersteel') || mat.includes('stainless');
+  const isYG    = mat.includes('yellow gold');
+  const isEV    = mat.includes('everose') || mat.includes('rose gold');
+  const isWG    = mat.includes('white gold');
+  const isTT    = mat.includes('two-tone') || mat.includes('rolesor');
+
+  // Submariner
+  if (model.includes('submariner')){
+    const hasDate = !model.includes('no-date') && !model.includes('no date') && fp.date_complication !== 'no-date';
+    if (!hasDate){
+      return isSteel ? ['124060 (current no-date)', '114060 (previous no-date)'] : null;
+    }
+    const greenBezel = bezel.includes('green') || dial.includes('green');
+    if (isSteel) return greenBezel ? ['126610LV (current green bezel)', '116610LV (previous green bezel)']
+                                   : ['126610LN (current black bezel)', '116610LN (previous black bezel)'];
+    if (isTT)   return ['116613LN (two-tone black)', '116613LB (two-tone blue)'];
+    if (isYG)   return ['116618LN (yellow gold black)', '116618LB (yellow gold blue)'];
+    if (isWG)   return ['116619LB (white gold blue)'];
+  }
+
+  // GMT-Master II
+  if (model.includes('gmt')){
+    const bezelColor = bezel + ' ' + dial;
+    if (isSteel){
+      if (bezelColor.includes('blue') && bezelColor.includes('black')) return ['126710BLNR (Batman, current)', '116710BLNR (Batman, previous)'];
+      if (bezelColor.includes('red') && bezelColor.includes('blue'))   return ['126710BLRO (Pepsi, current)', '116710LN (previous)'];
+      if (bezelColor.includes('black'))                                 return ['126710LN (all black, current)', '116710LN (previous)'];
+    }
+    if (isEV)  return ['126711CHNR (Rootbeer Everose/steel)', '126715CHNR (full Everose)'];
+    if (isYG)  return ['126718GRNR (yellow gold)'];
+    if (isWG)  return ['126719BLRO (white gold Pepsi)'];
+  }
+
+  // Daytona
+  if (model.includes('daytona') || model.includes('cosmograph')){
+    if (isSteel) return dial.includes('black') ? ['126500LN (current black)', '116500LN (previous black)']
+                                               : ['116500 (previous white)', '126500 (current white)'];
+    if (isEV)   return ['116505 (previous Everose)', '126505 (current Everose)'];
+    if (isYG)   return ['116508 (yellow gold)', '126508 (current yellow gold)'];
+    if (isWG)   return ['116519LN (white gold black)', '126519LN (current white gold)'];
+  }
+
+  // Datejust
+  if (model.includes('datejust')){
+    const is41 = size.includes('41') || model.includes('41');
+    const is36 = size.includes('36') || model.includes('36');
+    if (is41){
+      if (isSteel) return ['126334 (steel 41mm)', '116334 (previous steel 41mm)'];
+      if (isTT)    return ['126333 (two-tone 41mm)', '116333 (previous two-tone)'];
+      if (isYG)    return ['126338 (yellow gold/steel 41mm)'];
+    }
+    if (is36){
+      if (isSteel) return ['126234 (steel 36mm)', '116234 (previous steel 36mm)'];
+      if (isTT)    return ['126231 (two-tone 36mm)'];
+    }
+    // Default 41mm
+    if (isSteel) return ['126334 (steel)', '116334 (previous steel)'];
+    if (isTT)    return ['126333 (two-tone)', '116333 (previous)'];
+  }
+
+  // Day-Date
+  if (model.includes('day-date') || model.includes('day date')){
+    if (isYG) return ['228238 (yellow gold 40mm)','218238 (yellow gold 36mm)'];
+    if (isEV) return ['228235 (Everose 40mm)'];
+    if (isWG) return ['228239 (white gold 40mm)','118209 (white gold 36mm)'];
+  }
+
+  // Explorer
+  if (model.includes('explorer') && !model.includes('ii')){
+    return size.includes('42') ? ['226570 (Explorer 42mm)'] : ['124270 (Explorer 36mm)', '214270 (previous 39mm)'];
+  }
+  if (model.includes('explorer ii')){
+    return dial.includes('black') ? ['226570 black'] : ['226570 white'];
+  }
+
+  // Sea-Dweller
+  if (model.includes('sea-dweller') || model.includes('sea dweller')){
+    if (isTT) return ['126603 (two-tone)'];
+    return ['126600 (steel)','116600 (previous)'];
+  }
+
+  // Sky-Dweller
+  if (model.includes('sky-dweller') || model.includes('sky dweller')){
+    if (isSteel) return ['336934 (steel/rubber)','326934 (previous steel)'];
+    if (isYG)    return ['336238 (yellow gold)','326938 (previous yellow gold)'];
+    if (isEV)    return ['336235 (Everose)','326935 (previous Everose)'];
+  }
+
+  // Yacht-Master
+  if (model.includes('yacht-master') || model.includes('yachtmaster') || model.includes('yacht master')){
+    if (isTT) return ['126622 (two-tone 40mm)','116622 (previous two-tone)'];
+    if (isEV) return ['116655 (Oysterflex Everose 40mm)'];
+    if (isWG) return ['116689 (white gold 40mm)'];
+    if (isYG) return ['116688 (yellow gold 40mm)'];
+  }
+
+  // Oyster Perpetual
+  if (model.includes('oyster perpetual') && !model.includes('submariner') && !model.includes('datejust')){
+    return size.includes('41') ? ['124300 (OP 41mm)'] : size.includes('36') ? ['126000 (OP 36mm)'] : ['124300 (41mm)', '126000 (36mm)'];
+  }
+
+  return null; // no specific hint available
+}
+
+function looksLikePhoneNumber(str){
+  // Phone numbers: mostly digits, possibly +, spaces, dashes. 8-15 digits total.
+  const digits = str.replace(/\D/g, '');
+  return digits.length >= 7 && /^[+\d][\d\s\-\(\)]+$/.test(str.trim());
+}
+
 function extractRefFromNotes(notes){
   if (!notes) return null;
   const patterns = [
@@ -3149,12 +3359,12 @@ function extractRefFromNotes(notes){
     const m = notes.match(pat);
     if (!m || !m[1]) continue;
     const candidate = m[1].trim();
-    // Must contain at least one digit — real ref numbers always do
     if (!/\d/.test(candidate)) continue;
-    // Must not be a plain English word
     if (REF_WORD_BLOCKLIST.has(candidate.toLowerCase())) continue;
-    // Must be at least 5 chars
     if (candidate.length < 5) continue;
+    if (looksLikePhoneNumber(candidate)) continue; // reject phone numbers
+    // Must have at least one letter OR a slash/dot (pure digit strings are phone numbers)
+    if (/^\d+$/.test(candidate) && candidate.length > 8) continue;
     return candidate;
   }
   return null;
