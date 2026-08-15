@@ -1789,7 +1789,7 @@ function setSupabaseAnonKey(key){
 }
 
 function getGeminiApiKey(){
-  try{ return window.localStorage.getItem('sm:gemini-api-key') || 'AQ.Ab8RN6IPxkgNbHQxeBxDApCSVgX8JqqBglSZCqeXy_bEfDhjtw'; }catch(e){ return 'AQ.Ab8RN6IPxkgNbHQxeBxDApCSVgX8JqqBglSZCqeXy_bEfDhjtw'; }
+  try{ return window.localStorage.getItem('sm:gemini-api-key') || 'AQ.Ab8RN6JPUP-JzHDGk0cdYqk_SpzntiarbWXmMsOPCoyGcZp9BA'; }catch(e){ return 'AQ.Ab8RN6JPUP-JzHDGk0cdYqk_SpzntiarbWXmMsOPCoyGcZp9BA'; }
 }
 function setGeminiApiKey(key){
   try{ window.localStorage.setItem('sm:gemini-api-key', key.trim()); }catch(e){}
@@ -2402,7 +2402,36 @@ GENDER RULES (important, this affects matching \u2014 never blur this):
 For "client_name": read the WhatsApp sender name or number shown at the very top of the screenshot (e.g. "Halid ~ watchtime.AH", "+971 50 123 4567", "Mohamed"). This is whoever sent the watch photo. null if not visible.
 For "strap_color": color of the bracelet or strap (separate from its type). For metal bracelets: "silver", "gold", "rose gold", "two-tone". For leather/rubber: "black", "brown", "blue", "green", "orange", "grey". null if unclear.
 For "watch_color": overall color/finish of the watch case and bracelet — NOT the dial. E.g. "rose gold", "yellow gold", "silver/steel", "two-tone gold & steel", "black PVD", "titanium grey", "white gold". Derive from case material + visible metal color. null if unclear.
-For "year": 4-digit year if stated in message text (e.g. "2023 model", "bought in 2022"). null if not stated.
+
+━━━ ROLEX-SPECIFIC DETAIL EXTRACTION (be extremely thorough) ━━━
+
+DIAL DETAILS (into "dial_color" and "distinguishing_markings"):
+- Base color: black, white, silver, blue, green, chocolate, rose, champagne, meteorite, mother-of-pearl (MOP)
+- Dial finish: sunburst, matte, glossy, textured, lacquered
+- Hour markers: "diamond markers", "gold baton markers", "luminous baton", "roman numerals", "arabic numerals", "applied indices"
+- Special dials: "full pave diamond", "diamond dial", "iced out", "rainbow", "Stella", "Serti (factory diamonds)", "MOP"
+- Sub-dials (Daytona): note color and layout of sub-dials
+- Text on dial: "Sea-Dweller", "Deepsea", "Cosmograph", "Perpetual", "Superlative Chronometer"
+
+BEZEL DETAILS (into "bezel"):
+- Type: "smooth", "fluted", "tachymeter", "ceramic Cerachrom", "aluminum insert"
+- Color: black, blue, green, Pepsi (red-blue), Batman (blue-black), Rootbeer (brown-black)
+- Special: "diamond bezel", "rainbow diamond bezel", "sapphire bezel", "factory diamond bezel"
+
+BRACELET/STRAP DETAILS (into "bracelet_or_strap" and "strap_color"):
+- Type: "Oyster" (3-link steel/gold, most common), "Jubilee" (5-link), "President" (semi-circular 3-link, always gold Day-Date), "Oysterflex" (rubber over metal blade, sport models)
+- Clasp: "Glidelock" (Sub/Sea-Dweller), "Easylink" (Datejust), "Oysterlock"
+- Color derives from case: steel=silver, yellow gold=gold, Everose/rose=rose, two-tone=mix
+
+DIAMOND/MODIFICATION (into "distinguishing_markings"):
+- "factory diamond bezel" vs "aftermarket diamond bezel" (huge difference in value)
+- "diamond lugs", "diamond crown guards" (usually aftermarket)
+- "iced out" (fully modified with diamonds — aftermarket)
+- "Serti dial" (factory diamond hour markers, official Rolex option)
+
+Being explicit distinguishes otherwise identical refs (e.g. 126610LN plain vs 126610LN with aftermarket diamonds).
+
+For "year": 4-digit year if statedFor "year": 4-digit year if stated in message text (e.g. "2023 model", "bought in 2022"). null if not stated.
 For "date_complication": set to "date" if the watch has a date window, "day-date" if it shows both day and date, "no-date" if explicitly no date, or null if unknown. Clues: "No-Date", "date window", "DateJust", "Day-Date", "without date".
 For "dial_color": also check any text next to the reference number — sellers often write the dial color alongside the ref (e.g. "5711/1A Blue", "126610LN Black Dial"). Extract that too.
 For "condition": extract from message text only. "new" = unworn/sealed/new/NOS/never worn. "used" = pre-owned/worn/used/secondhand/previously owned. Leave null if not stated.
@@ -2475,6 +2504,17 @@ ROLEX SEARCH STRATEGY:
   Short form used by dealers: 15400ST (just first 7 chars, valid ref prefix)
   .01/.02/.03 at the end = dial color variant
   Search the short form first, then confirm full ref from listing
+
+━━━ DETAIL VERIFICATION (equally important as ref number) ━━━
+
+When you open a listing to confirm the ref, ALSO verify and update:
+- watch_color: exact case/bracelet metal (Oystersteel vs 18k yellow gold vs Everose gold vs white gold vs two-tone/Rolesor)
+- strap_color: bracelet finish color matching the case
+- bracelet_or_strap type: "Oyster" (3-link), "Jubilee" (5-link), "President", "Oysterflex" (rubber)
+- date_complication: date, day-date, or no-date
+- Any diamond/gemstone details (factory vs aftermarket)
+
+The listing page shows all these details \u2014 read them carefully and include in your JSON response. Different variants of the same ref (e.g., a Sub Date on Oyster vs on aftermarket rubber strap) are actually different watches for matching purposes.
 
 ━━━ WARNING — PHONE NUMBERS ━━━
   WhatsApp screenshots show a phone number at the top (e.g. +971 50 XXX XXXX).
@@ -2570,6 +2610,12 @@ async function callGeminiWithSearch({ base64Image, mimeType, promptText }, attem
       return callGeminiWithSearch({ base64Image, mimeType, promptText }, 1, modelIndex + 1);
     }
 
+    if (response.status === 401 || response.status === 403){
+      throw new Error(`Gemini auth failed (${response.status})${detail ? ': ' + detail : ''}. Your key format may be wrong \u2014 Gemini keys from aistudio.google.com start with "AIzaSy..." (39 chars). Update it in gear icon settings.`);
+    }
+    if (response.status === 429){
+      throw new Error(`Gemini quota exceeded (429)${detail ? ': ' + detail : ''}. Enable billing at console.cloud.google.com to unlock paid quota (fractions of a cent per image).`);
+    }
     throw new Error('Gemini API error ' + response.status + (detail ? ': ' + detail : ''));
   }
   const data = await response.json();
