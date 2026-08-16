@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+<!-- palette v2 1786904634 -->
 <meta charset="UTF-8">
 <style>
 /* ============================================================
@@ -10,49 +11,75 @@
    ============================================================ */
 
 :root{
-  /* surfaces */
-  --bg: #0f0e0c;
-  --bg-raised: #181511;
-  --bg-raised-2: #211d16;
-  --bg-raised-3: #2a2419;
-  --border: #3d3527;
-  --border-soft: #2a2419;
-  --border-bright: #54462e;
+  /* ─── surfaces (sharpened contrast per Image 2 reference) ─── */
+  --bg: #0F1116;              /* deeper graphite for page bg */
+  --bg-raised: #171A20;       /* header/metrics bar */
+  --bg-raised-2: #1E2229;     /* alias — slightly brighter card surface */
+  --bg-raised-3: #262A32;
+  --surface: #1E2229;         /* card background — clearly raised over bg */
+  --surface-hover: #262A32;
+  --border: rgba(201,169,97,0.18);        /* hairline gold-tinted border */
+  --border-soft: rgba(201,169,97,0.10);
+  --border-strong: rgba(201,169,97,0.34); /* hover/active border */
+  --border-bright: rgba(201,169,97,0.34);
 
-  /* movement gold (primary accent) */
-  --brass: #d4a84b;
-  --brass-dim: #97793a;
-  --brass-bright: #f0c668;
-  --brass-glow: rgba(212,168,75,0.35);
+  /* ─── primary accent — dial-marker gold ─── */
+  --gold: #C9A961;
+  --gold-bright: #E0C284;
+  --gold-glow: rgba(201,169,97,0.18);
+  --brass: #C9A961;           /* alias for compat with existing code */
+  --brass-dim: #8B7440;
+  --brass-bright: #E0C284;
+  --brass-glow: rgba(201,169,97,0.18);
 
-  /* steel blue (mens / cool data) */
+  /* ─── secondary — Rolex box emerald ─── */
+  --emerald: #0B3D2E;
+  --emerald-bright: #3E9C79;
+  --jade: #3E9C79;            /* alias for compat */
+  --jade-bright: #5FBF98;
+
+  /* ─── warning/rust — used/low confidence ─── */
+  --rust: #B5563C;
+  --rust-bright: #D97A5E;
+  --ruby: #B5563C;            /* alias for compat */
+  --ruby-bright: #D97A5E;
+
+  /* ─── steel blue (mens data) ─── */
   --steel: #5a8fb0;
   --steel-bright: #8fc1e0;
-
-  /* rose gold (ladies) */
-  --rose: #b8638a;
+  --rose: #b8638a;            /* ladies badge accent kept */
   --rose-bright: #e0a0c0;
 
-  /* jewel states */
-  --jade: #6fae5f;
-  --jade-bright: #97d985;
-  --ruby: #c75450;
-  --ruby-bright: #e88884;
+  /* ─── text ─── */
+  --text: #EDEAE2;            /* warm off-white, not pure white */
+  --text-dim: #B0B4BB;
+  --text-muted: #8A8F98;
+  --text-faint: #5B5F66;
 
-  /* text */
-  --text: #f2ede0;
-  --text-dim: #aaa392;
-  --text-faint: #756c5a;
-
-  /* type */
-  --display: 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
-  --serif: 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
-  --mono: 'SF Mono', 'IBM Plex Mono', 'Courier New', monospace;
-  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* ─── type ─── */
+  --display: 'Fraunces', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --serif: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+  --mono: 'IBM Plex Mono', 'SF Mono', 'Courier New', monospace;
+  --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 
   --radius: 10px;
   --radius-sm: 6px;
+  --radius-lg: 16px;
 }
+
+/* ─── faint guilloché background texture ─── */
+body::before{
+  content: '';
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(201,169,97,0.05) 0%, transparent 40%),
+    radial-gradient(circle at 80% 70%, rgba(201,169,97,0.04) 0%, transparent 45%),
+    radial-gradient(circle at 50% 50%, rgba(201,169,97,0.02) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+body > *{ position: relative; z-index: 1; }
 
 *{box-sizing:border-box;margin:0;padding:0;}
 
@@ -1135,7 +1162,623 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
   .dash-table{display:block;overflow-x:auto;}
   .match-pair-card{padding:14px;}
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   NEW DESIGN SYSTEM — Stockmatch v2 luxury
+   Placed at end of stylesheet so it overrides earlier styles.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Global type refresh */
+body{
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+}
+h1, h2, h3, h4, .brand-mark, .display-text{
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+.mono, .num, .price-value, .ref-value{
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Metrics bar (Dashboard section 1) ─── */
+.metrics-bar{
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: var(--bg-raised);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin: 0 -24px 24px;
+  padding: 0;
+}
+.metric-cell{
+  padding: 20px 24px;
+  border-right: 1px solid var(--border-strong);
+  display: flex; flex-direction: column;
+  gap: 6px;
+  background: linear-gradient(180deg, rgba(201,169,97,0.02) 0%, transparent 100%);
+}
+.metric-cell:last-child{ border-right: none; }
+.metric-num{
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.metric-num.accent{ color: var(--gold-bright); }
+.metric-label{
+  font-family: var(--sans);
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+@media(max-width:720px){
+  .metrics-bar{ grid-template-columns: repeat(2, 1fr); }
+  .metric-cell:nth-child(2){ border-right: none; }
+  .metric-cell:nth-child(1), .metric-cell:nth-child(2){ border-bottom: 1px solid var(--border); }
+}
+
+/* ─── Section headers ─── */
+.section-head{
+  display: flex; align-items: center;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.section-head .marker{
+  width: 10px; height: 10px;
+  background: var(--gold);
+  border-radius: 2px;
+}
+.section-head .marker.emerald{ background: var(--emerald-bright); }
+.section-head h2{
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+  letter-spacing: 0.005em;
+}
+.section-head .count-pill{
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Filter bar ─── */
+.watch-filter-bar{
+  display: flex; flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.watch-search-input{
+  width: 100%;
+  padding: 11px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  transition: border-color 0.15s;
+}
+.watch-search-input::placeholder{ color: var(--text-faint); }
+.watch-search-input:focus{
+  outline: none;
+  border-color: var(--border-strong);
+}
+.filter-chips{
+  display: flex; flex-wrap: wrap;
+  gap: 6px;
+}
+.filter-chip{
+  padding: 6px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.filter-chip:hover{ color: var(--text); border-color: var(--border-strong); }
+.filter-chip.active{
+  background: var(--gold-glow);
+  border-color: var(--gold);
+  color: var(--gold-bright);
+}
+.filter-chip .chip-count{
+  font-family: var(--mono);
+  font-size: 10px;
+  opacity: 0.7;
+  margin-left: 4px;
+}
+
+/* ─── Watch card (shared component) ─── */
+.watch-card{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  transition: transform 0.2s, border-color 0.2s;
+  position: relative;
+}
+.watch-card:hover{
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.watch-card-photo{
+  aspect-ratio: 4 / 3;
+  background: var(--bg);
+  cursor: pointer;
+  overflow: hidden;
+  position: relative;
+}
+.watch-card-photo img{
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.3s;
+}
+.watch-card-photo:hover img{ transform: scale(1.03); }
+
+.watch-card-photo-placeholder{
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+  background: radial-gradient(circle at center, rgba(201,169,97,0.06), rgba(20,22,26,0.6));
+}
+.watch-card-photo-placeholder.rolex{
+  background: radial-gradient(circle at center, rgba(11,61,46,0.35), rgba(20,22,26,0.7));
+}
+.watch-card-photo-placeholder.patek{
+  background: radial-gradient(circle at center, rgba(30,52,88,0.35), rgba(20,22,26,0.7));
+}
+.watch-card-photo-placeholder svg{
+  width: 45%; height: 45%;
+  opacity: 0.4;
+  stroke: var(--gold);
+  fill: none;
+  stroke-width: 1.2;
+}
+.watch-card-photo-placeholder .brand-tag{
+  position: absolute;
+  top: 10px; left: 12px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: 3px 7px;
+  background: rgba(20,22,26,0.65);
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
+.watch-card-body{
+  padding: 14px 16px 16px;
+  display: flex; flex-direction: column;
+  gap: 10px;
+  flex: 1;
+}
+.watch-card-heading{
+  display: flex; flex-direction: column;
+  gap: 2px;
+}
+.watch-card-model{
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.25;
+  letter-spacing: 0.005em;
+}
+.watch-card-brand{
+  font-family: var(--sans);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.watch-card-ref{
+  display: flex; align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+.ref-source-dot{
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.ref-source-dot.visible{ background: var(--gold); }
+.ref-source-dot.looked_up{
+  background: transparent;
+  border: 1.5px solid var(--gold);
+}
+.ref-source-dot.none, .ref-source-dot.null{ background: var(--text-faint); }
+.watch-card-ref-empty{
+  font-family: var(--sans);
+  font-size: 11.5px;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.watch-card-divider{
+  height: 1px;
+  background: var(--border);
+  margin: 2px 0 4px;
+}
+
+.watch-card-fields{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 14px;
+}
+.wf-item{ display: flex; flex-direction: column; gap: 2px; }
+.wf-label{
+  font-family: var(--sans);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  font-weight: 500;
+}
+.wf-value{
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+}
+.wf-value.text{ font-family: var(--sans); }
+
+.watch-card-badges{
+  display: flex; flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.wc-badge{
+  font-family: var(--sans);
+  font-size: 10.5px;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  background: transparent;
+  display: inline-flex; align-items: center; gap: 4px;
+  white-space: nowrap;
+}
+.wc-badge.condition-new{
+  border-color: rgba(62,156,121,0.4);
+  color: var(--emerald-bright);
+  background: rgba(62,156,121,0.08);
+}
+.wc-badge.condition-used{
+  border-color: rgba(181,86,60,0.4);
+  color: var(--rust-bright);
+  background: rgba(181,86,60,0.08);
+}
+.wc-badge.client-badge{
+  border-color: rgba(90,143,176,0.35);
+  color: var(--steel-bright);
+  background: rgba(90,143,176,0.08);
+  max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.wc-badge.client-badge::before{ content: '\1F4F1'; font-size: 10.5px; }
+.wc-badge.gender-mens{ color: var(--steel-bright); }
+.wc-badge.gender-ladies{ color: var(--rose-bright); }
+.wc-badge.status-matched{
+  background: rgba(62,156,121,0.1);
+  color: var(--emerald-bright);
+  border-color: rgba(62,156,121,0.35);
+}
+.wc-badge.multi-client{
+  color: var(--gold-bright);
+  background: var(--gold-glow);
+  border-color: rgba(201,169,97,0.35);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+/* ─── Confidence / lookup status strip (bottom of card) ─── */
+.watch-card-strip{
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  font-family: var(--sans);
+  font-size: 11px;
+  display: flex; align-items: center; gap: 8px;
+  background: transparent;
+  margin-top: auto;
+}
+.strip-dot{ width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.strip-emerald{ color: var(--emerald-bright); }
+.strip-emerald .strip-dot{ background: var(--emerald-bright); }
+.strip-rust{ color: var(--rust-bright); }
+.strip-rust .strip-dot{ background: var(--rust-bright); }
+.strip-muted{ color: var(--text-muted); }
+.strip-muted .strip-dot{ background: var(--text-faint); }
+
+/* ─── Two-column dashboard layout ─── */
+.dash-columns{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+}
+@media(max-width:900px){
+  .dash-columns{ grid-template-columns: 1fr; gap: 32px; }
+}
+
+.watch-grid{
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 16px;
+}
+
+/* ─── Close alternates sub-section ─── */
+.alt-subsection{
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px dashed var(--border-strong);
+}
+.alt-subsection-label{
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--text-faint);
+  margin-bottom: 14px;
+  font-weight: 400;
+}
+.watch-card.alt-card{
+  opacity: 0.85;
+  border-style: dashed;
+}
+
+/* ─── Buttons refresh ─── */
+.btn.primary{
+  background: var(--gold);
+  color: #1a1512;
+  border: none;
+  font-weight: 600;
+  font-family: var(--sans);
+}
+.btn.primary:hover{ background: var(--gold-bright); }
+.btn{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--sans);
+  font-weight: 500;
+  border-radius: 8px;
+  transition: all 0.15s;
+}
+.btn:hover{
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+/* ─── Compatibility: legacy classes get modern look ─── */
+.card{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  transition: transform 0.2s, border-color 0.2s;
+}
+.card:hover{
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+}
+
+/* ─── Gender monogram badge (square-ish, single letter) ─── */
+.wc-badge.gender-mono{
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  min-width: 22px;
+  text-align: center;
+  letter-spacing: 0.05em;
+}
+.wc-badge.gender-mono.gender-mens{
+  color: var(--steel-bright);
+  border-color: rgba(90,143,176,0.35);
+  background: rgba(90,143,176,0.08);
+}
+.wc-badge.gender-mono.gender-ladies{
+  color: var(--rose-bright);
+  border-color: rgba(184,99,138,0.35);
+  background: rgba(184,99,138,0.08);
+}
+.wc-badge.gender-mono.gender-unisex{
+  color: var(--text-muted);
+}
+
+/* ─── Big section heading block (top of each tab) ─── */
+.tab-heading-block{
+  margin: 24px 0 20px;
+}
+.tab-heading-block h1{
+  font-family: var(--display);
+  font-size: 30px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 4px;
+  letter-spacing: -0.005em;
+  position: relative;
+  display: inline-block;
+}
+.tab-heading-block h1::after{
+  content: '';
+  position: absolute;
+  bottom: -8px; left: 0;
+  width: 28px; height: 3px;
+  background: var(--gold);
+  border-radius: 2px;
+}
+.tab-heading-block .tab-description{
+  margin: 20px 0 0;
+  font-family: var(--sans);
+  font-size: 13.5px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  max-width: 780px;
+}
+
+/* ─── Header: tab count pill styling upgrade ─── */
+.tabs .tab{
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 8px 14px;
+  border-radius: 20px;
+  transition: all 0.15s;
+  display: inline-flex; align-items: center; gap: 8px;
+  cursor: pointer;
+}
+.tabs .tab:hover{ color: var(--text); }
+.tabs .tab.active{
+  color: var(--gold-bright);
+  background: var(--gold-glow);
+  border-color: var(--border-strong);
+}
+.tabs .tab .count{
+  font-family: var(--mono);
+  font-size: 10.5px;
+  background: var(--bg);
+  color: var(--text-muted);
+  padding: 2px 8px;
+  border-radius: 10px;
+  min-width: 22px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.tabs .tab.active .count{
+  color: var(--gold-bright);
+  background: rgba(20,22,26,0.6);
+}
+
+/* ─── Sync status pill in header ─── */
+.sync-pill{
+  display: inline-flex; align-items: center;
+  gap: 6px;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  color: var(--emerald-bright);
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: rgba(62,156,121,0.08);
+  margin-right: 8px;
+}
+.sync-pill::before{
+  content: '';
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--emerald-bright);
+}
+.sync-pill.offline{
+  color: var(--text-faint);
+  background: transparent;
+}
+.sync-pill.offline::before{ background: var(--text-faint); }
+
+/* ─── Empty state polish ─── */
+.empty-state{
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 60px 24px;
+  text-align: center;
+  color: var(--text-muted);
+}
+.empty-state .empty-icon{
+  width: 40px; height: 40px;
+  border: 1.5px dashed var(--gold);
+  border-radius: 50%;
+  margin: 0 auto 16px;
+  opacity: 0.5;
+}
+.empty-state p:first-of-type,
+.empty-state > p{
+  color: var(--text);
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 500;
+  margin: 0 0 6px;
+}
+.empty-state p.sub{
+  color: var(--text-muted);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  max-width: 380px;
+  margin: 6px auto 0;
+  line-height: 1.55;
+}
+
+/* ─── Status banner (rust-tinted for warnings) ─── */
+.key-banner{
+  background: rgba(181,86,60,0.08);
+  border-bottom: 1px solid rgba(181,86,60,0.25);
+  color: var(--rust-bright);
+  padding: 12px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: var(--sans);
+  font-size: 13px;
+  gap: 14px;
+  margin: 0 -24px 20px;
+}
+
+/* ─── Tab-heading toolbar ─── */
+.tab-toolbar{
+  display: flex; flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+
+/* ─── Card raised-panel look (per Image 2 reference) ─── */
+.watch-card{
+  background: linear-gradient(180deg, #1E2229 0%, #1B1F26 100%);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.02) inset, 0 4px 12px rgba(0,0,0,0.25);
+}
+.watch-card:hover{
+  background: linear-gradient(180deg, #232830 0%, #1F2329 100%);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 20px rgba(0,0,0,0.35);
+}
+
+/* ─── Metric numbers use the accent gold prominently for Matches Found ─── */
+.metric-num.accent{
+  color: var(--gold-bright);
+  text-shadow: 0 0 20px rgba(224,194,132,0.15);
+}
 </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300;0,500;0,600;0,700;1,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
 <div id="app">
@@ -1153,6 +1796,7 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
       <button class="tab" data-view="results">Results <span class="count" id="resultsCount">0</span></button>
       <button class="tab" data-view="dashboard">Dashboard <span class="count" id="dashboardCount">0</span></button>
     </nav>
+    <span class="sync-pill offline" id="syncPill">not synced</span>
     <button class="btn settings-btn" id="settingsBtn" title="API key settings">&#9881;</button>
   </header>
 
@@ -1165,19 +1809,17 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
 
     <!-- STOCK VIEW -->
     <section class="view active" id="view-stock">
-      <div class="panel-head">
-        <div>
-          <h2>Today's stock</h2>
-          <p class="sub">Upload watch photos. Each gets fingerprinted by Claude's vision &mdash; if the reference number isn't legible, it's looked up via Google search rather than guessed blind. <span class="paste-hint">Tip: you can also paste an image directly (Ctrl/Cmd+V).</span></p>
-        </div>
-        <div class="panel-actions">
-          <label class="btn primary file-btn">
-            Add images
-            <input type="file" id="stockFileInput" accept="image/*" multiple hidden>
-          </label>
-          <button class="btn" id="analyzeStockBtn" disabled>Analyze pending</button>
-          <button class="btn danger-text" id="clearStockBtn">Clear all</button>
-        </div>
+      <div class="tab-heading-block">
+        <h1>Today's stock</h1>
+        <p class="tab-description">Upload watch photos and review the details Claude extracts from each one. Ref numbers are read directly from the photo when legible, or verified via Google search across five specialist sites. Tip: paste images directly (Ctrl/Cmd+V).</p>
+      </div>
+      <div class="tab-toolbar">
+        <button class="btn" id="analyzeStockBtn" disabled>Analyze pending</button>
+        <button class="btn danger-text" id="clearStockBtn">Clear all</button>
+        <label class="btn primary file-btn" style="margin-left:auto;">
+          + Add images
+          <input type="file" id="stockFileInput" accept="image/*" multiple hidden>
+        </label>
       </div>
 
       <div class="empty-state" id="stockEmpty">
@@ -1191,20 +1833,18 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
 
     <!-- DEMAND VIEW -->
     <section class="view" id="view-demand">
-      <div class="panel-head">
-        <div>
-          <h2>Demand</h2>
-          <p class="sub">Add a request &mdash; an image, free text, or both. Text gets parsed into the same fingerprint fields as stock. <span class="paste-hint">Tip: you can also paste an image directly (Ctrl/Cmd+V).</span></p>
-        </div>
-        <div class="panel-actions">
-          <button class="btn" id="addTextDemandBtn">Add text request</button>
-          <label class="btn primary file-btn">
-            Add image request
-            <input type="file" id="demandFileInput" accept="image/*" multiple hidden>
-          </label>
-          <button class="btn" id="analyzeDemandBtn" disabled>Analyze pending</button>
-          <button class="btn danger-text" id="clearDemandBtn">Clear all</button>
-        </div>
+      <div class="tab-heading-block">
+        <h1>Demand</h1>
+        <p class="tab-description">Upload WhatsApp requests from customers. Each request gets fingerprinted the same way as stock, then verified via multi-source web lookup. Green strip means 2+ sources agree, rust means single source or manual verify needed.</p>
+      </div>
+      <div class="tab-toolbar">
+        <button class="btn" id="addTextDemandBtn">+ Text request</button>
+        <button class="btn" id="analyzeDemandBtn" disabled>Analyze pending</button>
+        <button class="btn danger-text" id="clearDemandBtn">Clear all</button>
+        <label class="btn primary file-btn" style="margin-left:auto;">
+          + Add image request
+          <input type="file" id="demandFileInput" accept="image/*" multiple hidden>
+        </label>
       </div>
 
       <div class="empty-state" id="demandEmpty">
@@ -1218,15 +1858,13 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
 
     <!-- RESULTS VIEW -->
     <section class="view" id="view-results">
-      <div class="panel-head">
-        <div>
-          <h2>Match results</h2>
-          <p class="sub">Matching is based on reference number only &mdash; if a stock item's reference number matches a demand request's reference number (read directly or confirmed via web search), it's a match. Nothing else factors in.</p>
-        </div>
-        <div class="panel-actions">
-          <button class="btn primary" id="runMatchBtn" disabled>Run matching</button>
-          <button class="btn danger-text" id="clearResultsBtn">Clear all</button>
-        </div>
+      <div class="tab-heading-block">
+        <h1>Results</h1>
+        <p class="tab-description">Confirmed matches sorted by confidence, with close alternates and year-alternates grouped separately below. High-confidence matches carry an emerald strip. Low-confidence matches show rust — verify these manually before contacting the client.</p>
+      </div>
+      <div class="tab-toolbar">
+        <button class="btn danger-text" id="clearResultsBtn">Clear all</button>
+        <button class="btn primary" id="runMatchBtn" style="margin-left:auto;" disabled>Run matching</button>
       </div>
 
       <div class="empty-state" id="resultsEmpty">
@@ -1240,21 +1878,19 @@ main{padding:30px 28px;max-width:1140px;margin:0 auto;}
 
     <!-- DASHBOARD VIEW -->
     <section class="view" id="view-dashboard">
-      <div class="panel-head">
-        <div>
-          <h2>Dashboard</h2>
-          <p class="sub">Confirmed matches at the top, full stock list below &mdash; price, dial, gender, and analysis status. Mark items sold to remove them, or update price inline.</p>
-        </div>
-        <div class="panel-actions catalog-io">
-          <button class="btn small" id="exportCatalogBtn" title="Save your analyzed catalog to a file as a backup">Backup catalog</button>
-          <label class="btn small file-btn" title="Restore a previously saved catalog backup">
-            Restore catalog
-            <input type="file" id="importCatalogInput" accept="application/json" hidden>
-          </label>
-          <button class="btn small" id="pushImagesBtn" title="Upload all local images to cloud so other devices can see them">Push images to cloud</button>
-          <button class="btn small danger-text" id="clearCloudBtn" title="Delete all images from cloud storage (local images are not affected)">Clear cloud images</button>
-          <button class="btn small primary" id="exportPdfBtn" title="Export dashboard as PDF">&#128196; Export PDF</button>
-        </div>
+      <div class="tab-heading-block">
+        <h1>Dashboard</h1>
+        <p class="tab-description">Confirmed matches at the top, full stock list below — price, dial, gender, and analysis status. Mark items sold to remove them, or update the price inline.</p>
+      </div>
+      <div class="tab-toolbar">
+        <button class="btn" id="exportCatalogBtn" title="Save your analyzed catalog to a file as a backup">Backup catalog</button>
+        <label class="btn file-btn" title="Restore a previously saved catalog backup">
+          Restore catalog
+          <input type="file" id="importCatalogInput" accept="application/json" hidden>
+        </label>
+        <button class="btn" id="pushImagesBtn" title="Upload all local images to cloud">Push images to cloud</button>
+        <button class="btn danger-text" id="clearCloudBtn" title="Delete all images from cloud storage">Clear cloud images</button>
+        <button class="btn primary" id="exportPdfBtn" title="Export dashboard as PDF" style="margin-left:auto;">&#128196; Export PDF</button>
       </div>
 
       <div class="dash-section-label" id="matchesSectionLabel" style="display:none;">Matches found</div>
@@ -2010,9 +2646,20 @@ function renderStock(){
   empty.style.display = stockItems.length ? 'none' : '';
   const stockFilterBar = buildFilterBar(stockItems, stockFilter, f => { stockFilter = f; renderStock(); });
   const filteredStock = filterItems(stockItems, stockFilter);
-  grid.innerHTML = stockFilterBar + filteredStock.map(renderStockCard).join('');
+  const matchedStockIds = new Set(matchResults.flatMap(r => r.matches.map(m => m.stockId)));
+  const cardsHtml = filteredStock.map(it => renderWatchCard(it, {
+    section: 'stock',
+    isMatched: matchedStockIds.has(it.id)
+  })).join('');
+  grid.innerHTML = stockFilterBar + `<div class="watch-grid">${cardsHtml}</div>`;
   grid.querySelectorAll('.filter-btn').forEach(btn => {
     btn.onclick = () => { stockFilter = btn.dataset.filter; renderStock(); };
+  });
+  grid.querySelectorAll('[data-action="lightbox"]').forEach(el => {
+    el.onclick = () => {
+      const item = stockItems.find(s => s.id === el.dataset.id);
+      if (item && item.imageData) openLightbox(item.imageData, imageMimeTypeOf(item));
+    };
   });
 
   const pendingCount = stockItems.filter(it => it.status === 'pending').length;
@@ -2028,6 +2675,133 @@ function renderStock(){
   // Trigger lazy cloud-load for any items missing imageData
   filteredStock.filter(it => it.hasImage && !it.imageData).forEach(it => lazyLoadImage(it, 'stock'));
 }
+
+// Unified watch-card renderer used by Stock, Demand, Matching views.
+// options = { section: 'stock'|'demand'|'match', showConfidenceStrip: bool, matchInfo: {...} }
+function renderWatchCard(it, options){
+  options = options || {};
+  const section = options.section || 'stock';
+  const fp = it.fingerprint || {};
+
+  // Photo section — real image or brand-tinted placeholder
+  const brandLower = (fp.brand || '').toLowerCase();
+  const placeholderClass = brandLower.includes('rolex') ? 'rolex'
+    : brandLower.includes('patek') ? 'patek' : '';
+  const brandTag = fp.brand ? `<span class="brand-tag">${escapeHtml(fp.brand)}</span>` : '';
+  const dialSvg = `<svg viewBox="0 0 100 100">
+    <circle cx="50" cy="50" r="34" stroke-width="1.5" />
+    <line x1="50" y1="50" x2="50" y2="28" stroke-width="1.8" stroke-linecap="round" />
+    <line x1="50" y1="50" x2="66" y2="54" stroke-width="1.8" stroke-linecap="round" />
+    <circle cx="50" cy="50" r="1.8" fill="currentColor" stroke="none" />
+  </svg>`;
+  const photoHtml = it.imageData
+    ? `<div class="watch-card-photo" data-action="lightbox" data-id="${it.id}"><img src="data:${imageMimeTypeOf(it)};base64,${it.imageData}" alt=""></div>`
+    : `<div class="watch-card-photo"><div class="watch-card-photo-placeholder ${placeholderClass}">${brandTag}${dialSvg}</div></div>`;
+
+  // Ref source dot indicator
+  const refSource = fp.reference_number_source || 'none';
+  const refDotClass = refSource === 'visible' || refSource === 'stated' ? 'visible'
+    : refSource === 'looked_up' || refSource === 'best_match' ? 'looked_up' : 'none';
+
+  // Ref line
+  const refLine = fp.reference_number
+    ? `<div class="watch-card-ref"><span class="ref-source-dot ${refDotClass}"></span>${escapeHtml(fp.reference_number)}</div>`
+    : `<div class="watch-card-ref-empty">ref not confirmed</div>`;
+
+  // Fixed 4-field grid — Dial / Date / Strap / Case, always in this order like image 2
+  const dashChar = '\u2014';
+  const strapVal = fp.bracelet_type && fp.bracelet_type !== 'unknown'
+    ? fp.bracelet_type
+    : (fp.bracelet_or_strap || dashChar);
+  const dateVal  = fp.date_complication || dashChar;
+  const dialVal  = fp.dial_color || dashChar;
+  const caseVal  = fp.case_size || fp.case_material || dashChar;
+
+  const fields = [
+    ['Dial',  escapeHtml(dialVal),  'text'],
+    ['Date',  escapeHtml(dateVal),  'text'],
+    ['Strap', escapeHtml(strapVal), 'text'],
+    ['Case',  escapeHtml(caseVal),  'text']
+  ];
+  const fieldsHtml = fields.map(([lbl, val, cls]) =>
+    `<div class="wf-item"><span class="wf-label">${lbl}</span><span class="wf-value ${cls}">${val}</span></div>`
+  ).join('');
+  const hasAnyField = fp.dial_color || fp.date_complication || fp.bracelet_or_strap || fp.case_size || fp.case_material;
+
+  // Badges — order depends on section (client first for demand)
+  const badges = [];
+  const clientBadgeHtml = fp.client_name
+    ? `<span class="wc-badge client-badge">${escapeHtml(fp.client_name)}</span>` : '';
+  const genderInitial = fp.gender === 'mens' ? 'M' : fp.gender === 'ladies' ? 'L' : fp.gender === 'unisex' ? 'U' : '';
+  const genderBadgeHtml = fp.gender
+    ? `<span class="wc-badge gender-${fp.gender} gender-mono">${genderInitial}</span>` : '';
+  const condBadgeHtml = fp.condition
+    ? `<span class="wc-badge condition-${fp.condition}">${fp.condition}</span>` : '';
+
+  if (section === 'demand'){
+    if (clientBadgeHtml) badges.push(clientBadgeHtml);
+    if (condBadgeHtml) badges.push(condBadgeHtml);
+    if (genderBadgeHtml) badges.push(genderBadgeHtml);
+  } else {
+    if (condBadgeHtml) badges.push(condBadgeHtml);
+    if (genderBadgeHtml) badges.push(genderBadgeHtml);
+    if (clientBadgeHtml) badges.push(clientBadgeHtml);
+  }
+  // Multi-client indicator
+  if (options.multiClientExtra){
+    badges.push(`<span class="wc-badge multi-client">+${options.multiClientExtra} more</span>`);
+  }
+  // Matched indicator for stock section
+  if (section === 'stock' && options.isMatched){
+    badges.push(`<span class="wc-badge status-matched">\u2713 matched</span>`);
+  }
+  const badgesHtml = badges.length
+    ? `<div class="watch-card-badges">${badges.join('')}</div>` : '';
+
+  // Bottom strip: confidence (match section) or lookup status (demand section)
+  let stripHtml = '';
+  if (section === 'match' && options.matchInfo){
+    const conf = options.matchInfo.confidence || 0;
+    const isHigh = conf >= 75 && !options.matchInfo.lowConfWarn;
+    stripHtml = isHigh
+      ? `<div class="watch-card-strip strip-emerald"><span class="strip-dot"></span>High confidence match \u00b7 ${Math.round(conf)}%</div>`
+      : `<div class="watch-card-strip strip-rust"><span class="strip-dot"></span>Low confidence \u2014 verify manually \u00b7 ${Math.round(conf)}%</div>`;
+  } else if (section === 'demand' && options.showConfidenceStrip){
+    const src = fp.reference_number_source;
+    const conflicts = fp.field_confidence && Object.values(fp.field_confidence).includes('low');
+    if (!fp.reference_number){
+      stripHtml = `<div class="watch-card-strip strip-rust"><span class="strip-dot"></span>Not found \u2014 needs manual ref</div>`;
+    } else if (src === 'looked_up' && !conflicts){
+      stripHtml = `<div class="watch-card-strip strip-emerald"><span class="strip-dot"></span>Verified \u2014 2+ sources agree</div>`;
+    } else if (src === 'looked_up' && conflicts){
+      stripHtml = `<div class="watch-card-strip strip-rust"><span class="strip-dot"></span>Single source \u2014 verify</div>`;
+    } else if (src === 'visible' || src === 'stated'){
+      stripHtml = `<div class="watch-card-strip strip-emerald"><span class="strip-dot"></span>Read directly from photo/message</div>`;
+    } else {
+      stripHtml = `<div class="watch-card-strip strip-muted"><span class="strip-dot"></span>Pending lookup</div>`;
+    }
+  }
+
+  const model = fp.model_line || (fp.brand ? '\u2014' : 'Unanalyzed');
+  const brandUpper = fp.brand ? escapeHtml(fp.brand) : '';
+
+  return `
+  <div class="watch-card ${options.altCard ? 'alt-card' : ''}" data-id="${it.id}">
+    ${section === 'demand' && !it.imageData ? '' : photoHtml}
+    <div class="watch-card-body">
+      <div class="watch-card-heading">
+        ${brandUpper ? `<div class="watch-card-brand">${brandUpper}</div>` : ''}
+        <div class="watch-card-model">${escapeHtml(model)}</div>
+      </div>
+      ${refLine}
+      ${hasAnyField ? '<div class="watch-card-divider"></div>' : ''}
+      ${hasAnyField ? `<div class="watch-card-fields">${fieldsHtml}</div>` : ''}
+      ${badgesHtml}
+    </div>
+    ${stripHtml}
+  </div>`;
+}
+
 
 function renderStockCard(it){
   const fp = it.fingerprint;
@@ -2220,12 +2994,28 @@ function renderDemand(){
 
   empty.style.display = demandItems.length ? 'none' : '';
   const dedupedDemand = deduplicateDemand(demandItems);
-  const multiClientMap = getMultiClientMap(demandItems); // for multi-client badges
+  const multiClientMap = getMultiClientMap(demandItems);
   const demandFilterBar = buildFilterBar(dedupedDemand, demandFilter, f => { demandFilter = f; renderDemand(); });
   const filteredDemand = filterItems(dedupedDemand, demandFilter);
-  // Pass multiClientMap to renderDemandCard via a temp global
   window._multiClientMap = multiClientMap;
-  grid.innerHTML = demandFilterBar + filteredDemand.map(renderDemandCard).join('');
+  const cardsHtml = filteredDemand.map(it => {
+    const ref = it.fingerprint && it.fingerprint.reference_number
+      ? it.fingerprint.reference_number.toUpperCase() : null;
+    const clients = ref && multiClientMap.get(ref);
+    const multiClientExtra = clients && clients.size > 1 ? clients.size - 1 : 0;
+    return renderWatchCard(it, {
+      section: 'demand',
+      showConfidenceStrip: true,
+      multiClientExtra
+    });
+  }).join('');
+  grid.innerHTML = demandFilterBar + `<div class="watch-grid">${cardsHtml}</div>`;
+  grid.querySelectorAll('[data-action="lightbox"]').forEach(el => {
+    el.onclick = () => {
+      const item = demandItems.find(d => d.id === el.dataset.id);
+      if (item && item.imageData) openLightbox(item.imageData, imageMimeTypeOf(item));
+    };
+  });
   grid.querySelectorAll('.filter-btn').forEach(btn => {
     btn.onclick = () => { demandFilter = btn.dataset.filter; renderDemand(); };
   });
@@ -2354,189 +3144,151 @@ function attachDemandCardHandlers(){
 
 /* ===================== vision extraction ===================== */
 
-const FINGERPRINT_SCHEMA_PROMPT = `You are inspecting a watch listing screenshot for a dealer's inventory system. The screenshot is typically a chat message (e.g. WhatsApp) containing a watch photo AND message text baked into the same image \u2014 the text may include price, description, condition, or seller notes layered over or alongside the photo. Read both the watch itself and any visible text in the image.
+const FINGERPRINT_SCHEMA_PROMPT = `You are extracting watch details from a photo and/or WhatsApp message text for a dealer's matching system. Accuracy matters more than completeness \u2014 a wrong value is worse than a null value, because this feeds an automated matcher.
 
-Extract a structured fingerprint as STRICT JSON ONLY (no markdown fences, no preamble, no commentary). Use null for any field you cannot determine. Fields:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HARD RULES (violate these and the matcher makes wrong sales calls)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Only report a value if you can literally see it in the image or it is explicitly stated in the message text. Never infer a "typical" or "expected" value for that model/reference, even if you recognize the watch. If you recognize the watch but the specific detail isn't visible or stated, output null for that field.
+
+2. For reference_number: only fill this if you can read actual characters on the dial, caseback, box, papers, or if it's typed as text in the message. Do not fill it based on visual recognition of the model alone. Set reference_number_source to "visible" (read from image) or "stated" (typed in message text). If neither, leave both null.
+
+3. For dial_color: use specific color names (black, blue, silver, champagne, olive green, slate grey, etc.), not vague ones. If lighting/glare makes it genuinely ambiguous between two colors, pick the more likely one but set field_confidence.dial_color to "low". Do not default to "black" as a safe guess \u2014 black and blue are the most commonly confused pair under artificial light, look for blue undertones in reflections before committing to black.
+
+4. For dial_markers_type, look specifically at the hour markers (not the dial texture): applied_indices (batons/shapes, no numbers), roman_numerals (I, II, III...), arabic_numerals (1, 2, 3...), dot_markers (small round dots only), baton_markers (thin rectangular lines), mixed (e.g. numerals at 12/6/9 with indices elsewhere). If markers aren't clearly visible, output "unknown", not a guess.
+
+5. For bracelet_type: Rolex options are oyster, jubilee, president, pearlmaster, oysterflex, leather, rubber. Patek Philippe is almost always leather strap or integrated_steel bracelet (Nautilus/Aquanaut style) \u2014 Patek does NOT have Jubilee/Oyster/President bracelets, those are Rolex-only terms. Do not apply Rolex bracelet names to Patek watches.
+
+6. For diamonds: "factory" only if you recognize this as a known factory diamond configuration for that reference (e.g. a documented diamond-bezel ref) AND the setting looks precise/uniform. "aftermarket" if the diamond setting looks uneven, added to a bezel/dial that doesn't normally have diamonds, or looks like a custom job. "none" if no diamonds visible. "unclear" if you can't tell \u2014 do not guess between factory and aftermarket, this distinction matters a lot to the dealer and a wrong "factory" label is costly.
+
+7. For every field you fill in ref_number, dial_color, dial_markers_type, and bracelet_type, also fill field_confidence for that field: "high" (directly and clearly visible/stated), "medium" (visible but partially obscured/ambiguous), "low" (best guess, genuinely uncertain).
+
+8. Before finalizing, re-check the reference number character by character against the image if visible \u2014 transposed or misread digits are a common error.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BRAND REFERENCE FORMATS (for recognizing valid ref numbers, NOT for guessing missing ones)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Rolex: 5-6 digits followed by 0-3 letters, e.g. 126610LN, 116500LN, 228238. No slashes.
+- Patek Philippe: 4 digits, a slash, 1-3 alphanumeric characters, often a dash and 3-digit suffix, e.g. 5711/1A-010, 5167/1A-001, 5227R-001, 5980/1R-001. The suffix after the dash usually encodes dial color/material \u2014 do not drop it if visible.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WHATSAPP HEADER IS NOT A SOURCE FOR REFERENCE NUMBERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The WhatsApp chat header at the very top of the screenshot contains the contact name, phone number, or group name. Examples: "Halid ~ watchtime.AH", "+971 54 123 4567", "Me 2150", "Store 45", "Customer 12", "Cartier Group". ALL OF THESE ARE CONTACT LABELS \u2014 not reference numbers.
+
+Reference numbers ONLY come from:
+  (a) Engraved/printed ON THE WATCH ITSELF (caseback, dial, crown area)
+  (b) Explicitly written in the MESSAGE TEXT as a watch specification
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OTHER FIELDS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+For "gender": "mens" | "ladies" | "unisex" | null. Set from case size + design when visible. "mens" for 40mm+ sport watches; "ladies" for 30mm or smaller / obvious ladies design; "unisex" for 34-37mm dressy pieces.
+For "date_complication": "date" (single date window), "day-date" (both day and date), "no-date" (no date at all), or null if unclear.
+For "condition": "new" (unworn/sealed/NOS) or "used" (pre-owned/worn/secondhand) \u2014 only from message text, null otherwise.
+For "watch_color": overall case+bracelet finish. "silver/steel", "yellow gold", "rose gold/Everose", "white gold", "two-tone gold & steel", "black PVD", "titanium grey".
+For "strap_color": color of the bracelet/strap material itself.
+For "client_name": WhatsApp sender name or number shown at the very top of the screenshot. null if not visible.
+For "year": 4-digit year if stated in message text, null otherwise.
+For "distinguishing_markings": any special features not covered elsewhere (special engravings, limited edition text, etc.).
+For "message_text": transcribe any visible chat/message text verbatim.
+For "price": price if stated in message. Include currency.
+For "confidence_notes": brief 1-2 sentence explanation of anything ambiguous or worth flagging.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT SCHEMA (strict JSON, no markdown, no commentary)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 {
   "brand": string or null,
   "model_line": string or null,
   "reference_number": string or null,
-  "reference_number_source": "visible" or null,
+  "reference_number_source": "visible" or "stated" or null,
   "gender": "mens" or "ladies" or "unisex" or null,
   "gender_basis": string or null,
   "dial_color": string or null,
+  "dial_markers_type": "applied_indices" or "roman_numerals" or "arabic_numerals" or "dot_markers" or "baton_markers" or "mixed" or "unknown",
   "bezel": string or null,
   "case_material": string or null,
   "case_size": string or null,
   "bracelet_or_strap": string or null,
-  "date_complication": "date" or "day-date" or "no-date" or null,
-  "year": string or null,
-  "client_name": string or null,
-  "watch_color": string or null,
+  "bracelet_type": "oyster" or "jubilee" or "president" or "pearlmaster" or "oysterflex" or "leather" or "rubber" or "mesh" or "integrated_steel" or "unknown",
   "strap_color": string or null,
-  "distinguishing_markings": string or null,
+  "watch_color": string or null,
+  "date_complication": "date" or "day-date" or "no-date" or null,
   "condition": "new" or "used" or null,
+  "diamonds": "factory" or "aftermarket" or "none" or "unclear",
+  "distinguishing_markings": string or null,
+  "client_name": string or null,
+  "year": string or null,
   "message_text": string or null,
   "price": string or null,
-  "confidence_notes": string or null
-}
+  "confidence_notes": string or null,
+  "field_confidence": {
+    "ref_number": "high" or "medium" or "low",
+    "dial_color": "high" or "medium" or "low",
+    "dial_markers_type": "high" or "medium" or "low",
+    "bracelet_type": "high" or "medium" or "low"
+  }
+}`;
 
-CRITICAL \u2014 WHATSAPP HEADER IS NOT A SOURCE FOR REFERENCE NUMBERS:
-The WhatsApp chat header at the very top of the screenshot contains the contact name, phone number, or group name. Examples: "Halid ~ watchtime.AH", "+971 54 123 4567", "Me 2150", "Store 45", "Customer 12", "Cartier Group". ALL OF THESE ARE CONTACT LABELS \u2014 not reference numbers.
-Reference numbers ONLY come from:
-  (a) Engraved/printed ON THE WATCH ITSELF (caseback, dial, crown area)
-  (b) Explicitly written in the MESSAGE TEXT as a watch specification
-Never extract a reference number from the WhatsApp UI chrome (header bar, status, contact name).
-A valid watch reference looks like: 126610LN (Rolex), 5711/1A-014 (Patek), 15400ST.OO.1220ST.01 (AP).
-Numbers like "2150", "45", "Me 2150", "+971..." in the chat header are NOT reference numbers.
+const REFERENCE_LOOKUP_PROMPT = `You are verifying watch reference details for a dealer's matching system by checking real listings on watch specialist sites. Wrong data is worse than no data \u2014 this feeds an automated matcher that will produce bad matches if fed bad data.
 
-REFERENCE NUMBER RULE: only set "reference_number" if it is legibly visible \u2014 engraved, printed, or stated in message text. Set "reference_number_source" to "visible" in that case. If it is NOT legible anywhere, set both "reference_number" and "reference_number_source" to null \u2014 do not guess here. A separate lookup step will handle that using the other fields you extract below, so describe the watch as precisely as possible even when the reference itself isn't visible.
+You are given: brand, model_line, and whatever partial details were already extracted (dial_color, bracelet_type, etc \u2014 treat these as hints, not confirmed facts).
 
-CASE MATERIAL CAUTION: platinum and white gold are visually almost indistinguishable in a photo \u2014 both appear as bright white/silvery metal. If you cannot find a hallmark, engraving, or stated material confirming which one it is, name your best guess but add a note in "confidence_notes" that it could plausibly be either, so a later step can search both possibilities rather than treating your guess as certain.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PROCESS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-GENDER RULES (important, this affects matching \u2014 never blur this):
-- Set "gender" based on case size, dial design, and known model conventions (e.g. Datejust 36mm+ is typically mens, Lady-Datejust / smaller diamond-marker dials are typically ladies). Some models are unisex by design (e.g. many modern 36-41mm steel sport watches) \u2014 use "unisex" only when that's a genuine, well-known convention, not as a default when unsure.
-- Set "gender_basis" to a short phrase explaining the signal used (e.g. "case size ~36mm + model name", "small dial with diamond hour markers", "known unisex sport model").
-- Do not guess gender from styling alone if it conflicts with known model conventions for that exact reference \u2014 model convention takes priority over surface styling.
+1. Search chrono24.com, watchcharts.com, watchbase.com, bobswatches.com, crownandcaliber.com in that order. Try at least 3 sources before returning a result, up to 4 attempts total.
 
-For "client_name": read the WhatsApp sender name or number shown at the very top of the screenshot (e.g. "Halid ~ watchtime.AH", "+971 50 123 4567", "Mohamed"). This is whoever sent the watch photo. null if not visible.
-For "strap_color": color of the bracelet or strap (separate from its type). For metal bracelets: "silver", "gold", "rose gold", "two-tone". For leather/rubber: "black", "brown", "blue", "green", "orange", "grey". null if unclear.
-For "watch_color": overall color/finish of the watch case and bracelet — NOT the dial. E.g. "rose gold", "yellow gold", "silver/steel", "two-tone gold & steel", "black PVD", "titanium grey", "white gold". Derive from case material + visible metal color. null if unclear.
+2. For each source, actually read the fetched page content \u2014 do not rely on search snippets alone. If URL context fails to retrieve real content for a source, skip it and move to the next, don't fabricate from the snippet.
 
-━━━ ROLEX-SPECIFIC DETAIL EXTRACTION (be extremely thorough) ━━━
+3. For reference_number, dial_color, dial_markers_type, and bracelet_type: only accept a value if you found it stated on at least ONE source you actually read. Quote which source and what it said (briefly) for each field you fill.
 
-DIAL DETAILS (into "dial_color" and "distinguishing_markings"):
-- Base color: black, white, silver, blue, green, chocolate, rose, champagne, meteorite, mother-of-pearl (MOP)
-- Dial finish: sunburst, matte, glossy, textured, lacquered
-- Hour markers: "diamond markers", "gold baton markers", "luminous baton", "roman numerals", "arabic numerals", "applied indices"
-- Special dials: "full pave diamond", "diamond dial", "iced out", "rainbow", "Stella", "Serti (factory diamonds)", "MOP"
-- Sub-dials (Daytona): note color and layout of sub-dials
-- Text on dial: "Sea-Dweller", "Deepsea", "Cosmograph", "Perpetual", "Superlative Chronometer"
+4. If two sources disagree on a field (e.g. one says dial is black, another says blue), do NOT pick one arbitrarily. Set that field to null and add it to the "conflicts" array with both values noted. A null with a conflict flag is far more useful than a confident wrong answer.
 
-BEZEL DETAILS (into "bezel"):
-- Type: "smooth", "fluted", "tachymeter", "ceramic Cerachrom", "aluminum insert"
-- Color: black, blue, green, Pepsi (red-blue), Batman (blue-black), Rootbeer (brown-black)
-- Special: "diamond bezel", "rainbow diamond bezel", "sapphire bezel", "factory diamond bezel"
+5. If you only found a field on exactly one source, still fill it, but mark field_confidence as "medium" rather than "high". "High" confidence requires the same value confirmed on 2+ sources.
 
-BRACELET/STRAP DETAILS (into "bracelet_or_strap" and "strap_color"):
-- Type: "Oyster" (3-link steel/gold, most common), "Jubilee" (5-link), "President" (semi-circular 3-link, always gold Day-Date), "Oysterflex" (rubber over metal blade, sport models)
-- Clasp: "Glidelock" (Sub/Sea-Dweller), "Easylink" (Datejust), "Oysterlock"
-- Color derives from case: steel=silver, yellow gold=gold, Everose/rose=rose, two-tone=mix
+6. Reference number format validation before accepting:
+   - Rolex = 5-6 digits + 0-3 letters, no slash (e.g. 126610LN, 116500LN, 228238)
+   - Patek Philippe = 4 digits / 1-3 chars, often -3 digit suffix (e.g. 5711/1A-010, 5167/1A, 5227R-001)
+   Reject anything that doesn't match the brand's format \u2014 it's likely a misread, not a real ref.
 
-DIAMOND/MODIFICATION (into "distinguishing_markings"):
-- "factory diamond bezel" vs "aftermarket diamond bezel" (huge difference in value)
-- "diamond lugs", "diamond crown guards" (usually aftermarket)
-- "iced out" (fully modified with diamonds — aftermarket)
-- "Serti dial" (factory diamond hour markers, official Rolex option)
+7. Brand-specific ref families (use these as search hints, never as the answer itself \u2014 they'll be passed to you if applicable).
 
-Being explicit distinguishes otherwise identical refs (e.g. 126610LN plain vs 126610LN with aftermarket diamonds).
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CRITICAL: PHONE NUMBERS ARE NOT REFERENCE NUMBERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-For "year": 4-digit year if statedFor "year": 4-digit year if stated in message text (e.g. "2023 model", "bought in 2022"). null if not stated.
-For "date_complication": set to "date" if the watch has a date window, "day-date" if it shows both day and date, "no-date" if explicitly no date, or null if unknown. Clues: "No-Date", "date window", "DateJust", "Day-Date", "without date".
-For "dial_color": also check any text next to the reference number — sellers often write the dial color alongside the ref (e.g. "5711/1A Blue", "126610LN Black Dial"). Extract that too.
-For "condition": extract from message text only. "new" = unworn/sealed/new/NOS/never worn. "used" = pre-owned/worn/used/secondhand/previously owned. Leave null if not stated.
-For "message_text": transcribe any visible chat/message text in the screenshot verbatim (price, description, condition notes, seller comments). If there is no visible text, use null.
-For "price": extract just the price/amount if stated anywhere in the visible text (keep currency symbol or code as shown, e.g. "PKR 450,000" or "$3,200"). If no price is stated, use null.
-Only state what is visually evident or stated in the caption. If the caption conflicts with the image or message text, prefer the image/message text but note the conflict in confidence_notes. Respond with the JSON object only.`;
+WhatsApp screenshots may include contact info at the top like "+971 54 123 4567", "Me 2150", "Store 45". These are contact labels, never reference numbers. Real refs live on the watch itself or in written specs on a listing page.
 
-const REFERENCE_LOOKUP_PROMPT = `You are finding the exact reference number AND date complication for a watch. Your job is critical — accuracy matters more than speed.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT (strict JSON, no markdown)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-SOURCES — try every single one before giving up:
-1. chrono24.com — "[brand] [model] [case material] site:chrono24.com"
-2. watchcharts.com — "[brand] [model] reference site:watchcharts.com"
-3. watchbase.com — "[brand] [model] specs site:watchbase.com"
-4. bobswatches.com — "[brand] [model] [dial color] site:bobswatches.com"
-5. crownandcaliber.com — "[brand] [model] site:crownandcaliber.com"
-
-MANDATORY: Try AT LEAST 3 sources before returning null. For each source: run the query, open the most relevant listing page, read the exact reference number. Chrono24 blocking is NOT a reason to give up — move to the next source immediately.
-
-━━━ ROLEX — SPECIAL RULES (most commonly misidentified brand) ━━━
-
-Rolex refs are 6 digits + mandatory letter suffix. Getting the suffix wrong means a completely wrong watch.
-
-LETTER SUFFIXES (critical — never omit or guess these):
-  LN = Lunette Noire = black ceramic bezel
-  LV = Lunette Verte = green "Hulk" bezel
-  BLNR = blue-black "Batman" bezel
-  BLRO = red-blue "Pepsi" bezel
-  WG = white gold case
-  RG / BRER = rose gold/Everose
-  YG = yellow gold
-
-GENERATION (both are common in secondary market):
-  126xxx = current gen (2020+) — larger crown guards, new bracelet clasp
-  116xxx = previous gen (pre-2020) — still very widely traded
-
-COMMON REFS (search these specifically when you see the model):
-  Submariner Date steel black: 126610LN (new) or 116610LN (old)
-  Submariner Date steel green: 126610LV (new) or 116610LV (old)
-  Submariner No-Date: 124060 (new) or 114060 (old)
-  GMT-Master II Batman (blue-black): 126710BLNR (new) or 116710BLNR (old)
-  GMT-Master II Pepsi (red-blue): 126710BLRO (new) or 116710LN (old)
-  GMT-Master II Rootbeer: 126711CHNR (Everose/steel) or 126715CHNR (Everose)
-  Daytona steel: 116500LN (black) or 116500 (white), newer = 126500LN
-  Daytona Everose: 116505, newer = 126505
-  Daytona yellow gold: 116508 or 116518
-  Datejust 41 steel: 126334; two-tone: 126333; yellow gold/steel: 126303
-  Datejust 36 steel: 126234; two-tone: 126231
-  Day-Date 40 yellow gold: 228238; Everose: 228235; white gold: 228239
-  Explorer I 36mm: 124270; 42mm: 226570
-  Explorer II: 226570 (white) or 226570 (black)
-  Sea-Dweller: 126600 (steel) or 126603 (two-tone)
-  Sky-Dweller: 326934 (steel) or 326935 (Everose) or 326938 (yellow gold)
-  Yacht-Master 40: 126622 (two-tone) or 116655 (Oysterflex Everose)
-  Oyster Perpetual 41: 124300 (steel)
-
-ROLEX SEARCH STRATEGY:
-  Step 1: Search "Rolex [model name] [metal/material] site:chrono24.com"
-  Step 2: Open a matching listing → read the ref number from the product title or specs
-  Step 3: If you see both old-gen (116xxx) and new-gen (126xxx) results, look at the photo details (clasp design, crown guard size) — both are valid refs depending on which generation the watch is
-  Step 4: NEVER guess or invent letter suffixes. If you cannot confirm LN vs LV from a listing, return the base 6 digits only OR null.
-
-━━━ PATEK PHILIPPE — SPECIAL RULES ━━━
-  Format: XXXX/YZ-NNN where -NNN is the dial color variant
-  5711/1A-001 (blue-grey), 5711/1A-014 (olive green) = SAME watch, DIFFERENT dials
-  NEVER match on base ref alone if the full ref including -NNN is available
-  Search "Patek Philippe [model] [material] site:chrono24.com" then open listing
-
-━━━ AUDEMARS PIGUET — SPECIAL RULES ━━━
-  Full format: 15400ST.OO.1220ST.01
-  Short form used by dealers: 15400ST (just first 7 chars, valid ref prefix)
-  .01/.02/.03 at the end = dial color variant
-  Search the short form first, then confirm full ref from listing
-
-━━━ DETAIL VERIFICATION (equally important as ref number) ━━━
-
-When you open a listing to confirm the ref, ALSO verify and update:
-- watch_color: exact case/bracelet metal (Oystersteel vs 18k yellow gold vs Everose gold vs white gold vs two-tone/Rolesor)
-- strap_color: bracelet finish color matching the case
-- bracelet_or_strap type: "Oyster" (3-link), "Jubilee" (5-link), "President", "Oysterflex" (rubber)
-- date_complication: date, day-date, or no-date
-- Any diamond/gemstone details (factory vs aftermarket)
-
-The listing page shows all these details \u2014 read them carefully and include in your JSON response. Different variants of the same ref (e.g., a Sub Date on Oyster vs on aftermarket rubber strap) are actually different watches for matching purposes.
-
-━━━ WARNING — PHONE NUMBERS ━━━
-  WhatsApp screenshots show a phone number at the top (e.g. +971 50 XXX XXXX).
-  This is the CLIENT'S NUMBER. Never use it as a reference number.
-  Real refs: 126610LN, 5711/1A-014, 15400ST.OO.1220ST.01
-  Phone numbers: +971 50 123 4567, +92 300 1234567
-
-STRICT RULES:
-- You MUST actually call the search tool and open listing pages. Never answer from memory.
-- If all 5 sources genuinely fail, return null — do NOT guess.
-- "looked_up" = confirmed from a real listing page you actually opened
-- "best_match" = multiple real candidates found, you picked the closest based on visual details
-
-Respond STRICT JSON ONLY:
 {
   "reference_number": string or null,
-  "reference_number_source": "looked_up" or "best_match" or null,
-  "sources_agreed": number,
-  "confirming_source": string or null,
+  "reference_number_source": "looked_up" or null,
+  "dial_color": string or null,
+  "dial_markers_type": string or null,
+  "bracelet_type": string or null,
   "date_complication": "date" or "day-date" or "no-date" or null,
   "watch_color": string or null,
   "strap_color": string or null,
+  "field_confidence": {
+    "ref_number": "high" or "medium" or "low" or null,
+    "dial_color": "high" or "medium" or "low" or null,
+    "dial_markers_type": "high" or "medium" or "low" or null,
+    "bracelet_type": "high" or "medium" or "low" or null
+  },
+  "conflicts": [ { "field": string, "values": [string, string], "sources": [string, string] } ],
+  "sources_checked": [string],
+  "confirming_source": string or null,
   "confidence_notes": string or null
 }`;
 
@@ -2675,9 +3427,13 @@ async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt){
 
   const detailsText = `Watch details extracted so far:\n${JSON.stringify(fp, null, 2)}`;
   const rolexHints = getRolexRefHints(fp);
-  const hintsText = rolexHints
-    ? `\n\nROLEX REF HINTS: Based on the extracted details, the most likely reference numbers for this watch are:\n${rolexHints.map(h => '  • ' + h).join('\n')}\nSearch these SPECIFIC refs on Chrono24/WatchCharts first to confirm. Open a listing that matches the watch details (dial color, bezel, generation) and verify the exact ref.`
-    : '';
+  const patekHints = getPatekRefHints(fp);
+  let hintsText = '';
+  if (rolexHints){
+    hintsText = `\n\nROLEX REF HINTS: Based on the extracted details, the most likely reference numbers for this watch are:\n${rolexHints.map(h => '  • ' + h).join('\n')}\nSearch these SPECIFIC refs on Chrono24/WatchCharts first to confirm. Open a listing that matches the watch details (dial color, bezel, generation) and verify the exact ref.`;
+  } else if (patekHints){
+    hintsText = `\n\nPATEK PHILIPPE REF FAMILIES: The following ref families are common for this model line. Use them as search hints only, never as the answer itself:\n${patekHints.map(h => '  • ' + h).join('\n')}\nSearch these on Chrono24/WatchCharts, open a listing that visually matches, and read the exact ref (including dial-suffix like -010, -001) from the listing.`;
+  }
   const promptText = base64Image
     ? `${detailsText}${hintsText}\n\nThe photo is attached. Identify the exact reference number using the photo plus multiple Google searches, per your instructions.${officialSiteInstruction}`
     : `${detailsText}${hintsText}\n\nNo photo is available, only the description above. Identify the exact reference number using multiple Google searches based on these details, per your instructions.${officialSiteInstruction}`;
@@ -3034,29 +3790,13 @@ async function analyzeBatch(items, kind, renderFn){
             fp.reference_number_source = 'inferred';
           }
         }
-        // Validate extracted ref looks like a real watch ref (not a WhatsApp label)
+        // Brand-conditional ref validation (Fix 4: Rolex+Patek+fallback)
         if (fp.reference_number){
           const ref = fp.reference_number.trim();
-          const brand = (fp.brand || '').toLowerCase();
-          // Rolex refs must be 5-6 digits + optional uppercase letters
-          if (brand.includes('rolex')){
-            const cleaned = ref.replace(/[\s\.\-\/]/g, '');
-            const isValidRolex = /^\d{5,6}[A-Z]{0,8}$/.test(cleaned);
-            if (!isValidRolex){
-              fp.reference_number = null;
-              fp.reference_number_source = null;
-              fp.confidence_notes = ((fp.confidence_notes||'') + ' [Rolex ref rejected: "' + ref + '" does not match 5-6 digit Rolex format]').trim();
-            }
-          }
-          // All brands: reject very short numbers (< 4 digits total) — likely a label
-          else if (ref && (ref.replace(/\D/g,'').length < 4)){
+          if (!isValidRef(fp.brand, ref)){
             fp.reference_number = null;
             fp.reference_number_source = null;
-          }
-          // Reject if it looks like a phone number or pure short number
-          else if (fp.reference_number && looksLikePhoneNumber(fp.reference_number)){
-            fp.reference_number = null;
-            fp.reference_number_source = null;
+            fp.confidence_notes = ((fp.confidence_notes||'') + ' [Ref rejected: "' + ref + '" does not match ' + (fp.brand || 'brand') + ' format]').trim();
           }
         }
         // Only clear refs with NO source at all (training knowledge guesses).
@@ -3388,6 +4128,35 @@ function getRolexRefHints(fp){
   return null; // no specific hint available
 }
 
+// Brand-conditional ref number validation. Rolex-only regex was mangling Patek refs.
+function isValidRef(brand, ref){
+  if (!ref) return false;
+  const b = (brand || '').toLowerCase();
+  if (b.includes('rolex')){
+    // Rolex: 5-6 digits + 0-8 letter suffix, no slashes or dashes
+    const cleaned = ref.replace(/[\s\.\-\/]/g, '');
+    return /^\d{5,6}[A-Z]{0,8}$/.test(cleaned);
+  }
+  if (b.includes('patek')){
+    // Patek: 4 digits / 1-3 chars, optional -NNN suffix. E.g. 5711/1A-010, 5167/1A, 5227R-001
+    return /^\d{4}\/\d{1,3}[A-Z]{0,2}(-\d{2,3})?$/.test(ref) || /^\d{4}[A-Z]{0,2}(-\d{2,3})?$/.test(ref);
+  }
+  // Fallback: must contain a digit, must not look like a phone number
+  return /\d/.test(ref) && !looksLikePhoneNumber(ref);
+}
+
+// Patek Philippe ref family hints — passed to Gemini so it searches specific model families.
+function getPatekRefHints(fp){
+  if (!fp || !fp.brand || !fp.brand.toLowerCase().includes('patek')) return null;
+  const model = (fp.model_line || '').toLowerCase();
+  if (model.includes('nautilus'))       return ['5711/1A (steel time-only)', '5712/1A (steel moon)', '5726/1A (annual cal)', '5990/1A (travel time chrono)', '7118/1A (ladies)'];
+  if (model.includes('aquanaut'))       return ['5167A (steel)', '5168G (white gold)', '5060 (previous)', '5164A (travel time)'];
+  if (model.includes('calatrava'))      return ['5196 (manual)', '6119 (manual)', '5227 (auto)', '6006 (pointer date)'];
+  if (model.includes('complications'))  return ['5205 (annual cal moon)', '5396 (annual cal)', '5940 (annual cal cushion)'];
+  if (model.includes('twenty'))         return ['7300/1200 (Twenty-4 auto)', '7010 (Twenty-4 quartz)'];
+  return null;
+}
+
 function looksLikePhoneNumber(str){
   // Phone numbers: mostly digits, possibly +, spaces, dashes. 8-15 digits total.
   const digits = str.replace(/\D/g, '');
@@ -3489,14 +4258,48 @@ function runMatching(opts){
       const sFp = s.fingerprint;
       const refMatch = matchRefs(dFp.reference_number, sFp.reference_number);
 
+      // Field-level confidence check: skip hard-comparing fields where either side is low-confidence.
+      // Those go to closeAlternates with a "check manually" note instead.
+      const lowConf = (a, b, key) => {
+        const ac = a && a.field_confidence && a.field_confidence[key];
+        const bc = b && b.field_confidence && b.field_confidence[key];
+        return ac === 'low' || bc === 'low';
+      };
+
       const dialResult     = detailsCompatible(dFp.dial_color,        sFp.dial_color);
       const strapResult    = detailsCompatible(dFp.bracelet_or_strap, sFp.bracelet_or_strap);
       const strapColResult = detailsCompatible(dFp.strap_color,       sFp.strap_color);
       const dateResult     = detailsCompatible(dFp.date_complication,  sFp.date_complication);
       const watchColResult = detailsCompatible(dFp.watch_color,        sFp.watch_color);
+      const bracType_d     = dFp.bracelet_type || null;
+      const bracType_s     = sFp.bracelet_type || null;
+      const bracTypeResult = (bracType_d && bracType_s && bracType_d !== 'unknown' && bracType_s !== 'unknown')
+        ? (bracType_d === bracType_s ? 'match' : 'mismatch')
+        : 'neutral';
+      const dialMk_d       = dFp.dial_markers_type || null;
+      const dialMk_s       = sFp.dial_markers_type || null;
+      const dialMkResult   = (dialMk_d && dialMk_s && dialMk_d !== 'unknown' && dialMk_s !== 'unknown')
+        ? (dialMk_d === dialMk_s ? 'match' : 'mismatch')
+        : 'neutral';
 
       const mismatches = [];
-      if (dialResult     === 'mismatch') mismatches.push(`dial: \u201c${dFp.dial_color}\u201d \u2260 \u201c${sFp.dial_color || '?'}\u201d`);
+      const lowConfNotes = [];
+      // Dial color
+      if (dialResult === 'mismatch'){
+        if (lowConf(dFp, sFp, 'dial_color')) lowConfNotes.push(`dial (low confidence): \u201c${dFp.dial_color}\u201d vs \u201c${sFp.dial_color || '?'}\u201d`);
+        else mismatches.push(`dial: \u201c${dFp.dial_color}\u201d \u2260 \u201c${sFp.dial_color || '?'}\u201d`);
+      }
+      // Bracelet/strap type (typed field with confidence)
+      if (bracTypeResult === 'mismatch'){
+        if (lowConf(dFp, sFp, 'bracelet_type')) lowConfNotes.push(`bracelet type (low confidence): \u201c${bracType_d}\u201d vs \u201c${bracType_s}\u201d`);
+        else mismatches.push(`bracelet type: \u201c${bracType_d}\u201d \u2260 \u201c${bracType_s}\u201d`);
+      }
+      // Dial markers type
+      if (dialMkResult === 'mismatch'){
+        if (lowConf(dFp, sFp, 'dial_markers_type')) lowConfNotes.push(`dial markers (low confidence): \u201c${dialMk_d}\u201d vs \u201c${dialMk_s}\u201d`);
+        else mismatches.push(`dial markers: \u201c${dialMk_d}\u201d \u2260 \u201c${dialMk_s}\u201d`);
+      }
+      // Remaining fields (no field_confidence yet, treat as regular)
       if (strapResult    === 'mismatch') mismatches.push(`strap: \u201c${dFp.bracelet_or_strap}\u201d \u2260 \u201c${sFp.bracelet_or_strap || '?'}\u201d`);
       if (strapColResult === 'mismatch') mismatches.push(`strap color: \u201c${dFp.strap_color}\u201d \u2260 \u201c${sFp.strap_color || '?'}\u201d`);
       if (dateResult     === 'mismatch') mismatches.push(`date: \u201c${dFp.date_complication}\u201d \u2260 \u201c${sFp.date_complication || '?'}\u201d`);
@@ -3511,6 +4314,13 @@ function runMatching(opts){
       if (mismatches.length > 0){
         closeAlternates.push({ stockId: s.id, stockItem: s,
           similarTag: `Same ref \u2014 differs: ${mismatches.join(' | ')}` });
+        return;
+      }
+      // If everything matched but there were low-confidence fields, still route to alternates
+      // so Anas can eyeball it instead of relying on a shaky auto-match.
+      if (lowConfNotes.length > 0){
+        closeAlternates.push({ stockId: s.id, stockItem: s,
+          similarTag: `Likely match \u2014 needs manual check: ${lowConfNotes.join(' | ')}` });
         return;
       }
 
@@ -3758,58 +4568,133 @@ function scrollToCard(kind, id){
 }
 
 function renderDashboard(){
-  renderDashboardMatches();
-
-  const tbody = document.getElementById('dashboardBody');
-  const empty = document.getElementById('dashboardEmpty');
-  const table = document.getElementById('dashboardTable');
+  const empty     = document.getElementById('dashboardEmpty');
+  const table     = document.getElementById('dashboardTable');
+  const matchWrap = document.getElementById('dashboardMatches');
+  const matchLbl  = document.getElementById('matchesSectionLabel');
+  const stockLbl  = document.getElementById('stockSectionLabel');
   document.getElementById('dashboardCount').textContent = stockItems.length;
+
+  if (table)    table.style.display = 'none';
+  if (matchLbl) matchLbl.style.display = 'none';
+  if (stockLbl) stockLbl.style.display = 'none';
 
   if (!stockItems.length){
     empty.style.display = '';
-    table.style.display = 'none';
+    matchWrap.innerHTML = '';
     return;
   }
   empty.style.display = 'none';
-  table.style.display = '';
 
-  tbody.innerHTML = stockItems.map(it => {
-    const fp = it.fingerprint;
-    const priceVal = it.priceOverride !== undefined && it.priceOverride !== null && it.priceOverride !== '' ? it.priceOverride : (fp ? fp.price : null);
-    const thumb = it.imageData
-      ? `<img class="dash-thumb" src="data:${imageMimeTypeOf(it)};base64,${it.imageData}" alt="">`
-      : `<div class="dash-thumb placeholder">no img</div>`;
-    return `
-    <tr data-id="${it.id}">
-      <td>${thumb}</td>
-      <td>
-        <div class="dash-name">${escapeHtml(fp ? fpLine(fp) : (it.caption || it.filename || 'Unidentified'))}</div>
-        ${fp ? refBadge(fp) : ''}
-      </td>
-      <td>${genderBadge(fp) || '\u2014'}</td>
-      <td>${fp ? escapeHtml(fp.dial_color || '\u2014') : '\u2014'}</td>
-      <td>${fp ? escapeHtml(fp.case_material || '\u2014') : '\u2014'}</td>
-      <td><span class="status-badge ${it.status}">${it.status}</span></td>
-      <td>
-        <input class="dash-price-input" type="text" placeholder="\u2014" value="${escapeHtml(priceVal || '')}" data-id="${it.id}" data-field="dashprice">
-      </td>
-      <td class="dash-actions">
-        <button class="btn small" data-action="dashsold" data-id="${it.id}">Sold out</button>
-      </td>
-    </tr>`;
-  }).join('');
+  const matchedStockIds = new Set(matchResults.flatMap(r => r.matches.map(m => m.stockId)));
+  const withMatches     = matchResults.filter(r => r.matches && r.matches.length);
+  const needsReview     = matchResults.filter(r =>
+    r.similarModels && r.similarModels.some(s => (s.similarTag || '').includes('needs manual check'))
+  ).length + demandItems.filter(d => d.fingerprint && !d.fingerprint.reference_number).length;
 
-  tbody.querySelectorAll('[data-field="dashprice"]').forEach(input => {
-    input.oninput = (e) => {
-      const item = stockItems.find(s => s.id === e.target.dataset.id);
-      if (item) item.priceOverride = e.target.value;
-    };
-    input.onblur = () => { saveStockCatalog(); renderStock(); };
+  // Metrics bar
+  const metricsHtml = `
+  <div class="metrics-bar">
+    <div class="metric-cell">
+      <div class="metric-num">${stockItems.length}</div>
+      <div class="metric-label">Total Stock</div>
+    </div>
+    <div class="metric-cell">
+      <div class="metric-num">${demandItems.length}</div>
+      <div class="metric-label">Total Demand</div>
+    </div>
+    <div class="metric-cell">
+      <div class="metric-num accent">${withMatches.length}</div>
+      <div class="metric-label">Matches Found</div>
+    </div>
+    <div class="metric-cell">
+      <div class="metric-num">${needsReview}</div>
+      <div class="metric-label">Needs Review</div>
+    </div>
+  </div>`;
+
+  // Stock column
+  const stockCardsHtml = stockItems.map(it => renderWatchCard(it, {
+    section: 'stock',
+    isMatched: matchedStockIds.has(it.id)
+  })).join('');
+
+  // Matched column
+  let matchedCardsHtml = '';
+  if (withMatches.length){
+    matchedCardsHtml = withMatches.map(r => {
+      const top = r.matches[0];
+      const stockItem = top.stockItem;
+      // Detect low-confidence markers in reasoning
+      const lowConfWarn = (top.reasoning || '').includes('low confidence') ||
+                          (top.reasoning || '').includes('needs manual check');
+      return renderWatchCard(stockItem, {
+        section: 'match',
+        matchInfo: { confidence: top.confidence, lowConfWarn }
+      });
+    }).join('');
+  } else {
+    matchedCardsHtml = `<div class="empty-state" style="padding:40px 20px;">
+      <div class="empty-icon">&#8596;</div>
+      <p>No matches yet</p>
+      <p class="sub">Analyze stock and demand, then run matching.</p>
+    </div>`;
+  }
+
+  // Close alternates + similar models as sub-section
+  const altCards = [];
+  matchResults.forEach(r => {
+    (r.similarModels || []).forEach(alt => {
+      altCards.push(renderWatchCard(alt.stockItem, {
+        section: 'stock',
+        altCard: true
+      }));
+    });
   });
-  tbody.querySelectorAll('[data-action="dashsold"]').forEach(btn => {
-    btn.onclick = (e) => markSold(e.target.dataset.id);
+  const altSectionHtml = altCards.length ? `
+    <div class="alt-subsection">
+      <div class="alt-subsection-label">Close alternates &amp; year variants</div>
+      <div class="watch-grid">${altCards.slice(0, 6).join('')}</div>
+    </div>` : '';
+
+  matchWrap.innerHTML = `
+    ${metricsHtml}
+    <div class="dash-columns">
+      <div>
+        <div class="section-head">
+          <span class="marker"></span>
+          <h2>Stock</h2>
+          <span class="count-pill">${stockItems.length}</span>
+        </div>
+        <div class="watch-grid">${stockCardsHtml}</div>
+      </div>
+      <div>
+        <div class="section-head">
+          <span class="marker emerald"></span>
+          <h2>Matched</h2>
+          <span class="count-pill">${withMatches.length}</span>
+        </div>
+        <div class="watch-grid">${matchedCardsHtml}</div>
+        ${altSectionHtml}
+      </div>
+    </div>`;
+
+  // Wire lightbox on photos
+  matchWrap.querySelectorAll('[data-action="lightbox"]').forEach(el => {
+    el.onclick = () => {
+      const id = el.dataset.id;
+      const item = stockItems.find(s => s.id === id) || demandItems.find(d => d.id === id);
+      if (item && item.imageData) openLightbox(item.imageData, imageMimeTypeOf(item));
+    };
   });
 }
+
+function formatPrice(num){
+  if (num >= 1000000) return (num/1000000).toFixed(1) + 'M';
+  if (num >= 1000)    return (num/1000).toFixed(0) + 'K';
+  return num.toLocaleString();
+}
+
 
 function confidenceTier(pct){
   if (pct >= 70) return 'high';
@@ -4073,6 +4958,7 @@ function init(){
     _supabaseClient = null; _supabaseInitError = null;
     document.getElementById('settingsModalOverlay').classList.remove('open');
     updateKeyBanner();
+  updateSyncPill();
     showToast(key ? 'Settings saved' : 'Anthropic key cleared');
     if (!wasSupabaseConfigured && supabaseSyncConfigured()){ setTimeout(() => pushLocalImagesToCloud(), 600); }
   };
@@ -4110,6 +4996,18 @@ function init(){
   loadStockCatalog().then(() => { renderStock(); renderDashboard(); });
   loadDemandCatalog().then(() => { renderDemand(); });
   renderResults();
+}
+
+function updateSyncPill(){
+  const pill = document.getElementById('syncPill');
+  if (!pill) return;
+  if (supabaseSyncConfigured() && getSyncId()){
+    pill.textContent = 'synced';
+    pill.classList.remove('offline');
+  } else {
+    pill.textContent = 'not synced';
+    pill.classList.add('offline');
+  }
 }
 
 function updateKeyBanner(){
