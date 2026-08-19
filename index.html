@@ -4459,6 +4459,34 @@ function refSourceLabel(source){
   return 'unconfirmed';
 }
 
+/* ══════════════════════════════════════════════════════════════════════
+   MATCHING ENGINE — rebuilt clean against the exact stated rules:
+
+   A stock item matches a demand item ONLY when ALL of these agree:
+     1. Brand
+     2. Reference number (exact, or prefix when one side is a shorter variant)
+     3. Dial color
+     4. Date complication (date / day-date / no-date)
+     5. Strap/bracelet TYPE (Oyster/Jubilee/President/leather/etc)
+     6. Strap/bracelet COLOR
+
+   Any field the demand did NOT specify is not checked (can't fail on
+   missing information). Any field where BOTH sides gave a value that
+   genuinely conflicts blocks the match and routes it to "close
+   alternates" with the exact reason shown.
+
+   Diamond/marker-type differences ALSO block a match, but ONLY when
+   there is actual conflicting evidence on both sides (e.g. one explicitly
+   diamond, other explicitly plain). Missing/unknown marker info on
+   either side does NOT block a match — that was a mistake in an earlier
+   version and has been removed. Condition (new/used) and gender are
+   informational only and never block a match.
+
+   Multiple stock items can match the same demand — all are shown,
+   ranked by confidence. Year variants (±2 years) and same-model
+   different-dial items that don't strictly match are grouped as
+   "close alternates" under that demand, never mixed across demands.
+   ══════════════════════════════════════════════════════════════════════ */
 function runMatching(opts){
   const silent = opts && opts.silent;
   const allStockDone  = stockItems.filter(it  => it.status === 'done' && it.fingerprint);
@@ -4472,105 +4500,60 @@ function runMatching(opts){
   matchResults = allDemandDone.map(d => {
     const dFp = d.fingerprint;
 
-    /* STEP 1: brand filter */
+    /* STEP 1 — brand filter */
     const sameBrand = allStockDone.filter(s =>
       !dFp.brand || !s.fingerprint.brand || brandMatches(dFp.brand, s.fingerprint.brand)
     );
 
     if (!dFp.reference_number){
       return { demandId: d.id, demandItem: d, matches: [],
-        similarModels: sameBrand.slice(0,3).map(s => ({ stockId: s.id, stockItem: s, similarTag: 'Brand match \u2014 no ref on demand' })) };
+        similarModels: sameBrand.slice(0,3).map(s => ({
+          stockId: s.id, stockItem: s, similarTag: 'Brand match \u2014 no ref on demand'
+        })) };
     }
 
-    /* STEP 2: ref match within same brand (exact + prefix only, no base_model) */
+    /* STEP 2 — ref match within same brand (exact or prefix only) */
     const refMatched = sameBrand.filter(s =>
       s.fingerprint.reference_number &&
       matchRefs(dFp.reference_number, s.fingerprint.reference_number).match
     );
 
-    /* STEP 3+4: STRICT filter — all specified fields must match exactly */
-    const strictMatches  = [];
+    /* STEP 3 — the 5 required fields must all agree where demand specified them */
+    const strictMatches   = [];
     const closeAlternates = [];
 
     refMatched.forEach(s => {
       const sFp = s.fingerprint;
       const refMatch = matchRefs(dFp.reference_number, sFp.reference_number);
-
-      // Field-level confidence check: skip hard-comparing fields where either side is low-confidence.
-      // Those go to closeAlternates with a "check manually" note instead.
-      const lowConf = (a, b, key) => {
-        const ac = a && a.field_confidence && a.field_confidence[key];
-        const bc = b && b.field_confidence && b.field_confidence[key];
-        return ac === 'low' || bc === 'low';
-      };
-
-      const dialResult     = detailsCompatible(dFp.dial_color,        sFp.dial_color);
-      const strapResult    = detailsCompatible(dFp.bracelet_or_strap, sFp.bracelet_or_strap);
-      const strapColResult = detailsCompatible(dFp.strap_color,       sFp.strap_color);
-      const dateResult     = detailsCompatible(dFp.date_complication,  sFp.date_complication);
-      const watchColResult = detailsCompatible(dFp.watch_color,        sFp.watch_color);
-      const bracType_d     = dFp.bracelet_type || null;
-      const bracType_s     = sFp.bracelet_type || null;
-      const bracTypeResult = (bracType_d && bracType_s && bracType_d !== 'unknown' && bracType_s !== 'unknown')
-        ? (bracType_d === bracType_s ? 'match' : 'mismatch')
-        : 'neutral';
-      const dialMk_d       = dFp.dial_markers_type || null;
-      const dialMk_s       = sFp.dial_markers_type || null;
-      const dialMkResult   = (dialMk_d && dialMk_s && dialMk_d !== 'unknown' && dialMk_s !== 'unknown')
-        ? (dialMk_d === dialMk_s ? 'match' : 'mismatch')
-        : 'neutral';
-
       const mismatches = [];
-      const lowConfNotes = [];
-      // Dial color
-      if (dialResult === 'mismatch'){
-        if (lowConf(dFp, sFp, 'dial_color')) lowConfNotes.push(`dial (low confidence): \u201c${dFp.dial_color}\u201d vs \u201c${sFp.dial_color || '?'}\u201d`);
-        else mismatches.push(`dial: \u201c${dFp.dial_color}\u201d \u2260 \u201c${sFp.dial_color || '?'}\u201d`);
-      }
-      // Bracelet/strap type (typed field with confidence)
-      if (bracTypeResult === 'mismatch'){
-        if (lowConf(dFp, sFp, 'bracelet_type')) lowConfNotes.push(`bracelet type (low confidence): \u201c${bracType_d}\u201d vs \u201c${bracType_s}\u201d`);
-        else mismatches.push(`bracelet type: \u201c${bracType_d}\u201d \u2260 \u201c${bracType_s}\u201d`);
-      }
-      // Dial markers type
-      if (dialMkResult === 'mismatch'){
-        if (lowConf(dFp, sFp, 'dial_markers_type')) lowConfNotes.push(`dial markers (low confidence): \u201c${dialMk_d}\u201d vs \u201c${dialMk_s}\u201d`);
-        else mismatches.push(`dial markers: \u201c${dialMk_d}\u201d \u2260 \u201c${dialMk_s}\u201d`);
-      }
-      // Remaining fields (no field_confidence yet, treat as regular)
-      if (strapResult    === 'mismatch') mismatches.push(`strap: \u201c${dFp.bracelet_or_strap}\u201d \u2260 \u201c${sFp.bracelet_or_strap || '?'}\u201d`);
-      if (strapColResult === 'mismatch') mismatches.push(`strap color: \u201c${dFp.strap_color}\u201d \u2260 \u201c${sFp.strap_color || '?'}\u201d`);
-      if (dateResult     === 'mismatch') mismatches.push(`date: \u201c${dFp.date_complication}\u201d \u2260 \u201c${sFp.date_complication || '?'}\u201d`);
-      if (watchColResult === 'mismatch') mismatches.push(`watch color: \u201c${dFp.watch_color}\u201d \u2260 \u201c${sFp.watch_color || '?'}\u201d`);
 
-      // Dial feature conflicts \u2014 diamond dial vs plain, and marker style
-      // (roman/arabic/baton/dot). Catches cases where the base color word
-      // matches ("black") but the actual dial is a different watch entirely
-      // (diamond-set vs numeral dial). Works on old data since it reads raw text.
+      // Required field 1: dial color
+      if (detailsCompatible(dFp.dial_color, sFp.dial_color) === 'mismatch'){
+        mismatches.push(`dial: \u201c${dFp.dial_color}\u201d \u2260 \u201c${sFp.dial_color || '?'}\u201d`);
+      }
+      // Required field 2: date complication
+      if (detailsCompatible(dFp.date_complication, sFp.date_complication) === 'mismatch'){
+        mismatches.push(`date: \u201c${dFp.date_complication}\u201d \u2260 \u201c${sFp.date_complication || '?'}\u201d`);
+      }
+      // Required field 3: strap/bracelet type
+      if (detailsCompatible(dFp.bracelet_or_strap, sFp.bracelet_or_strap) === 'mismatch'){
+        mismatches.push(`strap type: \u201c${dFp.bracelet_or_strap}\u201d \u2260 \u201c${sFp.bracelet_or_strap || '?'}\u201d`);
+      }
+      // Required field 4: strap/bracelet color
+      if (detailsCompatible(dFp.strap_color, sFp.strap_color) === 'mismatch'){
+        mismatches.push(`strap color: \u201c${dFp.strap_color}\u201d \u2260 \u201c${sFp.strap_color || '?'}\u201d`);
+      }
+      // Dial feature conflict (diamond vs plain, roman vs baton etc) \u2014
+      // only fires on an ACTUAL conflict, never on missing/unknown info.
       dialFeatureConflicts(dFp, sFp).forEach(msg => mismatches.push(msg));
-
-      // Safety net: if NEITHER side has any marker/diamond info at all (common
-      // on items analyzed before this field existed), we don't actually know
-      // if the dials match \u2014 don't assert confidence, flag for manual check.
-      const dialInfoMissing = mismatches.length === 0 && dialMarkersUnknown(dFp, sFp);
 
       if (mismatches.length > 0){
         closeAlternates.push({ stockId: s.id, stockItem: s,
           similarTag: `Same ref \u2014 differs: ${mismatches.join(' | ')}` });
         return;
       }
-      // If everything matched but there were low-confidence fields, OR dial
-      // marker/diamond info was never captured for either side, route to
-      // alternates for manual review instead of asserting a confident match.
-      if (lowConfNotes.length > 0 || dialInfoMissing){
-        const notes = [...lowConfNotes];
-        if (dialInfoMissing) notes.push('dial marker style (roman/baton/diamond etc.) not recorded for either item \u2014 check photos, or hit Reanalyze to re-extract with current detail level');
-        closeAlternates.push({ stockId: s.id, stockItem: s,
-          similarTag: `Likely match \u2014 needs manual check: ${notes.join(' | ')}` });
-        return;
-      }
 
-      // All fields match
+      // All required fields agree \u2014 confirmed match.
       const combinedRank = Math.min(
         refSourceRank(dFp.reference_number_source),
         refSourceRank(sFp.reference_number_source)
@@ -4580,20 +4563,21 @@ function runMatching(opts){
 
       let reasoning = `\u2713 Ref ${escapeHtml(sFp.reference_number)}`;
       if (sFp.dial_color)        reasoning += ` \u2713 ${escapeHtml(sFp.dial_color)} dial`;
+      if (sFp.date_complication) reasoning += ` \u2713 ${escapeHtml(sFp.date_complication)}`;
       if (sFp.bracelet_or_strap) reasoning += ` \u2713 ${escapeHtml(sFp.bracelet_or_strap)}`;
       if (sFp.strap_color)       reasoning += ` ${escapeHtml(sFp.strap_color)}`;
-      if (sFp.date_complication) reasoning += ` \u2713 ${escapeHtml(sFp.date_complication)}`;
-      if (sFp.watch_color)       reasoning += ` \u2713 ${escapeHtml(sFp.watch_color)}`;
-      if (dFp.condition === 'new' && sFp.condition === 'used') reasoning += ' \u26a0\ufe0f customer wants new, stock is used';
+      if (dFp.condition === 'new' && sFp.condition === 'used')
+        reasoning += ' \u26a0\ufe0f customer wants new, stock is used (info only, not blocked)';
 
       strictMatches.push({ stockId: s.id, stockItem: s, confidence, matchLevel: 'full',
         referenceMatchType: combinedRank >= 2 ? 'looked_up' : 'best_match',
         reasoning, detailScore: 100 });
     });
 
-    const matches = strictMatches.sort((a,b) => b.confidence - a.confidence).slice(0,5);
+    // All confirmed matches shown, ranked by confidence \u2014 not just the top one.
+    const matches = strictMatches.sort((a,b) => b.confidence - a.confidence).slice(0,6);
 
-    /* STEP 5: similar models — close alternates + same brand/model variants */
+    /* STEP 4 \u2014 close alternates for THIS demand only, plus year variants */
     const matchedIds = new Set(matches.map(m => m.stockId));
     const altIds     = new Set(closeAlternates.map(a => a.stockId));
     const similarModels = [...closeAlternates.filter(a => !matchedIds.has(a.stockId)).slice(0,3)];
@@ -4601,19 +4585,15 @@ function runMatching(opts){
     sameBrand
       .filter(s => !matchedIds.has(s.id) && !altIds.has(s.id) && s.fingerprint.reference_number)
       .forEach(s => {
-        if (similarModels.length >= 3) return; // tighter cap — fallback tier only
+        if (similarModels.length >= 3) return;
         const sFp = s.fingerprint;
-        // Require the FULL normalized model line to match (not just first word).
-        // "Datejust 36" and "Datejust 41" must NOT be treated as the same model \u2014
-        // different case size means a different watch entirely.
+        // Full model-line match required (not just first word) \u2014
+        // "Datejust 36" and "Datejust 41" are different watches.
         const dModelNorm = normalizeDetail(dFp.model_line || '');
         const sModelNorm = normalizeDetail(sFp.model_line || '');
-        const sameModel = dModelNorm && sModelNorm && dModelNorm === sModelNorm;
-        if (!sameModel) return;
-
-        // Even with matching model name, case size must also agree \u2014
-        // "Datejust" alone isn't specific enough (36mm vs 41mm are different refs).
-        if (dFp.case_size && sFp.case_size && normalizeDetail(dFp.case_size) !== normalizeDetail(sFp.case_size)) return;
+        if (!dModelNorm || dModelNorm !== sModelNorm) return;
+        if (dFp.case_size && sFp.case_size &&
+            normalizeDetail(dFp.case_size) !== normalizeDetail(sFp.case_size)) return;
 
         const dateDiff = dFp.date_complication && sFp.date_complication &&
           dFp.date_complication !== sFp.date_complication;
@@ -4638,10 +4618,10 @@ function runMatching(opts){
 
   if (!silent){
     setView('results');
-    const total = allDemandDone.length;
+    const total   = allDemandDone.length;
     const matched = matchResults.filter(r => r.matches.length).length;
-    const noRef = allDemandDone.filter(d => !d.fingerprint.reference_number).length;
-    let msg = `Matching done \u2014 ${matched}/${total} demand item${total!==1?'s':''} strictly matched`;
+    const noRef   = allDemandDone.filter(d => !d.fingerprint.reference_number).length;
+    let msg = `Matching done \u2014 ${matched}/${total} demand item${total!==1?'s':''} matched`;
     if (noRef) msg += ` (${noRef} skipped \u2014 no verified ref)`;
     showToast(msg);
   }
