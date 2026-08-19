@@ -4086,6 +4086,42 @@ function detailsCompatible(demandVal, stockVal){
 }
 
 // Returns { score:0-100, matchList:[], mismatchList:[] }
+// Scans dial_color + distinguishing_markings + typed fields for hard feature
+// conflicts that plain color-name matching misses: diamond vs plain, and
+// numeral/marker style (roman/arabic/baton/dot). Works on OLD data too since
+// it reads raw text, not just the newer dial_markers_type/diamonds fields.
+function extractDialFeatures(fp){
+  if (!fp) return { hasDiamonds: false, markerType: null };
+  const text = [fp.dial_color, fp.distinguishing_markings, fp.dial_markers_type, fp.diamonds, fp.bezel]
+    .filter(Boolean).join(' ').toLowerCase();
+
+  const hasDiamonds = fp.diamonds === 'factory' || fp.diamonds === 'aftermarket' ||
+    /diamond|pave|pav\u00e9|iced[\s-]?out/.test(text);
+
+  let markerType = (fp.dial_markers_type && fp.dial_markers_type !== 'unknown') ? fp.dial_markers_type : null;
+  if (!markerType){
+    if (/roman numeral/.test(text)) markerType = 'roman_numerals';
+    else if (/arabic numeral/.test(text)) markerType = 'arabic_numerals';
+    else if (/\b(baton|stick|lined|line marker|index marker)\b/.test(text)) markerType = 'baton_markers';
+    else if (/\bdot marker/.test(text)) markerType = 'dot_markers';
+    else if (/applied index/.test(text)) markerType = 'applied_indices';
+  }
+  return { hasDiamonds, markerType };
+}
+
+function dialFeatureConflicts(demandFp, stockFp){
+  const d = extractDialFeatures(demandFp);
+  const s = extractDialFeatures(stockFp);
+  const conflicts = [];
+  if (d.hasDiamonds !== s.hasDiamonds){
+    conflicts.push(`dial: demand ${d.hasDiamonds ? 'diamond dial' : 'plain dial'} vs stock ${s.hasDiamonds ? 'diamond dial' : 'plain dial'}`);
+  }
+  if (d.markerType && s.markerType && d.markerType !== s.markerType){
+    conflicts.push(`dial markers: demand ${d.markerType.replace(/_/g,' ')} vs stock ${s.markerType.replace(/_/g,' ')}`);
+  }
+  return conflicts;
+}
+
 function scoreDetailMatch(demandFp, stockFp){
   if (!demandFp || !stockFp) return { score: 100, matchList: [], mismatchList: [] };
 
@@ -4485,11 +4521,11 @@ function runMatching(opts){
       if (dateResult     === 'mismatch') mismatches.push(`date: \u201c${dFp.date_complication}\u201d \u2260 \u201c${sFp.date_complication || '?'}\u201d`);
       if (watchColResult === 'mismatch') mismatches.push(`watch color: \u201c${dFp.watch_color}\u201d \u2260 \u201c${sFp.watch_color || '?'}\u201d`);
 
-      // Diamond/modification check
-      const stockDiamonds  = sFp.distinguishing_markings && /diamond/i.test(sFp.distinguishing_markings);
-      const demandDiamonds = dFp.distinguishing_markings && /diamond/i.test(dFp.distinguishing_markings);
-      if (stockDiamonds && !demandDiamonds) mismatches.push('stock has aftermarket diamonds \u2014 demand did not request');
-      if (!stockDiamonds && demandDiamonds) mismatches.push('demand wants diamonds \u2014 stock is plain');
+      // Dial feature conflicts \u2014 diamond dial vs plain, and marker style
+      // (roman/arabic/baton/dot). Catches cases where the base color word
+      // matches ("black") but the actual dial is a different watch entirely
+      // (diamond-set vs numeral dial). Works on old data since it reads raw text.
+      dialFeatureConflicts(dFp, sFp).forEach(msg => mismatches.push(msg));
 
       if (mismatches.length > 0){
         closeAlternates.push({ stockId: s.id, stockItem: s,
