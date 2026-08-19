@@ -2167,6 +2167,7 @@ h1, h2, h3, h4, .brand-mark, .display-text{
         </label>
         <button class="btn" id="pushImagesBtn" title="Upload all local images to cloud">Push images to cloud</button>
         <button class="btn danger-text" id="clearCloudBtn" title="Delete all images from cloud storage">Clear cloud images</button>
+        <button class="btn danger-text" id="bulkReanalyzeBtn" title="Reanalyze only items missing dial marker/material data">Fix stale dial data</button>
         <button class="btn primary" id="exportPdfBtn" title="Export dashboard as PDF" style="margin-left:auto;">&#128196; Export PDF</button>
       </div>
 
@@ -3494,7 +3495,60 @@ HARD RULES (violate these and the matcher makes wrong sales calls)
 
 1a. TEXT BEATS YOUR OWN VISUAL GUESS. If the message text explicitly states a spec \u2014 "Dial: iron tiger", "Bracelet: jubilee yellow gold", "Case: yellowgold" \u2014 use that exact wording for the matching field. Do NOT override it with your own visual read of the photo, even if the photo looks ambiguous or you'd have described it differently. The seller's own written word is more reliable than a guess from a compressed WhatsApp photo, especially for stone/mineral dials that can look like a plain color in poor lighting. Only fall back to your own visual read when the text says nothing about that field.
 
-1b. STONE AND MINERAL DIALS ARE NOT "BLACK". Before writing a plain color word for dial_color, check whether the dial could be a mineral/stone dial that just looks dark in a photo: tiger's eye / iron tiger (mottled brown-orange-black pattern), meteorite (crystalline silver-grey pattern), mother-of-pearl / MOP (iridescent, color-shifting), malachite (green banded), turquoise, onyx, aventurine (sparkly). These have real texture/pattern visible on close inspection even in a so-so photo \u2014 look for it before defaulting to a flat color name. If you genuinely cannot tell whether it's a stone dial or plain color, say so in confidence_notes rather than guessing "black" as a safe default.
+1b. STONE AND MINERAL DIALS ARE NOT "BLACK". Before writing a plain color word for dial_color, check whether the dial could be a mineral/stone dial that just looks dark in a photo. These have real texture/pattern visible on close inspection even in a so-so photo \u2014 look for it before defaulting to a flat color name. If you genuinely cannot tell, say so in confidence_notes rather than guessing "black" as a safe default.
+
+1c. DIAL COLOR LIBRARY \u2014 use these exact terms whenever the dial matches one of them. This keeps wording consistent across the whole catalog so matching works reliably. Pick the closest match; combine a base color with a finish when both apply (e.g. "Blue \u2014 sunburst").
+
+  BLACKS / WHITES / GREYS: Black, Jet Black, Matte Black, Glossy Black, White, Ivory, Cream, Off-White, Silver, Rhodium, Grey, Gunmetal, Charcoal, Slate, Anthracite, Steel Grey
+
+  BLUES: Blue, Navy Blue, Royal Blue, Baby Blue, Ice Blue, Aqua Blue, Tiffany Blue, Petrol Blue, Midnight Blue, Teal, Cyan, Denim Blue, Steel Blue
+
+  GREENS: Green, Olive Green, Emerald Green, British Racing Green, Mint Green, Khaki Green, Forest Green, Sage Green, Army Green
+
+  BROWNS / CHAMPAGNES: Brown, Chocolate Brown, Chestnut, Tobacco, Cognac, Champagne, Beige, Taupe, Bronze, Copper, Caramel, Coffee
+
+  PINKS / REDS: Rose, Pink, Salmon, Blush Pink, Hot Pink, Red, Burgundy, Maroon, Wine Red, Cherry Red
+
+  ORANGES / YELLOWS: Orange, Burnt Orange, Coral, Yellow, Canary Yellow, Mustard, Gold-tone
+
+  PURPLES: Purple, Violet, Lavender, Plum, Aubergine
+
+  TURQUOISE / TEALS (flat color, not stone): Turquoise, Teal
+
+  METAL-TONE DIALS: Rhodium, Palladium, White Gold tone, Pink Gold tone, Yellow Gold tone
+
+  STONE / MINERAL DIALS (look for real texture/pattern in the photo, not a flat color \u2014 these get misread as "black" or "grey" most often):
+    - Tiger's Eye (also "Iron Tiger") \u2014 mottled brown/orange/black banded pattern
+    - Meteorite \u2014 crystalline silver-grey Widmanst\u00e4tten pattern, frost/ice-crystal look
+    - Mother-of-Pearl (MOP) \u2014 iridescent, shifts color with angle/light; note "White MOP", "Black MOP", or "Pink MOP" if identifiable
+    - Malachite \u2014 green with darker green banding/rings
+    - Turquoise (stone) \u2014 blue-green with darker veining, distinct from flat "Turquoise" color
+    - Onyx \u2014 deep glossy black stone, very uniform
+    - Lapis Lazuli \u2014 deep blue with gold/white flecks
+    - Aventurine \u2014 sparkly, glittery dark blue or green
+    - Opal \u2014 milky white/pastel with color-shifting flashes
+    - Sodalite \u2014 dark blue with white veining
+    - Jade \u2014 translucent green, smooth
+    - Amethyst \u2014 purple crystalline
+    - Carnelian \u2014 orange-red, semi-translucent
+    - Obsidian \u2014 glossy black volcanic glass look
+    - Agate \u2014 banded, often grey/white/brown rings
+    - Labradorite \u2014 grey-blue with flashes of blue/green
+    - Moonstone \u2014 pale, milky, subtle blue sheen
+    - Rhodonite \u2014 pink/rose with black veining
+    - Chrysocolla \u2014 blue-green mottled
+    - Serpentine \u2014 mottled green
+
+  SPECIAL FINISHES / PATTERNS (note alongside the base color):
+    Sunburst, Guilloch\u00e9, Grain d'Orge (barleycorn), C\u00f4tes de Gen\u00e8ve, Vertical Brushed, Radial Brushed, Frosted, Matte, Glossy/Lacquered, Smoked/Gradient (fum\u00e9), Skeleton/Openworked, Pav\u00e9/diamond-set, Baguette-set, Two-tone dial
+
+  NAMED/SIGNATURE DIAL VARIANTS worth recognizing by nickname if you see them:
+    - Rolex "Wimbledon" \u2014 green dial, green/black bezel, tennis-inspired
+    - Patek Nautilus "Tiffany Blue" \u2014 5711/1A-018 specific blue
+    - Rolex "Stella" \u2014 vintage lacquered colored dials on Day-Date
+    - Omega Speedmaster "Panda" \u2014 white dial, black sub-dials (or "Reverse Panda": black dial, white sub-dials)
+
+  If the dial genuinely matches none of these, write your own accurate description \u2014 the library covers the common cases, not every possible dial in existence.
 
 2. For reference_number: only fill this if you can read actual characters on the dial, caseback, box, papers, or if it's typed as text in the message. Do not fill it based on visual recognition of the model alone. Set reference_number_source to "visible" (read from image) or "stated" (typed in message text). If neither, leave both null.
 
@@ -4083,6 +4137,46 @@ function releaseWakeLock(){
   }catch(e){}
 }
 
+// One-click fix for the "check 100s of items manually" problem: finds every
+// item analyzed before dial_markers_type/diamonds existed, and reanalyzes
+// just those \u2014 not the whole catalog, not a manual hunt through cards.
+function updateBulkReanalyzeCount(){
+  const btn = document.getElementById('bulkReanalyzeBtn');
+  if (!btn) return;
+  const count = stockItems.filter(itemNeedsDialReanalysis).length + demandItems.filter(itemNeedsDialReanalysis).length;
+  btn.textContent = count > 0 ? `Fix stale dial data (${count})` : 'Fix stale dial data';
+  btn.style.display = count > 0 ? '' : 'none';
+}
+
+function itemNeedsDialReanalysis(it){
+  return it.status === 'done' && it.fingerprint &&
+    it.fingerprint.dial_markers_type === undefined &&
+    it.fingerprint.diamonds === undefined;
+}
+
+async function bulkReanalyzeStaleDialData(){
+  const staleStock  = stockItems.filter(itemNeedsDialReanalysis);
+  const staleDemand = demandItems.filter(itemNeedsDialReanalysis);
+  const total = staleStock.length + staleDemand.length;
+
+  if (!total){
+    showToast('Nothing to fix \u2014 every analyzed item already has dial marker/material data');
+    return;
+  }
+  if (!confirm(`Reanalyze ${total} item${total === 1 ? '' : 's'} to pick up dial marker/material detection?\n\nCost: roughly $0.001\u2013$0.002 per item (Claude Haiku).`)) return;
+
+  staleStock.forEach(it  => { it.status = 'pending'; it.autoRetryCount = 0; it.error = null; });
+  staleDemand.forEach(it => { it.status = 'pending'; it.autoRetryCount = 0; it.error = null; });
+  renderStock(); renderDemand();
+  showToast(`Reanalyzing ${total} item${total === 1 ? '' : 's'}\u2026`);
+
+  if (staleStock.length)  await analyzeBatch(staleStock, 'stock', renderStock);
+  if (staleDemand.length) await analyzeBatch(staleDemand, 'demand', renderDemand);
+
+  runMatching({ silent: true });
+  showToast(`Done \u2014 ${total} item${total === 1 ? '' : 's'} reanalyzed. Re-run matching to see the difference.`);
+}
+
 async function analyzeBatch(items, kind, renderFn){
   const toProcess = items.filter(it => it.status === 'pending' || it.status === 'error');
   if (!toProcess.length) return;
@@ -4254,8 +4348,34 @@ function detailsCompatible(demandVal, stockVal){
 // conflicts that plain color-name matching misses: diamond vs plain, and
 // numeral/marker style (roman/arabic/baton/dot). Works on OLD data too since
 // it reads raw text, not just the newer dial_markers_type/diamonds fields.
+// Canonical stone/mineral dial keywords \u2014 catches wording variants
+// ("iron tiger", "tiger's eye", "tigers eye dial") under one category key
+// so slightly different phrasing still compares correctly.
+const STONE_DIAL_KEYWORDS = [
+  { key: 'tigers_eye',  patterns: [/tiger'?s?\s*eye/, /iron\s*tiger/] },
+  { key: 'meteorite',   patterns: [/meteorite/] },
+  { key: 'mop',         patterns: [/mother[\s-]of[\s-]pearl/, /\bmop\b/] },
+  { key: 'malachite',   patterns: [/malachite/] },
+  { key: 'turquoise_stone', patterns: [/turquoise/] },
+  { key: 'onyx',        patterns: [/onyx/] },
+  { key: 'lapis',       patterns: [/lapis/] },
+  { key: 'aventurine',  patterns: [/aventurine/] },
+  { key: 'opal',        patterns: [/\bopal\b/] },
+  { key: 'sodalite',    patterns: [/sodalite/] },
+  { key: 'jade',        patterns: [/\bjade\b/] },
+  { key: 'amethyst',    patterns: [/amethyst/] },
+  { key: 'carnelian',   patterns: [/carnelian/] },
+  { key: 'obsidian',    patterns: [/obsidian/] },
+  { key: 'agate',       patterns: [/\bagate\b/] },
+  { key: 'labradorite', patterns: [/labradorite/] },
+  { key: 'moonstone',   patterns: [/moonstone/] },
+  { key: 'rhodonite',   patterns: [/rhodonite/] },
+  { key: 'chrysocolla', patterns: [/chrysocolla/] },
+  { key: 'serpentine',  patterns: [/serpentine/] },
+];
+
 function extractDialFeatures(fp){
-  if (!fp) return { hasDiamonds: false, markerType: null };
+  if (!fp) return { hasDiamonds: false, markerType: null, stoneMaterial: null };
   const text = [fp.dial_color, fp.distinguishing_markings, fp.dial_markers_type, fp.diamonds, fp.bezel]
     .filter(Boolean).join(' ').toLowerCase();
 
@@ -4270,7 +4390,13 @@ function extractDialFeatures(fp){
     else if (/\bdot marker/.test(text)) markerType = 'dot_markers';
     else if (/applied index/.test(text)) markerType = 'applied_indices';
   }
-  return { hasDiamonds, markerType };
+
+  let stoneMaterial = null;
+  for (const s of STONE_DIAL_KEYWORDS){
+    if (s.patterns.some(p => p.test(text))){ stoneMaterial = s.key; break; }
+  }
+
+  return { hasDiamonds, markerType, stoneMaterial };
 }
 
 // True when neither side has ANY marker/diamond signal in their text \u2014
@@ -4291,6 +4417,13 @@ function dialFeatureConflicts(demandFp, stockFp){
   }
   if (d.markerType && s.markerType && d.markerType !== s.markerType){
     conflicts.push(`dial markers: demand ${d.markerType.replace(/_/g,' ')} vs stock ${s.markerType.replace(/_/g,' ')}`);
+  }
+  // Stone/mineral dial material \u2014 catches "iron tiger" vs plain color even
+  // when the base dial_color comparison alone might not have flagged it.
+  if (d.stoneMaterial !== s.stoneMaterial){
+    const dLabel = d.stoneMaterial ? d.stoneMaterial.replace(/_/g,' ') : 'plain/no stone dial';
+    const sLabel = s.stoneMaterial ? s.stoneMaterial.replace(/_/g,' ') : 'plain/no stone dial';
+    conflicts.push(`dial material: demand ${dLabel} vs stock ${sLabel}`);
   }
   return conflicts;
 }
@@ -5148,6 +5281,8 @@ function renderDashboard(){
       if (item && item.imageData) openLightbox(item.imageData, imageMimeTypeOf(item));
     };
   });
+
+  updateBulkReanalyzeCount();
 }
 
 function formatPrice(num){
@@ -5465,6 +5600,8 @@ function init(){
     }
   });
   document.getElementById('exportPdfBtn').onclick = generatePDF;
+  document.getElementById('bulkReanalyzeBtn').onclick = bulkReanalyzeStaleDialData;
+  updateBulkReanalyzeCount();
   document.getElementById('pushImagesBtn').onclick = pushLocalImagesToCloud;
   document.getElementById('importCatalogInput').onchange = (e) => { if (e.target.files && e.target.files[0]) importCatalog(e.target.files[0]); e.target.value = ''; };
   document.getElementById('clearStockBtn').onclick = () => {
