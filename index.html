@@ -2897,11 +2897,24 @@ function renderWatchCard(it, options){
   const dialVal  = fp.dial_color || dashChar;
   const caseVal  = fp.case_size || fp.case_material || dashChar;
 
+  // Markers: use structured field if present, else infer from text (works on old data too)
+  const markerLabels = {
+    roman_numerals: 'Roman', arabic_numerals: 'Arabic', dot_markers: 'Dots',
+    baton_markers: 'Lines', applied_indices: 'Indices', mixed: 'Mixed'
+  };
+  const inferredFeatures = (typeof extractDialFeatures === 'function') ? extractDialFeatures(fp) : { markerType: null, hasDiamonds: false };
+  const markerKey = (fp.dial_markers_type && fp.dial_markers_type !== 'unknown') ? fp.dial_markers_type : inferredFeatures.markerType;
+  let markersVal = markerKey ? (markerLabels[markerKey] || markerKey.replace(/_/g,' ')) : dashChar;
+  if (fp.diamonds === 'factory' || fp.diamonds === 'aftermarket' || inferredFeatures.hasDiamonds){
+    markersVal = markersVal === dashChar ? 'Diamond' : markersVal + ' + diamond';
+  }
+
   const fields = [
-    ['Dial',  escapeHtml(dialVal),  'text'],
-    ['Date',  escapeHtml(dateVal),  'text'],
-    ['Strap', escapeHtml(strapVal), 'text'],
-    ['Case',  escapeHtml(caseVal),  'text']
+    ['Dial',    escapeHtml(dialVal),    'text'],
+    ['Markers', escapeHtml(markersVal), 'text'],
+    ['Date',    escapeHtml(dateVal),    'text'],
+    ['Strap',   escapeHtml(strapVal),   'text'],
+    ['Case',    escapeHtml(caseVal),    'text']
   ];
   const fieldsHtml = fields.map(([lbl, val, cls]) =>
     `<div class="wf-item"><span class="wf-label">${lbl}</span><span class="wf-value ${cls}">${val}</span></div>`
@@ -4109,6 +4122,15 @@ function extractDialFeatures(fp){
   return { hasDiamonds, markerType };
 }
 
+// True when neither side has ANY marker/diamond signal in their text \u2014
+// meaning we have zero information either way, not that they agree.
+// This matters for items analyzed before dial_markers_type existed.
+function dialMarkersUnknown(demandFp, stockFp){
+  const d = extractDialFeatures(demandFp);
+  const s = extractDialFeatures(stockFp);
+  return !d.markerType && !s.markerType && !d.hasDiamonds && !s.hasDiamonds;
+}
+
 function dialFeatureConflicts(demandFp, stockFp){
   const d = extractDialFeatures(demandFp);
   const s = extractDialFeatures(stockFp);
@@ -4527,16 +4549,24 @@ function runMatching(opts){
       // (diamond-set vs numeral dial). Works on old data since it reads raw text.
       dialFeatureConflicts(dFp, sFp).forEach(msg => mismatches.push(msg));
 
+      // Safety net: if NEITHER side has any marker/diamond info at all (common
+      // on items analyzed before this field existed), we don't actually know
+      // if the dials match \u2014 don't assert confidence, flag for manual check.
+      const dialInfoMissing = mismatches.length === 0 && dialMarkersUnknown(dFp, sFp);
+
       if (mismatches.length > 0){
         closeAlternates.push({ stockId: s.id, stockItem: s,
           similarTag: `Same ref \u2014 differs: ${mismatches.join(' | ')}` });
         return;
       }
-      // If everything matched but there were low-confidence fields, still route to alternates
-      // so Anas can eyeball it instead of relying on a shaky auto-match.
-      if (lowConfNotes.length > 0){
+      // If everything matched but there were low-confidence fields, OR dial
+      // marker/diamond info was never captured for either side, route to
+      // alternates for manual review instead of asserting a confident match.
+      if (lowConfNotes.length > 0 || dialInfoMissing){
+        const notes = [...lowConfNotes];
+        if (dialInfoMissing) notes.push('dial marker style (roman/baton/diamond etc.) not recorded for either item \u2014 check photos, or hit Reanalyze to re-extract with current detail level');
         closeAlternates.push({ stockId: s.id, stockItem: s,
-          similarTag: `Likely match \u2014 needs manual check: ${lowConfNotes.join(' | ')}` });
+          similarTag: `Likely match \u2014 needs manual check: ${notes.join(' | ')}` });
         return;
       }
 
