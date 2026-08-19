@@ -1908,6 +1908,53 @@ h1, h2, h3, h4, .brand-mark, .display-text{
   .match-pair-body{ grid-template-columns: 1fr; }
   .pair-arrow{ transform: rotate(90deg); padding: 0; align-self: center; }
 }
+
+
+/* ─── Close alternates grouped by demand item ─── */
+.alt-group{
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px dashed var(--border);
+}
+.alt-group:last-child{ border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+
+.alt-group-head{
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.alt-group-for{
+  font-family: var(--sans);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  font-weight: 500;
+}
+.alt-group-demand{
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.alt-group-reasons{
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: rgba(201,169,97,0.04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.alt-reason-line{
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+.alt-reason-line + .alt-reason-line{
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px solid var(--border);
+}
 </style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -4488,18 +4535,32 @@ function runMatching(opts){
     sameBrand
       .filter(s => !matchedIds.has(s.id) && !altIds.has(s.id) && s.fingerprint.reference_number)
       .forEach(s => {
-        if (similarModels.length >= 4) return;
+        if (similarModels.length >= 3) return; // tighter cap — fallback tier only
         const sFp = s.fingerprint;
-        const sameModel = dFp.model_line && sFp.model_line &&
-          (normalizeDetail(dFp.model_line).includes(normalizeDetail(sFp.model_line).split(' ')[0]) ||
-           normalizeDetail(sFp.model_line).includes(normalizeDetail(dFp.model_line).split(' ')[0]));
+        // Require the FULL normalized model line to match (not just first word).
+        // "Datejust 36" and "Datejust 41" must NOT be treated as the same model \u2014
+        // different case size means a different watch entirely.
+        const dModelNorm = normalizeDetail(dFp.model_line || '');
+        const sModelNorm = normalizeDetail(sFp.model_line || '');
+        const sameModel = dModelNorm && sModelNorm && dModelNorm === sModelNorm;
         if (!sameModel) return;
+
+        // Even with matching model name, case size must also agree \u2014
+        // "Datejust" alone isn't specific enough (36mm vs 41mm are different refs).
+        if (dFp.case_size && sFp.case_size && normalizeDetail(dFp.case_size) !== normalizeDetail(sFp.case_size)) return;
+
         const dateDiff = dFp.date_complication && sFp.date_complication &&
           dFp.date_complication !== sFp.date_complication;
         const yearDiff = dFp.year && sFp.year && Math.abs(parseInt(sFp.year) - parseInt(dFp.year)) <= 2;
-        let tag = 'Similar model';
-        if (dateDiff) tag = `Alternate \u2014 ${escapeHtml(sFp.date_complication)} version`;
-        else if (yearDiff) tag = `Year alternate \u2014 ${escapeHtml(sFp.year)}`;
+        const dialDiff = dFp.dial_color && sFp.dial_color &&
+          normalizeDetail(dFp.dial_color) !== normalizeDetail(sFp.dial_color);
+
+        let tag;
+        if (dateDiff)      tag = `Alternate \u2014 ${escapeHtml(sFp.date_complication)} version (ref ${escapeHtml(sFp.reference_number)})`;
+        else if (yearDiff) tag = `Year alternate \u2014 ${escapeHtml(sFp.year)} (ref ${escapeHtml(sFp.reference_number)})`;
+        else if (dialDiff) tag = `Same model, different dial \u2014 ${escapeHtml(sFp.dial_color)} (ref ${escapeHtml(sFp.reference_number)})`;
+        else               tag = `Same model line \u2014 ref ${escapeHtml(sFp.reference_number)}, not ref-matched to this demand`;
+
         similarModels.push({ stockId: s.id, stockItem: s, similarTag: tag });
       });
 
@@ -4814,20 +4875,38 @@ function renderDashboard(){
     </div>`;
   }
 
-  // Close alternates + similar models as sub-section
-  const altCards = [];
+  // Close alternates + similar models as sub-section — grouped by WHICH demand
+  // item they're an alternate for, so it's clear what each one is close to.
+  const altGroups = [];
   matchResults.forEach(r => {
-    (r.similarModels || []).forEach(alt => {
-      altCards.push(renderWatchCard(alt.stockItem, {
-        section: 'stock',
-        altCard: true
-      }));
-    });
+    if (!r.similarModels || !r.similarModels.length) return;
+    const dFp = r.demandItem.fingerprint || {};
+    altGroups.push({ demandItem: r.demandItem, dFp, alternates: r.similarModels.slice(0, 3) });
   });
-  const altSectionHtml = altCards.length ? `
+
+  const altSectionHtml = altGroups.length ? `
     <div class="alt-subsection">
       <div class="alt-subsection-label">Close alternates &amp; year variants</div>
-      <div class="watch-grid">${altCards.slice(0, 6).join('')}</div>
+      ${altGroups.slice(0, 5).map(g => `
+        <div class="alt-group">
+          <div class="alt-group-head">
+            <span class="alt-group-for">For:</span>
+            <span class="alt-group-demand">${escapeHtml(g.dFp.brand || '?')} ${escapeHtml(g.dFp.model_line || '')}${g.dFp.reference_number ? ' \u00b7 ' + escapeHtml(g.dFp.reference_number) : ''}</span>
+            ${g.dFp.client_name ? `<span class="pair-client" style="margin-left:auto;">\uD83D\uDCF1 ${escapeHtml(g.dFp.client_name)}</span>` : ''}
+          </div>
+          <div class="watch-grid">
+            ${g.alternates.map(alt => `
+              ${renderWatchCard(alt.stockItem, { section: 'stock', altCard: true })}
+            `).join('')}
+          </div>
+          ${g.alternates.some(a => a.similarTag) ? `
+            <div class="alt-group-reasons">
+              ${g.alternates.filter(a => a.similarTag).map(a =>
+                `<div class="alt-reason-line">${escapeHtml(itemLabel(a.stockItem))}: ${escapeHtml(a.similarTag)}</div>`
+              ).join('')}
+            </div>` : ''}
+        </div>
+      `).join('')}
     </div>` : '';
 
   matchWrap.innerHTML = `
