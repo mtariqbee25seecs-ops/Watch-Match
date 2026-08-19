@@ -1955,6 +1955,103 @@ h1, h2, h3, h4, .brand-mark, .display-text{
   padding-top: 3px;
   border-top: 1px solid var(--border);
 }
+
+
+/* ─── Full-detail expand panel on watch cards ─── */
+.watch-card-detail-toggle{
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-family: var(--sans);
+  font-size: 10.5px;
+  padding: 4px 0 0;
+  margin-top: 4px;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.15s;
+}
+.watch-card-detail-toggle:hover{ color: var(--gold); }
+.watch-card-detail-panel{
+  margin-top: 8px;
+  padding: 10px 11px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 260px;
+  overflow-y: auto;
+}
+.detail-row{
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.detail-row:last-child{ border-bottom: none; }
+.detail-key{
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.detail-val{
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--text);
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+
+/* ─── Inline field editing in detail panel ─── */
+.detail-readonly{ margin-bottom: 10px; }
+.detail-edit-section{
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-strong);
+}
+.detail-edit-label{
+  font-family: var(--sans);
+  font-size: 10px;
+  color: var(--gold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+.edit-row{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.edit-label{
+  font-family: var(--sans);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  width: 130px;
+  flex-shrink: 0;
+}
+.edit-input{
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 11px;
+}
+.edit-input:focus{
+  outline: none;
+  border-color: var(--border-strong);
+}
+.detail-save-btn{
+  margin-top: 8px;
+  width: 100%;
+}
+
+.metric-num.warn{ color: var(--rust-bright); }
+.metric-needs-review:hover{ background: rgba(181,86,60,0.06); }
 </style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2978,6 +3075,55 @@ function renderWatchCard(it, options){
   const model = fp.model_line || (fp.brand ? '\u2014' : 'Unanalyzed');
   const brandUpper = fp.brand ? escapeHtml(fp.brand) : '';
 
+  // Full-detail panel — every stored field, exact and untruncated.
+  // Lets you (or me, from a screenshot) see the REAL values instead of
+  // the summarized/truncated card text, so "why didn't this match" has
+  // an exact answer instead of a guess.
+  const allFieldKeys = [
+    'brand','model_line','reference_number','reference_number_source',
+    'dial_color','dial_markers_type','bezel','case_material','case_size',
+    'bracelet_or_strap','bracelet_type','strap_color','watch_color',
+    'date_complication','condition','diamonds','gender','year',
+    'client_name','distinguishing_markings','confidence_notes'
+  ];
+  const detailRows = allFieldKeys
+    .filter(k => fp[k] !== undefined && fp[k] !== null && fp[k] !== '')
+    .map(k => `<div class="detail-row"><span class="detail-key">${k}</span><span class="detail-val">${escapeHtml(String(fp[k]))}</span></div>`)
+    .join('');
+  const detailPanelId = 'detail-' + it.id + '-' + section;
+  // Editable fields \u2014 the ones matching actually uses. Fix a wrong
+  // extraction directly instead of paying for another analysis.
+  const editKind = section === 'demand' ? 'demand' : 'stock';
+  const editableFields = [
+    ['reference_number',    'Reference number'],
+    ['dial_color',          'Dial color'],
+    ['date_complication',   'Date (date / day-date / no-date)'],
+    ['bracelet_or_strap',   'Strap type'],
+    ['strap_color',         'Strap color'],
+    ['watch_color',         'Watch/case color'],
+    ['condition',           'Condition (new / used)'],
+  ];
+  const editRows = editableFields.map(([key, label]) => {
+    const val = fp[key] || '';
+    return `<div class="edit-row">
+      <label class="edit-label">${label}</label>
+      <input type="text" class="edit-input" data-key="${key}" value="${escapeHtml(val)}">
+    </div>`;
+  }).join('');
+
+  const detailToggle = `
+    <button class="watch-card-detail-toggle" data-detail-target="${detailPanelId}">Full details \u25be</button>
+    <div class="watch-card-detail-panel" id="${detailPanelId}" style="display:none;" data-item-id="${it.id}" data-item-kind="${editKind}">
+      <div class="detail-readonly">
+        ${detailRows || '<div class="detail-row"><span class="detail-val" style="color:var(--text-faint);">No fingerprint data yet</span></div>'}
+      </div>
+      <div class="detail-edit-section">
+        <div class="detail-edit-label">Fix a wrong field (saves instantly, no re-analysis needed)</div>
+        ${editRows}
+        <button class="btn small primary detail-save-btn" data-item-id="${it.id}" data-item-kind="${editKind}">Save changes</button>
+      </div>
+    </div>`;
+
   return `
   <div class="watch-card ${options.altCard ? 'alt-card' : ''}" data-id="${it.id}">
     ${section === 'demand' && !it.imageData ? '' : photoHtml}
@@ -2990,6 +3136,7 @@ function renderWatchCard(it, options){
       ${hasAnyField ? '<div class="watch-card-divider"></div>' : ''}
       ${hasAnyField ? `<div class="watch-card-fields">${fieldsHtml}</div>` : ''}
       ${badgesHtml}
+      ${detailToggle}
     </div>
     ${stripHtml}
   </div>`;
@@ -3344,6 +3491,10 @@ HARD RULES (violate these and the matcher makes wrong sales calls)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 1. Only report a value if you can literally see it in the image or it is explicitly stated in the message text. Never infer a "typical" or "expected" value for that model/reference, even if you recognize the watch. If you recognize the watch but the specific detail isn't visible or stated, output null for that field.
+
+1a. TEXT BEATS YOUR OWN VISUAL GUESS. If the message text explicitly states a spec \u2014 "Dial: iron tiger", "Bracelet: jubilee yellow gold", "Case: yellowgold" \u2014 use that exact wording for the matching field. Do NOT override it with your own visual read of the photo, even if the photo looks ambiguous or you'd have described it differently. The seller's own written word is more reliable than a guess from a compressed WhatsApp photo, especially for stone/mineral dials that can look like a plain color in poor lighting. Only fall back to your own visual read when the text says nothing about that field.
+
+1b. STONE AND MINERAL DIALS ARE NOT "BLACK". Before writing a plain color word for dial_color, check whether the dial could be a mineral/stone dial that just looks dark in a photo: tiger's eye / iron tiger (mottled brown-orange-black pattern), meteorite (crystalline silver-grey pattern), mother-of-pearl / MOP (iridescent, color-shifting), malachite (green banded), turquoise, onyx, aventurine (sparkly). These have real texture/pattern visible on close inspection even in a so-so photo \u2014 look for it before defaulting to a flat color name. If you genuinely cannot tell whether it's a stone dial or plain color, say so in confidence_notes rather than guessing "black" as a safe default.
 
 2. For reference_number: only fill this if you can read actual characters on the dial, caseback, box, papers, or if it's typed as text in the message. Do not fill it based on visual recognition of the model alone. Set reference_number_source to "visible" (read from image) or "stated" (typed in message text). If neither, leave both null.
 
@@ -4828,9 +4979,13 @@ function renderDashboard(){
 
   const matchedStockIds = new Set(matchResults.flatMap(r => r.matches.map(m => m.stockId)));
   const withMatches     = matchResults.filter(r => r.matches && r.matches.length);
-  const needsReview     = matchResults.filter(r =>
-    r.similarModels && r.similarModels.some(s => (s.similarTag || '').includes('needs manual check'))
-  ).length + demandItems.filter(d => d.fingerprint && !d.fingerprint.reference_number).length;
+  // The real review queue: demand items that have NO confirmed match but DO
+  // have close alternates worth a look, plus demand items with no ref at all.
+  // This is what "check these, not everything" actually means \u2014 not the
+  // whole catalog, just the handful the system genuinely isn't sure about.
+  const needsReview = matchResults.filter(r =>
+    r.matches.length === 0 && r.similarModels && r.similarModels.length > 0
+  ).length + demandItems.filter(d => d.status === 'done' && d.fingerprint && !d.fingerprint.reference_number).length;
 
   // Metrics bar
   const metricsHtml = `
@@ -4847,8 +5002,8 @@ function renderDashboard(){
       <div class="metric-num accent">${withMatches.length}</div>
       <div class="metric-label">Matches Found</div>
     </div>
-    <div class="metric-cell">
-      <div class="metric-num">${needsReview}</div>
+    <div class="metric-cell ${needsReview > 0 ? 'metric-needs-review' : ''}" ${needsReview > 0 ? 'id="needsReviewCell" style="cursor:pointer;" title="Click to jump to items that need a manual look"' : ''}>
+      <div class="metric-num ${needsReview > 0 ? 'warn' : ''}">${needsReview}</div>
       <div class="metric-label">Needs Review</div>
     </div>
   </div>`;
@@ -4976,6 +5131,14 @@ function renderDashboard(){
         ${altSectionHtml}
       </div>
     </div>`;
+
+  const needsReviewCell = document.getElementById('needsReviewCell');
+  if (needsReviewCell){
+    needsReviewCell.onclick = () => {
+      const altSection = matchWrap.querySelector('.alt-subsection');
+      if (altSection) altSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
 
   // Wire lightbox on photos
   matchWrap.querySelectorAll('[data-action="lightbox"]').forEach(el => {
@@ -5263,6 +5426,44 @@ function init(){
   document.addEventListener('paste', handlePaste);
   document.getElementById('exportCatalogBtn').onclick = exportCatalog;
   document.getElementById('clearCloudBtn').onclick = clearCloudImages;
+
+  // Delegated handler for "Full details" toggle — works for every card,
+  // present or future, without re-wiring on each render.
+  document.body.addEventListener('click', (e) => {
+    const toggleBtn = e.target.closest('.watch-card-detail-toggle');
+    if (toggleBtn){
+      const panel = document.getElementById(toggleBtn.dataset.detailTarget);
+      if (panel){
+        const showing = panel.style.display !== 'none';
+        panel.style.display = showing ? 'none' : 'block';
+        toggleBtn.textContent = showing ? 'Full details \u25be' : 'Hide details \u25b4';
+      }
+      return;
+    }
+
+    // Manual field-edit save — fixes a wrong extraction without re-analyzing.
+    const saveBtn = e.target.closest('.detail-save-btn');
+    if (saveBtn){
+      const itemId = saveBtn.dataset.itemId;
+      const kind = saveBtn.dataset.itemKind;
+      const panel = saveBtn.closest('.watch-card-detail-panel');
+      if (!panel) return;
+      const list = kind === 'demand' ? demandItems : stockItems;
+      const item = list.find(it => it.id === itemId);
+      if (!item){ showToast('Could not find that item', true); return; }
+      if (!item.fingerprint) item.fingerprint = {};
+      panel.querySelectorAll('.edit-input').forEach(input => {
+        const key = input.dataset.key;
+        const val = input.value.trim();
+        item.fingerprint[key] = val || null;
+      });
+      if (kind === 'demand'){ saveDemandCatalog(); renderDemand(); }
+      else{ saveStockCatalog(); renderStock(); }
+      renderDashboard();
+      showToast('Saved \u2014 re-run matching to see the change reflected in results');
+      return;
+    }
+  });
   document.getElementById('exportPdfBtn').onclick = generatePDF;
   document.getElementById('pushImagesBtn').onclick = pushLocalImagesToCloud;
   document.getElementById('importCatalogInput').onchange = (e) => { if (e.target.files && e.target.files[0]) importCatalog(e.target.files[0]); e.target.value = ''; };
