@@ -4228,13 +4228,17 @@ async function analyzeBatch(items, kind, renderFn){
             fp.reference_number_source = 'inferred';
           }
         }
-        // Brand-conditional ref validation (Fix 4: Rolex+Patek+fallback)
+        // Brand-conditional ref validation (Fix 4: Rolex+Patek+fallback, case-insensitive)
         if (fp.reference_number){
           const ref = fp.reference_number.trim();
           if (!isValidRef(fp.brand, ref)){
             fp.reference_number = null;
             fp.reference_number_source = null;
             fp.confidence_notes = ((fp.confidence_notes||'') + ' [Ref rejected: "' + ref + '" does not match ' + (fp.brand || 'brand') + ' format]').trim();
+          } else {
+            // Normalize to uppercase for consistent display/storage \u2014
+            // validation already confirmed the structure is correct.
+            fp.reference_number = ref.toUpperCase();
           }
         }
         // Only clear refs with NO source at all (training knowledge guesses).
@@ -4396,7 +4400,16 @@ function extractDialFeatures(fp){
     if (s.patterns.some(p => p.test(text))){ stoneMaterial = s.key; break; }
   }
 
-  return { hasDiamonds, markerType, stoneMaterial };
+  // Metal tone \u2014 only when EXPLICITLY qualified ("rose gold", "yellow gold",
+  // "white gold"). Bare "gold" alone stays null/unknown rather than guessed,
+  // consistent with the rest of this system: absence of information is never
+  // treated as a conflict, only a genuine stated disagreement is.
+  let metalTone = null;
+  if (/rose\s*gold|everose|pink\s*gold/.test(text)) metalTone = 'rose_gold';
+  else if (/yellow\s*gold/.test(text)) metalTone = 'yellow_gold';
+  else if (/white\s*gold/.test(text)) metalTone = 'white_gold';
+
+  return { hasDiamonds, markerType, stoneMaterial, metalTone };
 }
 
 // True when neither side has ANY marker/diamond signal in their text \u2014
@@ -4424,6 +4437,12 @@ function dialFeatureConflicts(demandFp, stockFp){
     const dLabel = d.stoneMaterial ? d.stoneMaterial.replace(/_/g,' ') : 'plain/no stone dial';
     const sLabel = s.stoneMaterial ? s.stoneMaterial.replace(/_/g,' ') : 'plain/no stone dial';
     conflicts.push(`dial material: demand ${dLabel} vs stock ${sLabel}`);
+  }
+  // Only flags when BOTH sides explicitly state a qualified gold tone and
+  // they genuinely disagree (e.g. "yellow gold dial" vs "rose gold dial").
+  // Bare unqualified "gold" on either side stays neutral \u2014 not a conflict.
+  if (d.metalTone && s.metalTone && d.metalTone !== s.metalTone){
+    conflicts.push(`dial metal tone: demand ${d.metalTone.replace(/_/g,' ')} vs stock ${s.metalTone.replace(/_/g,' ')}`);
   }
   return conflicts;
 }
@@ -4482,7 +4501,14 @@ function brandMatches(a, b){
   if (!a || !b) return false;
   const na = String(a).toLowerCase().trim();
   const nb = String(b).toLowerCase().trim();
-  return na === nb || na.includes(nb) || nb.includes(na);
+  if (na === nb) return true;
+  // Substring containment only makes sense when the shorter side is a
+  // meaningful fragment. Without this guard, a garbled 2-letter brand
+  // extraction ("Ro") would falsely match "Rolex" via containment.
+  const MIN_BRAND_FRAGMENT_LEN = 4;
+  const shorter = na.length <= nb.length ? na : nb;
+  if (shorter.length < MIN_BRAND_FRAGMENT_LEN) return false;
+  return na.includes(nb) || nb.includes(na);
 }
 
 // Strip ALL separators. Used for exact comparison.
@@ -4516,10 +4542,17 @@ function matchRefs(ref1, ref2) {
 
   if (n1 === n2) return { match: true, confidence: 'exact' };
 
-  if (n1.length < n2.length && n2.startsWith(n1))
+  // Prefix matching requires the SHORTER side to be at least 4 characters.
+  // Without this, a garbled 1-2 digit extraction ("1", "12") would falsely
+  // "prefix match" against ANY real reference starting with that digit
+  // (e.g. "1" would match "126610LN"). Legitimate short-form refs (like
+  // AP's "15400ST" as a prefix of the full "15400ST.OO.1220ST.01") are
+  // always well above this length, so real prefix matches are unaffected.
+  const MIN_PREFIX_LEN = 4;
+  if (n1.length < n2.length && n1.length >= MIN_PREFIX_LEN && n2.startsWith(n1))
     return { match: true, confidence: 'prefix' };
 
-  if (n2.length < n1.length && n1.startsWith(n2))
+  if (n2.length < n1.length && n2.length >= MIN_PREFIX_LEN && n1.startsWith(n2))
     return { match: true, confidence: 'prefix' };
 
   // base_model tier removed — Patek -001/-014 are different dial colors, not the same watch.
@@ -4655,13 +4688,19 @@ function isValidRef(brand, ref){
   if (!ref) return false;
   const b = (brand || '').toLowerCase();
   if (b.includes('rolex')){
-    // Rolex: 5-6 digits + 0-8 letter suffix, no slashes or dashes
+    // Rolex: 5-6 digits + 0-8 letter suffix, no slashes or dashes.
+    // Case-INSENSITIVE — sellers type refs in any case ("126718grnr",
+    // "126718GRNR", "126718Grnr" are all the same valid ref). A previous
+    // version required uppercase only and was silently wiping out any
+    // ref written in lowercase, which is extremely common in WhatsApp
+    // listings. That bug could take a whole batch of otherwise-correct
+    // matches down to near zero.
     const cleaned = ref.replace(/[\s\.\-\/]/g, '');
-    return /^\d{5,6}[A-Z]{0,8}$/.test(cleaned);
+    return /^\d{5,6}[A-Z]{0,8}$/i.test(cleaned);
   }
   if (b.includes('patek')){
-    // Patek: 4 digits / 1-3 chars, optional -NNN suffix. E.g. 5711/1A-010, 5167/1A, 5227R-001
-    return /^\d{4}\/\d{1,3}[A-Z]{0,2}(-\d{2,3})?$/.test(ref) || /^\d{4}[A-Z]{0,2}(-\d{2,3})?$/.test(ref);
+    // Patek: 4 digits / 1-3 chars, optional -NNN suffix. Also case-insensitive.
+    return /^\d{4}\/\d{1,3}[A-Z]{0,2}(-\d{2,3})?$/i.test(ref) || /^\d{4}[A-Z]{0,2}(-\d{2,3})?$/i.test(ref);
   }
   // Fallback: must contain a digit, must not look like a phone number
   return /\d/.test(ref) && !looksLikePhoneNumber(ref);
@@ -4728,7 +4767,13 @@ function areSimilarRefs(refA, refB){
 }
 
 function refSourceRank(source){
-  if (source === 'visible') return 3;
+  // "visible" (read off the watch/photo) and "stated" (typed verbatim by the
+  // seller in message text) are both DIRECT extraction \u2014 no web guessing
+  // involved \u2014 so they rank equally. This was previously missing "stated"
+  // entirely, which silently dragged every text-stated ref down to the same
+  // confidence tier as "no source at all", even though the card's own dot
+  // indicator already (correctly) treats them as equally trustworthy.
+  if (source === 'visible' || source === 'stated') return 3;
   if (source === 'looked_up') return 2;
   if (source === 'best_match') return 1;
   if (source === 'inferred') return 1; // training-knowledge guess, same weight as best_match
