@@ -2141,7 +2141,8 @@ h1, h2, h3, h4, .brand-mark, .display-text{
       </div>
       <div class="tab-toolbar">
         <button class="btn danger-text" id="clearResultsBtn">Clear all</button>
-        <button class="btn primary" id="runMatchBtn" style="margin-left:auto;" disabled>Run matching</button>
+        <button class="btn" id="runAIMatchBtn" title="Uses Gemini to visually compare demand photos against stock photos one by one \u2014 slower and costs a few cents per run, but catches things field-matching might miss" style="margin-left:auto;">&#128269; AI Visual Match</button>
+        <button class="btn primary" id="runMatchBtn" disabled>Run matching (free)</button>
       </div>
 
       <div class="empty-state" id="resultsEmpty">
@@ -3791,6 +3792,89 @@ async function callGeminiWithSearch({ base64Image, mimeType, promptText }, attem
   return { text: textParts.join('\n'), searchQueries, sources, pagesRead };
 }
 
+// Pure vision comparison — no search tools, just look at the photos.
+// Sends one demand photo + up to a handful of candidate stock photos in a
+// single call and asks Gemini to judge which (if any) are the same watch.
+async function callGeminiVisualCompare({ demandImage, demandMime, candidates, promptText }, attempt = 1, modelIndex = 0){
+  const apiKey = getGeminiApiKey();
+  if (!apiKey){
+    throw new Error('No Gemini API key set \u2014 add one in settings to enable AI visual matching');
+  }
+
+  const parts = [{ text: promptText }];
+  parts.push({ text: '\n\nDEMAND PHOTO (what the customer wants):' });
+  if (demandImage) parts.push({ inline_data: { mime_type: demandMime || 'image/jpeg', data: demandImage } });
+
+  candidates.forEach(cand => {
+    parts.push({ text: `\n\nCANDIDATE ${cand.label} (stock item):\n${cand.summary}` });
+    if (cand.image) parts.push({ inline_data: { mime_type: cand.mime || 'image/jpeg', data: cand.image } });
+  });
+
+  const model = GEMINI_MODELS[modelIndex] || GEMINI_MODELS[0];
+  let response;
+  try{
+    response = await fetch(`${geminiUrlFor(model)}?key=${encodeURIComponent(apiKey)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 2000 }
+      })
+    });
+  }catch(networkErr){
+    if (attempt <= 3){
+      await new Promise(r => setTimeout(r, attempt * 4000));
+      return callGeminiVisualCompare({ demandImage, demandMime, candidates, promptText }, attempt + 1, modelIndex);
+    }
+    throw new Error('Network error reaching Gemini (' + (networkErr.message || 'connection failed') + ')');
+  }
+
+  if (!response.ok){
+    let errJson = null;
+    try{ errJson = await response.json(); }catch(e){}
+    const detail = errJson?.error?.message || '';
+    const isRateLimit = response.status === 429;
+    const isTransient = [500,502,503,504].includes(response.status);
+    if ((isRateLimit || isTransient) && attempt <= 3){
+      const waitSeconds = isRateLimit ? extractRetryDelaySeconds(response, errJson) : (attempt * 4);
+      await new Promise(r => setTimeout(r, waitSeconds * 1000));
+      return callGeminiVisualCompare({ demandImage, demandMime, candidates, promptText }, attempt + 1, modelIndex);
+    }
+    if (isTransient && modelIndex < GEMINI_MODELS.length - 1){
+      return callGeminiVisualCompare({ demandImage, demandMime, candidates, promptText }, 1, modelIndex + 1);
+    }
+    if (response.status === 401 || response.status === 403){
+      throw new Error(`Gemini auth failed (${response.status})${detail ? ': ' + detail : ''}. Check your API key in settings.`);
+    }
+    if (response.status === 429){
+      throw new Error(`Gemini quota exceeded (429)${detail ? ': ' + detail : ''}. Enable billing at console.cloud.google.com.`);
+    }
+    throw new Error('Gemini API error ' + response.status + (detail ? ': ' + detail : ''));
+  }
+
+  const data = await response.json();
+  const candidate = data.candidates && data.candidates[0];
+  const textParts = (candidate && candidate.content && candidate.content.parts || []).filter(p => p.text).map(p => p.text);
+  if (!textParts.length){
+    const finishReason = candidate && candidate.finishReason;
+    throw new Error('No text response from Gemini' + (finishReason ? ' (finishReason: ' + finishReason + ')' : ''));
+  }
+  return textParts.join('\n');
+}
+
+const VISUAL_MATCH_PROMPT = `You are a luxury watch dealer's assistant comparing a customer's requested watch (the DEMAND photo) against several candidate watches currently in stock, to find which one (if any) is the EXACT SAME watch.
+
+Look CAREFULLY at each photo \u2014 dial color and pattern, hour markers (roman/arabic/baton/dot/diamond), bezel color and material, bracelet/strap type and color, case size and material, any diamonds or gemstones, date window. The short text summary next to each photo was extracted earlier and may be incomplete or slightly wrong \u2014 treat the PHOTOS as the source of truth whenever they conflict with the text.
+
+For EACH candidate, decide: is this the SAME watch as the demand (same reference, same dial appearance, same bracelet, same overall configuration) or a DIFFERENT watch (different dial, different bracelet, different material, different diamonds \u2014 even if it's the same general model line)? Do not guess generously \u2014 if you can't clearly see enough of the watch to be confident, say so and give a lower confidence score rather than assuming a match.
+
+Respond with STRICT JSON only, no markdown, no commentary:
+{
+  "results": [
+    { "candidate": "A", "match": true or false, "confidence": 0-100, "reasoning": "one sentence \u2014 what matches or what specifically differs" }
+  ]
+}`;
+
 const BRAND_OFFICIAL_SITES = {
   'rolex': 'rolex.com', 'tudor': 'tudorwatch.com', 'patek philippe': 'patek.com',
   'audemars piguet': 'audemarspiguet.com', 'omega': 'omegawatches.com', 'cartier': 'cartier.com',
@@ -4816,6 +4900,130 @@ function refSourceLabel(source){
    different-dial items that don't strictly match are grouped as
    "close alternates" under that demand, never mixed across demands.
    ══════════════════════════════════════════════════════════════════════ */
+async function runAIVisualMatching(){
+  const allStockDone  = stockItems.filter(it  => it.status === 'done' && it.fingerprint && it.imageData);
+  const allDemandDone = demandItems.filter(it => it.status === 'done' && it.fingerprint && it.imageData);
+
+  if (!allStockDone.length || !allDemandDone.length){
+    showToast('Need analyzed stock and demand items with photos loaded for AI visual matching', true);
+    return;
+  }
+
+  const BATCH_SIZE = 5; // candidate photos per Gemini call \u2014 keeps payload reasonable
+
+  // Free pre-filter by brand \u2014 comparing a Rolex demand photo against an
+  // Omega stock photo via AI vision is pure waste, brand is reliable text data.
+  const plan = allDemandDone.map(d => {
+    const candidates = allStockDone.filter(s =>
+      !d.fingerprint.brand || !s.fingerprint.brand || brandMatches(d.fingerprint.brand, s.fingerprint.brand)
+    );
+    return { demand: d, candidates, batches: Math.ceil(candidates.length / BATCH_SIZE) || 0 };
+  });
+  const totalCalls = plan.reduce((sum, p) => sum + p.batches, 0);
+  const noPhotoDemand = demandItems.filter(it => it.status === 'done' && it.fingerprint && !it.imageData).length;
+
+  if (!totalCalls){
+    showToast('No same-brand candidates with photos to compare', true);
+    return;
+  }
+
+  let msg = `AI Visual Match will make ~${totalCalls} Gemini call${totalCalls === 1 ? '' : 's'} `
+    + `across ${allDemandDone.length} demand item${allDemandDone.length === 1 ? '' : 's'} `
+    + `(pre-filtered by brand to keep cost down).\n\nEstimated cost: a few cents total, exact amount depends on photo sizes.`;
+  if (noPhotoDemand) msg += `\n\n${noPhotoDemand} demand item${noPhotoDemand===1?'':'s'} have no photo loaded and will be skipped.`;
+  msg += '\n\nContinue?';
+  if (!confirm(msg)) return;
+
+  const btn = document.getElementById('runAIMatchBtn');
+  const originalText = btn ? btn.textContent : null;
+  if (btn) btn.disabled = true;
+
+  const newResults = [];
+  let callsDone = 0;
+
+  for (const { demand, candidates } of plan){
+    const dFp = demand.fingerprint;
+    if (!candidates.length){
+      newResults.push({ demandId: demand.id, demandItem: demand, matches: [], similarModels: [] });
+      continue;
+    }
+
+    const allJudgments = []; // { stockItem, match, confidence, reasoning }
+
+    for (let i = 0; i < candidates.length; i += BATCH_SIZE){
+      const batch = candidates.slice(i, i + BATCH_SIZE);
+      const labels = 'ABCDEFGHIJ'.split('');
+      const candPayload = batch.map((s, idx) => ({
+        label: labels[idx],
+        id: s.id,
+        image: s.imageData,
+        mime: imageMimeTypeOf(s),
+        summary: `Brand: ${s.fingerprint.brand || '?'} | Model: ${s.fingerprint.model_line || '?'} | Ref: ${s.fingerprint.reference_number || 'unknown'} | Dial: ${s.fingerprint.dial_color || '?'} | Strap: ${s.fingerprint.bracelet_or_strap || '?'} ${s.fingerprint.strap_color || ''} | Date: ${s.fingerprint.date_complication || '?'}`
+      }));
+
+      callsDone++;
+      if (btn) btn.textContent = `Comparing\u2026 ${callsDone}/${totalCalls}`;
+
+      try{
+        const promptText = VISUAL_MATCH_PROMPT + `\n\nDEMAND DATA (context only \u2014 trust the photo more):\nBrand: ${dFp.brand || '?'} | Model: ${dFp.model_line || '?'} | Ref: ${dFp.reference_number || 'unknown'} | Dial: ${dFp.dial_color || '?'} | Strap: ${dFp.bracelet_or_strap || '?'} ${dFp.strap_color || ''} | Date: ${dFp.date_complication || '?'}`;
+        const text = await callGeminiVisualCompare({
+          demandImage: demand.imageData, demandMime: imageMimeTypeOf(demand),
+          candidates: candPayload, promptText
+        });
+        const parsed = parseJsonLoose(text);
+        const results = (parsed && parsed.results) || [];
+        results.forEach(r => {
+          const cand = candPayload.find(c => c.label === r.candidate);
+          if (!cand) return;
+          const stockItem = batch.find(s => s.id === cand.id);
+          if (!stockItem) return;
+          allJudgments.push({
+            stockItem, match: !!r.match,
+            confidence: Math.max(0, Math.min(100, Number(r.confidence) || 0)),
+            reasoning: String(r.reasoning || '').trim()
+          });
+        });
+      }catch(e){
+        console.warn('Visual compare batch failed', e);
+        // Batch failure doesn't stop the whole run \u2014 continue with other demand items
+      }
+    }
+
+    const matches = allJudgments
+      .filter(j => j.match)
+      .sort((a,b) => b.confidence - a.confidence)
+      .slice(0, 6)
+      .map(j => ({
+        stockId: j.stockItem.id, stockItem: j.stockItem, confidence: j.confidence,
+        matchLevel: 'full', referenceMatchType: 'ai_visual',
+        reasoning: `\uD83D\uDD0D AI visual match: ${escapeHtml(j.reasoning)}`,
+        detailScore: j.confidence
+      }));
+
+    const similarModels = allJudgments
+      .filter(j => !j.match && j.confidence >= 30)
+      .sort((a,b) => b.confidence - a.confidence)
+      .slice(0, 3)
+      .map(j => ({
+        stockId: j.stockItem.id, stockItem: j.stockItem,
+        similarTag: `AI: ${escapeHtml(j.reasoning)} (${j.confidence}% similar)`
+      }));
+
+    newResults.push({ demandId: demand.id, demandItem: demand, matches, similarModels });
+  }
+
+  matchResults = newResults;
+  renderResults();
+  renderDashboard();
+
+  if (btn){ btn.disabled = false; btn.textContent = originalText; }
+  setView('results');
+
+  const matchedCount = matchResults.filter(r => r.matches.length).length;
+  showToast(`AI Visual Match done \u2014 ${matchedCount}/${allDemandDone.length} demand item${allDemandDone.length===1?'':'s'} matched (${totalCalls} Gemini call${totalCalls===1?'':'s'} used)`);
+  updateRunMatchAvailability();
+}
+
 function runMatching(opts){
   const silent = opts && opts.silent;
   const allStockDone  = stockItems.filter(it  => it.status === 'done' && it.fingerprint);
@@ -5646,6 +5854,8 @@ function init(){
   });
   document.getElementById('exportPdfBtn').onclick = generatePDF;
   document.getElementById('bulkReanalyzeBtn').onclick = bulkReanalyzeStaleDialData;
+  const aiMatchBtn = document.getElementById('runAIMatchBtn');
+  if (aiMatchBtn) aiMatchBtn.onclick = runAIVisualMatching;
   updateBulkReanalyzeCount();
   document.getElementById('pushImagesBtn').onclick = pushLocalImagesToCloud;
   document.getElementById('importCatalogInput').onchange = (e) => { if (e.target.files && e.target.files[0]) importCatalog(e.target.files[0]); e.target.value = ''; };
