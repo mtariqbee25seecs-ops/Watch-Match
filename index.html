@@ -2127,6 +2127,23 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
   .review-pair-body{ grid-template-columns: 1fr; }
   .review-pair-body .pair-arrow{ transform: rotate(90deg); padding: 0; align-self: center; }
 }
+
+.similar-demand-ref{
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; margin-bottom: 10px;
+  background: rgba(201,169,97,0.05);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.similar-demand-label{ font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); }
+.similar-demand-name{ font-size: 12px; font-weight: 600; color: var(--text); }
+.ai-check-btn{ margin-left: auto; flex-shrink: 0; font-size: 11px; }
+.ai-hint-line{
+  margin-top: 6px; padding: 6px 9px;
+  background: rgba(90,143,176,0.08); border: 1px solid rgba(90,143,176,0.25);
+  border-radius: var(--radius-sm);
+  font-family: var(--sans); font-size: 10.5px; color: var(--steel-bright); line-height: 1.5;
+}
 </style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2246,6 +2263,7 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
         <button class="btn" id="pushImagesBtn" title="Upload all local images to cloud">Push images to cloud</button>
         <button class="btn danger-text" id="clearCloudBtn" title="Delete all images from cloud storage">Clear cloud images</button>
         <button class="btn danger-text" id="bulkReanalyzeBtn" title="Reanalyze only items missing dial marker/material data">Fix stale dial data</button>
+        <button class="btn" id="runAIMatchBtnDash" title="Ask Gemini to visually advise on pending ref-matches (see Results tab)">&#128269; AI Visual Match</button>
         <button class="btn primary" id="exportPdfBtn" title="Export dashboard as PDF" style="margin-left:auto;">&#128196; Export PDF</button>
       </div>
 
@@ -3634,6 +3652,8 @@ HARD RULES (violate these and the matcher makes wrong sales calls)
 2. For reference_number: only fill this if you can read actual characters on the dial, caseback, box, papers, or if it's typed as text in the message. Do not fill it based on visual recognition of the model alone. Set reference_number_source to "visible" (read from image) or "stated" (typed in message text). If neither, leave both null.
 
 3. For dial_color: use specific color names (black, blue, silver, champagne, olive green, slate grey, etc.), not vague ones. If lighting/glare makes it genuinely ambiguous between two colors, pick the more likely one but set field_confidence.dial_color to "low". Do not default to "black" as a safe guess \u2014 black and blue are the most commonly confused pair under artificial light, look for blue undertones in reflections before committing to black.
+
+3a. ANGLE/GLARE CONSISTENCY: A single watch photographed from different angles can look like different colors \u2014 direct flash glare washes a dial out to look white/silver, a steep angle can make a blue or green dial look black, warm indoor lighting can shift colors toward yellow/brown. Before committing to a color, check whether strong glare or an extreme angle is covering most of the dial \u2014 if so, look at the small unobscured edges/shadowed portions for the true base color rather than the glare-washed center, and lower field_confidence.dial_color to "low" if you genuinely can't tell. Do not treat "the photo looks different" as "the watch is different" \u2014 lighting artifacts are common in WhatsApp photos and should not produce a confident but wrong color.
 
 4. For dial_markers_type, look specifically at the hour markers (not the dial texture): applied_indices (batons/shapes, no numbers), roman_numerals (I, II, III...), arabic_numerals (1, 2, 3...), dot_markers (small round dots only), baton_markers (thin rectangular lines), mixed (e.g. numerals at 12/6/9 with indices elsewhere). If markers aren't clearly visible, output "unknown", not a guess.
 
@@ -5030,129 +5050,122 @@ function refSourceLabel(source){
    different-dial items that don't strictly match are grouped as
    "close alternates" under that demand, never mixed across demands.
    ══════════════════════════════════════════════════════════════════════ */
-async function runAIVisualMatching(){
-  const allStockDone  = stockItems.filter(it  => it.status === 'done' && it.fingerprint && it.imageData);
-  const allDemandDone = demandItems.filter(it => it.status === 'done' && it.fingerprint && it.imageData);
+// Core worker: given one demand item and its pending (ref-matched, undecided)
+// stock candidates, ask Gemini to visually judge each one. Returns judgments
+// only \u2014 never touches matchResults or matchDecisions directly. This is
+// advisory information for the human reviewer, not an automatic decision.
+async function getAIVisualHints(demandItem, pendingCandidates){
+  const dFp = demandItem.fingerprint;
+  const BATCH_SIZE = 5;
+  const judgments = []; // { stockId, match, confidence, reasoning }
 
-  if (!allStockDone.length || !allDemandDone.length){
-    showToast('Need analyzed stock and demand items with photos loaded for AI visual matching', true);
+  for (let i = 0; i < pendingCandidates.length; i += BATCH_SIZE){
+    const batch = pendingCandidates.slice(i, i + BATCH_SIZE);
+    const labels = 'ABCDEFGHIJ'.split('');
+    const candPayload = batch.map((p, idx) => ({
+      label: labels[idx], id: p.stockItem.id,
+      image: p.stockItem.imageData, mime: imageMimeTypeOf(p.stockItem),
+      summary: `Brand: ${p.stockItem.fingerprint.brand || '?'} | Model: ${p.stockItem.fingerprint.model_line || '?'} | Ref: ${p.stockItem.fingerprint.reference_number || 'unknown'} | Dial: ${p.stockItem.fingerprint.dial_color || '?'} | Strap: ${p.stockItem.fingerprint.bracelet_or_strap || '?'} ${p.stockItem.fingerprint.strap_color || ''}`
+    }));
+    try{
+      const promptText = VISUAL_MATCH_PROMPT + `\n\nDEMAND DATA (context only \u2014 trust the photo more):\nBrand: ${dFp.brand || '?'} | Model: ${dFp.model_line || '?'} | Ref: ${dFp.reference_number || 'unknown'} | Dial: ${dFp.dial_color || '?'} | Strap: ${dFp.bracelet_or_strap || '?'} ${dFp.strap_color || ''}`;
+      const text = await callGeminiVisualCompare({
+        demandImage: demandItem.imageData, demandMime: imageMimeTypeOf(demandItem),
+        candidates: candPayload, promptText
+      });
+      const parsed = parseJsonLoose(text);
+      (parsed && parsed.results || []).forEach(r => {
+        const cand = candPayload.find(c => c.label === r.candidate);
+        if (!cand) return;
+        judgments.push({
+          stockId: cand.id, match: !!r.match,
+          confidence: Math.max(0, Math.min(100, Number(r.confidence) || 0)),
+          reasoning: String(r.reasoning || '').trim()
+        });
+      });
+    }catch(e){
+      console.warn('AI visual hint batch failed', e);
+    }
+  }
+  return judgments;
+}
+
+// Runs AI visual comparison for ONE demand's pending (ref-matched, undecided)
+// candidates and attaches the result as an advisory hint \u2014 does NOT
+// approve or reject anything automatically. You still click Approve/Reject.
+async function runAIVisualMatchForDemand(demandId){
+  const result = matchResults.find(r => r.demandId === demandId);
+  if (!result || !result.pendingReview || !result.pendingReview.length){
+    showToast('No pending same-ref candidates for this item to check', true);
     return;
   }
+  if (!result.demandItem.imageData){
+    showToast('This demand item has no photo loaded \u2014 AI visual check needs a photo', true);
+    return;
+  }
+  const btn = document.querySelector(`.ai-check-btn[data-demand-id="${demandId}"]`);
+  if (btn){ btn.disabled = true; btn.textContent = 'Checking\u2026'; }
 
-  const BATCH_SIZE = 5; // candidate photos per Gemini call \u2014 keeps payload reasonable
-
-  // Free pre-filter by brand \u2014 comparing a Rolex demand photo against an
-  // Omega stock photo via AI vision is pure waste, brand is reliable text data.
-  const plan = allDemandDone.map(d => {
-    const candidates = allStockDone.filter(s =>
-      !d.fingerprint.brand || !s.fingerprint.brand || brandMatches(d.fingerprint.brand, s.fingerprint.brand)
-    );
-    return { demand: d, candidates, batches: Math.ceil(candidates.length / BATCH_SIZE) || 0 };
+  const judgments = await getAIVisualHints(result.demandItem, result.pendingReview);
+  judgments.forEach(j => {
+    const item = result.pendingReview.find(p => p.stockItem.id === j.stockId);
+    if (item) item.aiHint = j;
   });
-  const totalCalls = plan.reduce((sum, p) => sum + p.batches, 0);
-  const noPhotoDemand = demandItems.filter(it => it.status === 'done' && it.fingerprint && !it.imageData).length;
 
-  if (!totalCalls){
-    showToast('No same-brand candidates with photos to compare', true);
+  if (btn){ btn.disabled = false; btn.textContent = '\uD83D\uDD0D Check with AI'; }
+  renderReviewQueue();
+  showToast(`AI checked ${judgments.length} candidate${judgments.length===1?'':'s'} \u2014 see hints in the confirmation queue above`);
+}
+
+// Runs AI visual comparison across EVERY pending candidate in the whole
+// catalog, in one confirm-gated batch. Same advisory behavior as above \u2014
+// attaches hints to the existing pendingReview items, never overwrites
+// matchResults, never touches matchDecisions. Approved/rejected pairs from
+// earlier are completely untouched by this.
+async function runAIVisualMatching(){
+  const allPending = [];
+  matchResults.forEach(r => {
+    (r.pendingReview || []).forEach(p => {
+      if (p.stockItem.imageData && r.demandItem.imageData) allPending.push({ result: r, item: p });
+    });
+  });
+
+  if (!allPending.length){
+    showToast('No pending same-ref candidates with photos to check \u2014 run matching first', true);
     return;
   }
 
-  let msg = `AI Visual Match will make ~${totalCalls} Gemini call${totalCalls === 1 ? '' : 's'} `
-    + `across ${allDemandDone.length} demand item${allDemandDone.length === 1 ? '' : 's'} `
-    + `(pre-filtered by brand to keep cost down).\n\nEstimated cost: a few cents total, exact amount depends on photo sizes.`;
-  if (noPhotoDemand) msg += `\n\n${noPhotoDemand} demand item${noPhotoDemand===1?'':'s'} have no photo loaded and will be skipped.`;
-  msg += '\n\nContinue?';
-  if (!confirm(msg)) return;
+  const byDemand = {};
+  allPending.forEach(({ result, item }) => {
+    if (!byDemand[result.demandId]) byDemand[result.demandId] = { result, items: [] };
+    byDemand[result.demandId].items.push(item);
+  });
+  const demandGroups = Object.values(byDemand);
+  const totalCalls = demandGroups.reduce((sum, g) => sum + Math.ceil(g.items.length / 5), 0);
 
-  const btn = document.getElementById('runAIMatchBtn');
+  if (!confirm(`AI Visual Match will check ${allPending.length} same-ref candidate${allPending.length===1?'':'s'} across ${demandGroups.length} demand item${demandGroups.length===1?'':'s'} (~${totalCalls} Gemini call${totalCalls===1?'':'s'}).\n\nThis only ADVISES on pending items \u2014 you still approve or reject each one yourself. Nothing gets auto-decided, and nothing already confirmed is touched.\n\nEstimated cost: a few cents total.\n\nContinue?`)) return;
+
+  const btn = document.getElementById('runAIMatchBtn') || document.getElementById('runAIMatchBtnDash');
   const originalText = btn ? btn.textContent : null;
   if (btn) btn.disabled = true;
 
-  const newResults = [];
-  let callsDone = 0;
-
-  for (const { demand, candidates } of plan){
-    const dFp = demand.fingerprint;
-    if (!candidates.length){
-      newResults.push({ demandId: demand.id, demandItem: demand, matches: [], similarModels: [] });
-      continue;
-    }
-
-    const allJudgments = []; // { stockItem, match, confidence, reasoning }
-
-    for (let i = 0; i < candidates.length; i += BATCH_SIZE){
-      const batch = candidates.slice(i, i + BATCH_SIZE);
-      const labels = 'ABCDEFGHIJ'.split('');
-      const candPayload = batch.map((s, idx) => ({
-        label: labels[idx],
-        id: s.id,
-        image: s.imageData,
-        mime: imageMimeTypeOf(s),
-        summary: `Brand: ${s.fingerprint.brand || '?'} | Model: ${s.fingerprint.model_line || '?'} | Ref: ${s.fingerprint.reference_number || 'unknown'} | Dial: ${s.fingerprint.dial_color || '?'} | Strap: ${s.fingerprint.bracelet_or_strap || '?'} ${s.fingerprint.strap_color || ''} | Date: ${s.fingerprint.date_complication || '?'}`
-      }));
-
-      callsDone++;
-      if (btn) btn.textContent = `Comparing\u2026 ${callsDone}/${totalCalls}`;
-
-      try{
-        const promptText = VISUAL_MATCH_PROMPT + `\n\nDEMAND DATA (context only \u2014 trust the photo more):\nBrand: ${dFp.brand || '?'} | Model: ${dFp.model_line || '?'} | Ref: ${dFp.reference_number || 'unknown'} | Dial: ${dFp.dial_color || '?'} | Strap: ${dFp.bracelet_or_strap || '?'} ${dFp.strap_color || ''} | Date: ${dFp.date_complication || '?'}`;
-        const text = await callGeminiVisualCompare({
-          demandImage: demand.imageData, demandMime: imageMimeTypeOf(demand),
-          candidates: candPayload, promptText
-        });
-        const parsed = parseJsonLoose(text);
-        const results = (parsed && parsed.results) || [];
-        results.forEach(r => {
-          const cand = candPayload.find(c => c.label === r.candidate);
-          if (!cand) return;
-          const stockItem = batch.find(s => s.id === cand.id);
-          if (!stockItem) return;
-          allJudgments.push({
-            stockItem, match: !!r.match,
-            confidence: Math.max(0, Math.min(100, Number(r.confidence) || 0)),
-            reasoning: String(r.reasoning || '').trim()
-          });
-        });
-      }catch(e){
-        console.warn('Visual compare batch failed', e);
-        // Batch failure doesn't stop the whole run \u2014 continue with other demand items
-      }
-    }
-
-    const matches = allJudgments
-      .filter(j => j.match)
-      .sort((a,b) => b.confidence - a.confidence)
-      .slice(0, 6)
-      .map(j => ({
-        stockId: j.stockItem.id, stockItem: j.stockItem, confidence: j.confidence,
-        matchLevel: 'full', referenceMatchType: 'ai_visual',
-        reasoning: `\uD83D\uDD0D AI visual match: ${escapeHtml(j.reasoning)}`,
-        detailScore: j.confidence
-      }));
-
-    const similarModels = allJudgments
-      .filter(j => !j.match && j.confidence >= 30)
-      .sort((a,b) => b.confidence - a.confidence)
-      .slice(0, 3)
-      .map(j => ({
-        stockId: j.stockItem.id, stockItem: j.stockItem,
-        similarTag: `AI: ${escapeHtml(j.reasoning)} (${j.confidence}% similar)`
-      }));
-
-    newResults.push({ demandId: demand.id, demandItem: demand, matches, similarModels });
+  let done = 0;
+  for (const group of demandGroups){
+    if (btn) btn.textContent = `Checking\u2026 ${done+1}/${demandGroups.length}`;
+    const judgments = await getAIVisualHints(group.result.demandItem, group.items);
+    judgments.forEach(j => {
+      const item = group.items.find(p => p.stockItem.id === j.stockId);
+      if (item) item.aiHint = j;
+    });
+    done++;
   }
-
-  matchResults = newResults;
-  renderResults();
-  renderDashboard();
 
   if (btn){ btn.disabled = false; btn.textContent = originalText; }
   setView('results');
-
-  const matchedCount = matchResults.filter(r => r.matches.length).length;
-  showToast(`AI Visual Match done \u2014 ${matchedCount}/${allDemandDone.length} demand item${allDemandDone.length===1?'':'s'} matched (${totalCalls} Gemini call${totalCalls===1?'':'s'} used)`);
-  updateRunMatchAvailability();
+  renderReviewQueue();
+  showToast(`AI checked ${allPending.length} candidate${allPending.length===1?'':'s'} \u2014 hints added to the confirmation queue, nothing auto-decided`);
 }
+
 
 function runMatching(opts){
   const silent = opts && opts.silent;
@@ -5245,7 +5258,7 @@ function runMatching(opts){
     sameBrand
       .filter(s => !matchedIds.has(s.id) && !pendingIds.has(s.id) && s.fingerprint.reference_number)
       .forEach(s => {
-        if (similarModels.length >= 3) return;
+        if (similarModels.length >= 8) return;
         const sFp = s.fingerprint;
         const dModelNorm = normalizeDetail(dFp.model_line || '');
         const sModelNorm = normalizeDetail(sFp.model_line || '');
@@ -5711,6 +5724,12 @@ function renderResults(){
       el.closest('.result-row').classList.toggle('expanded');
     };
   });
+  list.querySelectorAll('.ai-check-btn').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      runAIVisualMatchForDemand(btn.dataset.demandId);
+    };
+  });
 }
 
 // Same ref number found on both sides — needs a human look, not an automated
@@ -5747,6 +5766,9 @@ function renderReviewQueue(){
         const hintText = p.mismatches && p.mismatches.length
           ? `<div class="review-hint">Auto-check found: ${escapeHtml(p.mismatches.join(' | '))}</div>`
           : `<div class="review-hint review-hint-clean">Auto-check found no differences \u2014 still needs your eyes to confirm</div>`;
+        const aiHintText = p.aiHint
+          ? `<div class="ai-hint-line">\uD83E\uDD16 AI thinks: ${p.aiHint.match ? 'same watch' : 'different watch'} (${p.aiHint.confidence}% confident) \u2014 ${escapeHtml(p.aiHint.reasoning)}</div>`
+          : '';
         return `
         <div class="review-pair-card">
           <div class="review-pair-body">
@@ -5769,6 +5791,7 @@ function renderReviewQueue(){
             </div>
           </div>
           ${hintText}
+          ${aiHintText}
           <div class="review-actions">
             <button class="btn review-approve" data-demand-id="${d.id}" data-stock-id="${s.id}">&#10003; Same watch \u2014 match</button>
             <button class="btn review-reject" data-demand-id="${d.id}" data-stock-id="${s.id}">&#10005; Different watch</button>
@@ -5797,6 +5820,7 @@ function renderResultRow(r){
   const top = r.matches[0];
   const pct = top ? Math.round(top.confidence) : 0;
   const tier = confidenceTier(pct);
+  const pendingCount = (r.pendingReview || []).length;
 
   const altMatches = r.matches.slice(1).map(m => `
     <div class="alt-match-item">
@@ -5809,6 +5833,14 @@ function renderResultRow(r){
   const similarModelsHtml = similarModels.length ? `
     <div class="alt-matches similar-models">
       <h4>Similar models available in stock</h4>
+      <div class="similar-demand-ref">
+        ${thumbHtml(demandItem, 42)}
+        <div>
+          <div class="similar-demand-label">What the customer wants</div>
+          <div class="similar-demand-name">${escapeHtml(itemLabel(demandItem))}</div>
+        </div>
+        <button class="btn small ai-check-btn" data-demand-id="${r.demandId}" title="Ask Gemini to visually compare these candidates against the demand photo">&#128269; Check with AI</button>
+      </div>
       ${similarModels.map(m => `
         <div class="alt-match-item">
           ${thumbHtml(m.stockItem, 30)}
@@ -5819,6 +5851,10 @@ function renderResultRow(r){
         </div>
       `).join('')}
     </div>` : '';
+
+  const pendingNotice = pendingCount
+    ? `<p style="font-size:12.5px;color:var(--gold-bright);padding-top:14px;">${pendingCount} stock item${pendingCount===1?'':'s'} share${pendingCount===1?'s':''} this reference number \u2014 see the confirmation queue above to approve or reject.</p>`
+    : `<p style="font-size:12.5px;color:var(--text-faint);padding-top:14px;">No stock item shared the same reference number as this request.</p>`;
 
   return `
   <div class="result-row" data-demand-id="${r.demandId}">
@@ -5832,9 +5868,11 @@ function renderResultRow(r){
         <div class="demand-name">${escapeHtml(itemLabel(demandItem))}</div>
         ${top
           ? `<div class="match-name">matched: ${escapeHtml(itemLabel(top.stockItem))}</div>`
-          : similarModels.length
-            ? `<div class="no-match">no exact match \u2014 ${similarModels.length} similar model${similarModels.length > 1 ? 's' : ''} in stock</div>`
-            : `<div class="no-match">no confident match in current stock</div>`}
+          : pendingCount
+            ? `<div class="no-match" style="color:var(--gold-bright);">${pendingCount} awaiting your confirmation</div>`
+            : similarModels.length
+              ? `<div class="no-match">no exact match \u2014 ${similarModels.length} similar model${similarModels.length > 1 ? 's' : ''} in stock</div>`
+              : `<div class="no-match">no confident match in current stock</div>`}
       </div>
       ${top ? `
       <div class="confidence">
@@ -5861,7 +5899,7 @@ function renderResultRow(r){
       </div>
       ${altMatches ? `<div class="alt-matches"><h4>Other possible matches</h4>${altMatches}</div>` : ''}
       ${similarModelsHtml}
-      ` : `<p style="font-size:12.5px;color:var(--text-faint);padding-top:14px;">No stock item shared the same reference number as this request.</p>${similarModelsHtml}`}
+      ` : `${pendingNotice}${similarModelsHtml}`}
     </div>
   </div>`;
 }
@@ -6065,6 +6103,8 @@ function init(){
   document.getElementById('bulkReanalyzeBtn').onclick = bulkReanalyzeStaleDialData;
   const aiMatchBtn = document.getElementById('runAIMatchBtn');
   if (aiMatchBtn) aiMatchBtn.onclick = runAIVisualMatching;
+  const aiMatchBtnDash = document.getElementById('runAIMatchBtnDash');
+  if (aiMatchBtnDash) aiMatchBtnDash.onclick = runAIVisualMatching;
   updateBulkReanalyzeCount();
   document.getElementById('pushImagesBtn').onclick = pushLocalImagesToCloud;
   document.getElementById('importCatalogInput').onchange = (e) => { if (e.target.files && e.target.files[0]) importCatalog(e.target.files[0]); e.target.value = ''; };
