@@ -2162,6 +2162,29 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
   font-family: var(--sans); font-size: 11px; color: var(--text-muted);
 }
 .declined-undo{ flex-shrink: 0; font-size: 10.5px; }
+
+.dup-warning-panel{
+  margin-bottom: 20px; padding: 14px 16px;
+  background: rgba(181,86,60,0.06); border: 1px solid rgba(181,86,60,0.3);
+  border-radius: var(--radius);
+}
+.dup-warning-header{ display: flex; gap: 10px; margin-bottom: 12px; }
+.dup-warning-title{ font-family: var(--display); font-size: 14px; font-weight: 600; color: var(--rust-bright); }
+.dup-warning-sub{ font-family: var(--sans); font-size: 11.5px; color: var(--text-muted); margin-top: 3px; }
+.dup-group{
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 10px; margin-top: 8px;
+  background: var(--surface); border-radius: var(--radius-sm);
+}
+.dup-item{ display: flex; align-items: center; gap: 8px; padding: 4px 8px; }
+.dup-item-label{ font-size: 11px; color: var(--text-muted); }
+.dup-keep-btn{ font-size: 10.5px; }
+
+.pending-demand-group{ margin-bottom: 6px; }
+.pending-demand-group-head{
+  font-family: var(--display); font-style: italic; font-size: 12.5px;
+  color: var(--text-faint); margin: 14px 0 8px; padding-left: 2px;
+}
 </style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2281,6 +2304,7 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
         <button class="btn" id="pushImagesBtn" title="Upload all local images to cloud">Push images to cloud</button>
         <button class="btn danger-text" id="clearCloudBtn" title="Delete all images from cloud storage">Clear cloud images</button>
         <button class="btn danger-text" id="bulkReanalyzeBtn" title="Reanalyze only items missing dial marker/material data">Fix stale dial data</button>
+        <button class="btn danger-text" id="reanalyzeAllBtn" title="Reanalyze every item from scratch, not just stale ones">Reanalyze all</button>
         <button class="btn" id="runAIMatchBtnDash" title="Ask Gemini to visually advise on pending ref-matches (see Results tab)">&#128269; AI Visual Match</button>
         <button class="btn primary" id="exportPdfBtn" title="Export dashboard as PDF" style="margin-left:auto;">&#128196; Export PDF</button>
       </div>
@@ -2396,6 +2420,28 @@ let demandFilter = 'all';
 
 // Deduplicate demand: same client + same ref → keep most recent.
 // Different client + same ref → keep both (shown as multi-client demand).
+// Finds demand items that are probably the SAME request entered more than
+// once \u2014 e.g. the same WhatsApp photo uploaded twice, or reanalyzed and
+// re-added. Groups by client + brand + ref (or model line if no ref yet).
+// This is different from deduplicateDemand() below, which only hides exact
+// client+ref repeats in the display \u2014 this actively surfaces near-duplicates
+// so you can delete the extra ones instead of them cluttering the review queue.
+function findDuplicateDemandGroups(){
+  const groups = {};
+  demandItems.forEach(it => {
+    if (!it.fingerprint || it.status !== 'done') return;
+    const fp = it.fingerprint;
+    const client = (fp.client_name || '').toLowerCase().trim();
+    const brand  = (fp.brand || '').toLowerCase().trim();
+    const ident  = (fp.reference_number || fp.model_line || '').toLowerCase().trim();
+    if (!client || !brand || !ident) return; // not enough info to safely compare
+    const key = `${client}|${brand}|${ident}`;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(it);
+  });
+  return Object.values(groups).filter(g => g.length > 1);
+}
+
 function deduplicateDemand(items){
   const seen = new Map();
   const result = [];
@@ -3456,6 +3502,30 @@ function renderDemand(){
   const demandFilterBar = buildFilterBar(dedupedDemand, demandFilter, f => { demandFilter = f; renderDemand(); });
   const filteredDemand = filterItems(dedupedDemand, demandFilter);
   window._multiClientMap = multiClientMap;
+
+  const dupGroups = findDuplicateDemandGroups();
+  const dupHtml = dupGroups.length ? `
+    <div class="dup-warning-panel">
+      <div class="dup-warning-header">
+        <span>&#9888;&#65039;</span>
+        <div>
+          <div class="dup-warning-title">${dupGroups.length} possible duplicate demand ${dupGroups.length===1?'group':'groups'} found</div>
+          <div class="dup-warning-sub">Same client, brand, and reference \u2014 likely the same request entered more than once. Keep one, delete the rest.</div>
+        </div>
+      </div>
+      ${dupGroups.map((g, gi) => `
+        <div class="dup-group">
+          ${g.map((it, ii) => `
+            <div class="dup-item">
+              ${thumbHtml(it, 40)}
+              <span class="dup-item-label">${escapeHtml(itemLabel(it))} \u00b7 ${escapeHtml(it.fingerprint.dial_color || '?')}</span>
+              <button class="btn small dup-keep-btn" data-group="${gi}" data-keep-id="${it.id}">Keep this one</button>
+            </div>
+          `).join('')}
+        </div>
+      `).join('')}
+    </div>` : '';
+
   const cardsHtml = filteredDemand.map(it => {
     const ref = it.fingerprint && it.fingerprint.reference_number
       ? it.fingerprint.reference_number.toUpperCase() : null;
@@ -3467,7 +3537,22 @@ function renderDemand(){
       multiClientExtra
     });
   }).join('');
-  grid.innerHTML = demandFilterBar + `<div class="watch-grid">${cardsHtml}</div>`;
+  grid.innerHTML = demandFilterBar + dupHtml + `<div class="watch-grid">${cardsHtml}</div>`;
+
+  grid.querySelectorAll('.dup-keep-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const groupIdx = parseInt(btn.dataset.group);
+      const keepId = btn.dataset.keepId;
+      const group = dupGroups[groupIdx];
+      if (!group) return;
+      if (!confirm(`Delete ${group.length - 1} duplicate${group.length-1===1?'':'s'}, keeping this one?`)) return;
+      const toRemove = group.filter(it => it.id !== keepId).map(it => it.id);
+      demandItems = demandItems.filter(it => !toRemove.includes(it.id));
+      await saveDemandCatalog();
+      renderDemand();
+      showToast(`Removed ${toRemove.length} duplicate${toRemove.length===1?'':'s'}`);
+    };
+  });
   grid.querySelectorAll('[data-action="lightbox"]').forEach(el => {
     el.onclick = () => {
       const item = demandItems.find(d => d.id === el.dataset.id);
@@ -4383,6 +4468,23 @@ function itemNeedsDialReanalysis(it){
   return it.status === 'done' && it.fingerprint &&
     it.fingerprint.dial_markers_type === undefined &&
     it.fingerprint.diamonds === undefined;
+}
+
+async function reanalyzeAllItems(){
+  const total = stockItems.length + demandItems.length;
+  if (!total){ showToast('Nothing to reanalyze \u2014 add some items first'); return; }
+  if (!confirm(`Reanalyze ALL ${total} item${total===1?'':'s'} (${stockItems.length} stock + ${demandItems.length} demand) from scratch with the current extraction rules?\n\nThis re-checks everything, not just items missing data \u2014 useful for a clean, consistent dataset after prompt improvements.\n\nCost: roughly $0.001\u2013$0.002 per item (Claude Haiku) plus any Gemini ref lookups needed.\n\nContinue?`)) return;
+
+  stockItems.forEach(it => { it.status = 'pending'; it.autoRetryCount = 0; it.error = null; });
+  demandItems.forEach(it => { it.status = 'pending'; it.autoRetryCount = 0; it.error = null; });
+  renderStock(); renderDemand();
+  showToast(`Reanalyzing all ${total} items\u2026 this will take a while`);
+
+  await analyzeBatch(stockItems, 'stock', renderStock);
+  await analyzeBatch(demandItems, 'demand', renderDemand);
+
+  runMatching({ silent: true });
+  showToast(`Done \u2014 all ${total} items reanalyzed. Re-run matching to see updated results.`);
 }
 
 async function bulkReanalyzeStaleDialData(){
@@ -5708,6 +5810,15 @@ function renderReviewQueue(){
   matchResults.forEach(r => {
     (r.pendingReview || []).forEach(p => pending.push({ demandItem: r.demandItem, ...p }));
   });
+  // Group by demand so multiple candidates for the same request read as
+  // "these are the options for THIS one demand" instead of a flat,
+  // undifferentiated list that's easy to misread as chaos.
+  const pendingByDemand = {};
+  pending.forEach(p => {
+    if (!pendingByDemand[p.demandItem.id]) pendingByDemand[p.demandItem.id] = { demandItem: p.demandItem, items: [] };
+    pendingByDemand[p.demandItem.id].items.push(p);
+  });
+  const pendingGroups = Object.values(pendingByDemand);
 
   // Previously declined pairs \u2014 shown collapsed so a rejection made by
   // mistake (or during earlier testing) can be found and undone instead of
@@ -5755,10 +5866,13 @@ function renderReviewQueue(){
         <span class="review-queue-icon">\uD83D\uDC41\uFE0F</span>
         <div>
           <div class="review-queue-title">Same ref number found \u2014 confirm these are the same watch</div>
-          <div class="review-queue-sub">${pending.length} pair${pending.length===1?'':'s'} waiting. Look at both photos, then Approve or Reject each one.</div>
+          <div class="review-queue-sub">${pending.length} pair${pending.length===1?'':'s'} across ${pendingGroups.length} demand item${pendingGroups.length===1?'':'s'}. Look at both photos, then Approve or Reject each one.</div>
         </div>
       </div>
-      ${pending.map(p => {
+      ${pendingGroups.map(group => `
+        <div class="pending-demand-group">
+          ${group.items.length > 1 ? `<div class="pending-demand-group-head">${escapeHtml(itemLabel(group.demandItem))} \u2014 ${group.items.length} candidates in stock share this ref</div>` : ''}
+          ${group.items.map(p => {
         const d = p.demandItem, s = p.stockItem;
         const dFp = d.fingerprint || {}, sFp = s.fingerprint || {};
         const demandPhoto = d.imageData
@@ -5802,7 +5916,9 @@ function renderReviewQueue(){
             <button class="btn small ai-check-btn" data-demand-id="${d.id}" title="Ask Gemini to visually compare this and any other pending candidates for this demand">&#128269; AI</button>
           </div>
         </div>`;
-      }).join('')}
+          }).join('')}
+        </div>
+      `).join('')}
     </div>${declinedHtml}`;
 
   container.querySelectorAll('[data-action="lightbox"]').forEach(el => {
@@ -6094,6 +6210,7 @@ function init(){
   });
   document.getElementById('exportPdfBtn').onclick = generatePDF;
   document.getElementById('bulkReanalyzeBtn').onclick = bulkReanalyzeStaleDialData;
+  document.getElementById('reanalyzeAllBtn').onclick = reanalyzeAllItems;
   const aiMatchBtn = document.getElementById('runAIMatchBtn');
   if (aiMatchBtn) aiMatchBtn.onclick = runAIVisualMatching;
   const aiMatchBtnDash = document.getElementById('runAIMatchBtnDash');
