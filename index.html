@@ -2864,7 +2864,7 @@ function getApiKey(){
 function setApiKey(key){
   try{ window.localStorage.setItem('sm:anthropic-api-key', key.trim()); }catch(e){}
 }
-const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001';
+const ANTHROPIC_MODEL = 'claude-sonnet-5';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 
 function getFirebaseConfigRaw(){
@@ -4016,7 +4016,7 @@ function extractRetryDelaySeconds(response, errJson){
   return 15;
 }
 
-const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite']; // flash first — far better at multi-source lookup
+const GEMINI_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.7-flash']; // 2.5 family retires Oct 16 2026 — migrated off it
 function geminiUrlFor(model){
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 }
@@ -4213,12 +4213,19 @@ function getOfficialSiteForBrand(brand){
   return null;
 }
 
-async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt){
+async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt, caption){
   const MAX_LOOKUP_ATTEMPTS = 4; // try all 5 sources across 4 attempts before giving up
   // Chrono24-only mode — no official site lookup needed
   const officialSiteInstruction = '';
 
-  const detailsText = `Watch details extracted so far:\n${JSON.stringify(fp, null, 2)}`;
+  // If the dealer's own caption already states the ref/dial/strap, that's
+  // more reliable than a fresh web search \u2014 check it before spending
+  // search calls on something already answered.
+  const captionText = caption
+    ? `\n\nDEALER'S CAPTION ON THIS PHOTO: "${caption}"\nCheck this FIRST. If it already states the reference number, dial color, or bracelet type, use that directly \u2014 you can skip searching for whatever it already confirms and only search the web for details it doesn't mention.`
+    : '';
+
+  const detailsText = `Watch details extracted so far:\n${JSON.stringify(fp, null, 2)}${captionText}`;
   const rolexHints = getRolexRefHints(fp);
   const patekHints = getPatekRefHints(fp);
   let hintsText = '';
@@ -4359,7 +4366,7 @@ async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWa
 
 async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeType, onLookupAttempt, allowLookup){
   const userText = caption
-    ? `Caption / filename provided by the dealer: "${caption}". Use this as supporting signal alongside the image.`
+    ? `Caption / note written by the dealer: "${caption}". TREAT THIS AS AUTHORITATIVE for anything it explicitly states \u2014 same priority as message text on a demand photo. If the caption says the ref number, dial color, strap type, or bracelet style, use that exact value directly rather than guessing from the image. Only fall back to reading the photo for details the caption doesn't mention.`
     : 'No caption was provided. Rely on the image alone.';
   const effectiveMimeType = (mimeType && mimeType.startsWith('image/')) ? mimeType : 'image/jpeg';
 
@@ -4376,7 +4383,7 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
 
   // Always lookup when no ref visible — stock images need this too.
   if (!fp.reference_number){
-    const lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType, onLookupAttempt);
+    const lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType, onLookupAttempt, caption);
     fp.reference_number = lookup.reference_number || null;
     fp.reference_number_source = lookup.reference_number_source || null;
     fp.reference_source_site = lookup.confirming_source || null;
