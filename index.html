@@ -2144,6 +2144,24 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
   border-radius: var(--radius-sm);
   font-family: var(--sans); font-size: 10.5px; color: var(--steel-bright); line-height: 1.5;
 }
+
+.declined-section{
+  margin-top: 20px; padding: 12px 14px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.declined-section summary{
+  cursor: pointer; font-family: var(--sans); font-size: 12px;
+  color: var(--text-muted); font-weight: 500;
+}
+.declined-section summary:hover{ color: var(--text); }
+.declined-row{
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 0; margin-top: 8px;
+  border-top: 1px solid var(--border);
+  font-family: var(--sans); font-size: 11px; color: var(--text-muted);
+}
+.declined-undo{ flex-shrink: 0; font-size: 10.5px; }
 </style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -5248,38 +5266,12 @@ function runMatching(opts){
 
     const matches = strictMatches.sort((a,b) => b.confidence - a.confidence).slice(0,6);
 
-    /* STEP 4 \u2014 close alternates: same brand, no ref match at all (different
-       ref entirely, or same model different variant) \u2014 unrelated to the
-       pending-review queue above, which is specifically for SAME ref number. */
-    const matchedIds  = new Set(matches.map(m => m.stockId));
-    const pendingIds  = new Set(pendingReview.map(p => p.stockId));
-    const similarModels = [];
-
-    sameBrand
-      .filter(s => !matchedIds.has(s.id) && !pendingIds.has(s.id) && s.fingerprint.reference_number)
-      .forEach(s => {
-        if (similarModels.length >= 8) return;
-        const sFp = s.fingerprint;
-        const dModelNorm = normalizeDetail(dFp.model_line || '');
-        const sModelNorm = normalizeDetail(sFp.model_line || '');
-        if (!dModelNorm || dModelNorm !== sModelNorm) return;
-        if (dFp.case_size && sFp.case_size &&
-            normalizeDetail(dFp.case_size) !== normalizeDetail(sFp.case_size)) return;
-
-        const dateDiff = dFp.date_complication && sFp.date_complication && dFp.date_complication !== sFp.date_complication;
-        const yearDiff = dFp.year && sFp.year && Math.abs(parseInt(sFp.year) - parseInt(dFp.year)) <= 2;
-        const dialDiff = dFp.dial_color && sFp.dial_color && normalizeDetail(dFp.dial_color) !== normalizeDetail(sFp.dial_color);
-
-        let tag;
-        if (dateDiff)      tag = `Alternate \u2014 ${escapeHtml(sFp.date_complication)} version (ref ${escapeHtml(sFp.reference_number)})`;
-        else if (yearDiff) tag = `Year alternate \u2014 ${escapeHtml(sFp.year)} (ref ${escapeHtml(sFp.reference_number)})`;
-        else if (dialDiff) tag = `Same model, different dial \u2014 ${escapeHtml(sFp.dial_color)} (ref ${escapeHtml(sFp.reference_number)})`;
-        else               tag = `Same model line \u2014 ref ${escapeHtml(sFp.reference_number)}, not ref-matched to this demand`;
-
-        similarModels.push({ stockId: s.id, stockItem: s, similarTag: tag });
-      });
-
-    return { demandId: d.id, demandItem: d, matches, pendingReview, similarModels };
+    // "Similar models / close alternates" (same model line, different ref)
+    // removed entirely per instruction \u2014 the ONLY thing that surfaces a
+    // candidate now is a matching reference number, and every ref match
+    // always goes through the confirm/reject queue below. No fuzzy
+    // "kind of similar" suggestions anymore.
+    return { demandId: d.id, demandItem: d, matches, pendingReview, similarModels: [] };
   });
 
   renderResults();
@@ -5606,36 +5598,10 @@ function renderDashboard(){
     </div>`;
   }
 
-  // Close alternates + similar models as sub-section — grouped by WHICH demand
-  // item they're an alternate for, so it's clear what each one is close to.
-  const altGroups = [];
-  matchResults.forEach(r => {
-    if (!r.similarModels || !r.similarModels.length) return;
-    const dFp = r.demandItem.fingerprint || {};
-    altGroups.push({ demandItem: r.demandItem, dFp, alternates: r.similarModels.slice(0, 3) });
-  });
-
-  const altSectionHtml = altGroups.length ? `
-    <div class="alt-subsection">
-      <div class="alt-subsection-label">Close alternates &amp; year variants</div>
-      ${altGroups.slice(0, 5).map(g => `
-        <div class="alt-group">
-          <div class="alt-group-head">
-            <span class="alt-group-for">For:</span>
-            <span class="alt-group-demand">${escapeHtml(g.dFp.brand || '?')} ${escapeHtml(g.dFp.model_line || '')}${g.dFp.reference_number ? ' \u00b7 ' + escapeHtml(g.dFp.reference_number) : ''}</span>
-            ${g.dFp.client_name ? `<span class="pair-client" style="margin-left:auto;">\uD83D\uDCF1 ${escapeHtml(g.dFp.client_name)}</span>` : ''}
-          </div>
-          <div class="watch-grid">
-            ${g.alternates.map(alt => `
-              <div class="alt-card-wrap">
-                ${renderWatchCard(alt.stockItem, { section: 'stock', altCard: true })}
-                <div class="alt-reason-banner"><span class="alt-reason-icon">\u24D8</span>${escapeHtml(alt.similarTag || 'Close alternate')}</div>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      `).join('')}
-    </div>` : '';
+  // "Close alternates / similar models" removed \u2014 the confirm/reject
+  // queue on the Results tab is now the only place candidates get surfaced,
+  // and it's ref-number-based only, never a fuzzy "similar model" guess.
+  const altSectionHtml = '';
 
   matchWrap.innerHTML = `
     ${metricsHtml}
@@ -5743,7 +5709,45 @@ function renderReviewQueue(){
     (r.pendingReview || []).forEach(p => pending.push({ demandItem: r.demandItem, ...p }));
   });
 
-  if (!pending.length){ container.innerHTML = ''; return; }
+  // Previously declined pairs \u2014 shown collapsed so a rejection made by
+  // mistake (or during earlier testing) can be found and undone instead of
+  // silently vanishing forever with no way back.
+  const declined = [];
+  demandItems.forEach(d => {
+    if (!d.matchDecisions) return;
+    Object.entries(d.matchDecisions).forEach(([stockId, decision]) => {
+      if (decision !== 'rejected') return;
+      const s = stockItems.find(it => it.id === stockId);
+      if (s) declined.push({ demandItem: d, stockItem: s });
+    });
+  });
+
+  if (!pending.length && !declined.length){ container.innerHTML = ''; return; }
+
+  const declinedHtml = declined.length ? `
+    <details class="declined-section">
+      <summary>${declined.length} previously declined pair${declined.length===1?'':'s'} \u2014 click to review / undo</summary>
+      ${declined.map(p => {
+        const dFp = p.demandItem.fingerprint || {}, sFp = p.stockItem.fingerprint || {};
+        return `<div class="declined-row">
+          <span>${escapeHtml(dFp.brand||'?')} ${escapeHtml(dFp.model_line||'')} ${escapeHtml(dFp.reference_number||'')} \u2194 ${escapeHtml(sFp.brand||'?')} ${escapeHtml(sFp.model_line||'')} ${escapeHtml(sFp.reference_number||'')}</span>
+          <button class="btn small declined-undo" data-demand-id="${p.demandItem.id}" data-stock-id="${p.stockItem.id}">Undo \u2014 ask again</button>
+        </div>`;
+      }).join('')}
+    </details>` : '';
+
+  if (!pending.length){
+    container.innerHTML = declinedHtml;
+    container.querySelectorAll('.declined-undo').forEach(btn => {
+      btn.onclick = async () => {
+        const d = demandItems.find(x => x.id === btn.dataset.demandId);
+        if (d && d.matchDecisions) delete d.matchDecisions[btn.dataset.stockId];
+        await saveDemandCatalog();
+        runMatching({ silent: true });
+      };
+    });
+    return;
+  }
 
   container.innerHTML = `
     <div class="review-queue-section">
@@ -5795,10 +5799,11 @@ function renderReviewQueue(){
           <div class="review-actions">
             <button class="btn review-approve" data-demand-id="${d.id}" data-stock-id="${s.id}">&#10003; Same watch \u2014 match</button>
             <button class="btn review-reject" data-demand-id="${d.id}" data-stock-id="${s.id}">&#10005; Different watch</button>
+            <button class="btn small ai-check-btn" data-demand-id="${d.id}" title="Ask Gemini to visually compare this and any other pending candidates for this demand">&#128269; AI</button>
           </div>
         </div>`;
       }).join('')}
-    </div>`;
+    </div>${declinedHtml}`;
 
   container.querySelectorAll('[data-action="lightbox"]').forEach(el => {
     el.onclick = () => {
@@ -5812,6 +5817,17 @@ function renderReviewQueue(){
   });
   container.querySelectorAll('.review-reject').forEach(btn => {
     btn.onclick = () => decideMatch(btn.dataset.demandId, btn.dataset.stockId, 'rejected');
+  });
+  container.querySelectorAll('.ai-check-btn').forEach(btn => {
+    btn.onclick = () => runAIVisualMatchForDemand(btn.dataset.demandId);
+  });
+  container.querySelectorAll('.declined-undo').forEach(btn => {
+    btn.onclick = async () => {
+      const d = demandItems.find(x => x.id === btn.dataset.demandId);
+      if (d && d.matchDecisions) delete d.matchDecisions[btn.dataset.stockId];
+      await saveDemandCatalog();
+      runMatching({ silent: true });
+    };
   });
 }
 
@@ -5829,32 +5845,12 @@ function renderResultRow(r){
     </div>
   `).join('');
 
-  const similarModels = r.similarModels || [];
-  const similarModelsHtml = similarModels.length ? `
-    <div class="alt-matches similar-models">
-      <h4>Similar models available in stock</h4>
-      <div class="similar-demand-ref">
-        ${thumbHtml(demandItem, 42)}
-        <div>
-          <div class="similar-demand-label">What the customer wants</div>
-          <div class="similar-demand-name">${escapeHtml(itemLabel(demandItem))}</div>
-        </div>
-        <button class="btn small ai-check-btn" data-demand-id="${r.demandId}" title="Ask Gemini to visually compare these candidates against the demand photo">&#128269; Check with AI</button>
-      </div>
-      ${similarModels.map(m => `
-        <div class="alt-match-item">
-          ${thumbHtml(m.stockItem, 30)}
-          <div>
-            <span>${escapeHtml(itemLabel(m.stockItem))} ${refBadge(m.stockItem.fingerprint)}</span>
-            ${m.similarTag ? `<div class="similar-model-tag">&#9432; ${escapeHtml(m.similarTag)}</div>` : ''}
-          </div>
-        </div>
-      `).join('')}
-    </div>` : '';
-
+  // "Similar models" (same model line, different ref) removed \u2014 only
+  // an actual reference-number match surfaces a candidate now, and every
+  // one of those goes through the confirm/reject queue above.
   const pendingNotice = pendingCount
     ? `<p style="font-size:12.5px;color:var(--gold-bright);padding-top:14px;">${pendingCount} stock item${pendingCount===1?'':'s'} share${pendingCount===1?'s':''} this reference number \u2014 see the confirmation queue above to approve or reject.</p>`
-    : `<p style="font-size:12.5px;color:var(--text-faint);padding-top:14px;">No stock item shared the same reference number as this request.</p>`;
+    : `<p style="font-size:12.5px;color:var(--text-faint);padding-top:14px;">No stock item shares this reference number.</p>`;
 
   return `
   <div class="result-row" data-demand-id="${r.demandId}">
@@ -5870,9 +5866,7 @@ function renderResultRow(r){
           ? `<div class="match-name">matched: ${escapeHtml(itemLabel(top.stockItem))}</div>`
           : pendingCount
             ? `<div class="no-match" style="color:var(--gold-bright);">${pendingCount} awaiting your confirmation</div>`
-            : similarModels.length
-              ? `<div class="no-match">no exact match \u2014 ${similarModels.length} similar model${similarModels.length > 1 ? 's' : ''} in stock</div>`
-              : `<div class="no-match">no confident match in current stock</div>`}
+            : `<div class="no-match">no matching reference number in current stock</div>`}
       </div>
       ${top ? `
       <div class="confidence">
@@ -5898,8 +5892,7 @@ function renderResultRow(r){
         <p>${escapeHtml(top.reasoning || '')}</p>
       </div>
       ${altMatches ? `<div class="alt-matches"><h4>Other possible matches</h4>${altMatches}</div>` : ''}
-      ${similarModelsHtml}
-      ` : `${pendingNotice}${similarModelsHtml}`}
+      ` : pendingNotice}
     </div>
   </div>`;
 }
@@ -6313,40 +6306,12 @@ function generatePDF(){
     </div>`;
   }
 
-  // Close alternates — grouped by demand, same reasons shown on Dashboard
-  const altGroupsForPdf = matchResults
-    .filter(r => r.similarModels && r.similarModels.length)
-    .map(r => ({ demandItem: r.demandItem, dFp: r.demandItem.fingerprint || {}, alternates: r.similarModels.slice(0,3) }));
-
-  function altCard(alt){
-    const s = alt.stockItem; const fp = s.fingerprint || {};
-    const imgTag = s.imageData
-      ? `<img class="pc-img" src="data:${imageMimeTypeOf(s)};base64,${s.imageData}" alt="">`
-      : `<div class="pc-no-img">No image</div>`;
-    return `
-    <div class="pc alt-pc">
-      ${imgTag}
-      <div class="pc-body">
-        <div class="pc-brand">${escapeHtml(fp.brand || 'Unknown')}</div>
-        <div class="pc-model">${escapeHtml(fp.model_line || '')}</div>
-        <div class="pc-ref-line">${escapeHtml(fp.reference_number || '\u2014')}</div>
-        <div class="alt-reason">${escapeHtml(alt.similarTag || '')}</div>
-      </div>
-    </div>`;
-  }
-
-  function altGroup(g){
-    const label = `${escapeHtml(g.dFp.brand || '?')} ${escapeHtml(g.dFp.model_line || '')}${g.dFp.reference_number ? ' \u00b7 ' + escapeHtml(g.dFp.reference_number) : ''}`;
-    return `
-    <div class="alt-group-pdf">
-      <div class="alt-group-head-pdf">For: ${label}${g.dFp.client_name ? ' \u2014 ' + escapeHtml(g.dFp.client_name) : ''}</div>
-      <div class="grid alt-grid-pdf">${g.alternates.map(altCard).join('')}</div>
-    </div>`;
-  }
-
+  // "Close alternates" removed from PDF too \u2014 only confirmed (approved)
+  // matches are shown, consistent with the app no longer showing fuzzy
+  // "similar model" suggestions anywhere.
   const stockHtml   = analyzedStock.map(card).join('');
   const matchesHtml = matchedPairs.map(matchCard).join('');
-  const alternatesHtml = altGroupsForPdf.map(altGroup).join('');
+  const alternatesHtml = '';
   const date = new Date().toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' });
 
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
