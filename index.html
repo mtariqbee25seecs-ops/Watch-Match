@@ -2864,7 +2864,7 @@ function getApiKey(){
 function setApiKey(key){
   try{ window.localStorage.setItem('sm:anthropic-api-key', key.trim()); }catch(e){}
 }
-const ANTHROPIC_MODEL = 'claude-sonnet-4.6';
+const ANTHROPIC_MODEL = 'claude-sonnet-5';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 
 function getFirebaseConfigRaw(){
@@ -3981,7 +3981,7 @@ OUTPUT (strict JSON, no markdown)
 
 {
   "reference_number": string or null,
-  "reference_number_source": "looked_up" or null,
+  "reference_number_source": "looked_up" or "stated" or null,
   "dial_color": string or null,
   "dial_markers_type": string or null,
   "bracelet_type": string or null,
@@ -4222,7 +4222,7 @@ async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt, capti
   // more reliable than a fresh web search \u2014 check it before spending
   // search calls on something already answered.
   const captionText = caption
-    ? `\n\nDEALER'S CAPTION ON THIS PHOTO: "${caption}"\nCheck this FIRST. If it already states the reference number, dial color, or bracelet type, use that directly \u2014 you can skip searching for whatever it already confirms and only search the web for details it doesn't mention.`
+    ? `\n\nDEALER'S CAPTION ON THIS PHOTO: "${caption}"\nCheck this FIRST. If it already states the reference number, dial color, or bracelet type, use that directly. IMPORTANT: if you take a value from the caption instead of a web search, set reference_number_source to "stated" (not "looked_up") \u2014 this tells the system it's a direct read from dealer-provided text, not a search claim, so it doesn't get wrongly discarded as an unconfirmed guess. Only use "looked_up" for something you actually found via a real search.`
     : '';
 
   const detailsText = `Watch details extracted so far:\n${JSON.stringify(fp, null, 2)}${captionText}`;
@@ -4254,8 +4254,12 @@ async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt, capti
 
       const reallySearched = searchQueries.length > 0 || pagesRead.length > 0;
       const claimsGrounded = result.reference_number_source === 'looked_up' || result.reference_number_source === 'best_match';
-      if (claimsGrounded && !reallySearched){
-        // No inferred guesses — Chrono24 only. Discard if no real search was done.
+      const claimsFromCaption = result.reference_number_source === 'stated';
+      // A "stated" source means Gemini read the answer directly out of the
+      // dealer's caption, not a search — that's legitimate and should NOT
+      // require search grounding. Only discard "looked_up"/"best_match"
+      // claims that have no actual search behind them (genuine hallucination).
+      if (claimsGrounded && !reallySearched && !claimsFromCaption){
         result.reference_number = null;
         result.reference_number_source = null;
         result.confidence_notes = 'No Chrono24 search performed — result discarded.';
@@ -4267,8 +4271,10 @@ async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt, capti
       result.confidence_notes = result.confidence_notes ? `${result.confidence_notes} | ${searchSummary}` : searchSummary;
 
       lastResult = result;
-      // Best case: grounded result confirmed by real search
-      if (claimsGrounded && reallySearched){
+      // Best case: grounded result confirmed by real search, OR read
+      // directly from the dealer's own caption — both are trustworthy
+      // enough to stop immediately instead of burning more paid attempts.
+      if ((claimsGrounded && reallySearched) || claimsFromCaption){
         if (attempt > 1) result.confidence_notes = `(confirmed on attempt ${attempt}/${MAX_LOOKUP_ATTEMPTS}) ${result.confidence_notes}`;
         return result;
       }
