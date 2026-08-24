@@ -2185,6 +2185,33 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
   font-family: var(--display); font-style: italic; font-size: 12.5px;
   color: var(--text-faint); margin: 14px 0 8px; padding-left: 2px;
 }
+
+.watch-card-actions{
+  display: flex; gap: 8px; margin-top: 10px;
+}
+.watch-card-actions .btn{ flex: 1; }
+
+.manual-match-toggle{ width: 100%; }
+.manual-match-picker{
+  margin-top: 10px; padding: 10px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.manual-match-search{
+  width: 100%; padding: 8px 10px; margin-bottom: 8px;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text);
+  font-family: var(--sans); font-size: 12px;
+}
+.manual-match-results{ max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.manual-match-item{
+  display: flex; align-items: center; gap: 9px; padding: 7px 8px;
+  border-radius: var(--radius-sm); cursor: pointer;
+  font-family: var(--sans); font-size: 12px; color: var(--text-dim);
+  transition: background 0.15s;
+}
+.manual-match-item:hover{ background: var(--surface-hover); color: var(--text); }
+.manual-match-empty{ padding: 10px; font-size: 11.5px; color: var(--text-faint); text-align: center; }
 </style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3291,10 +3318,48 @@ function renderWatchCard(it, options){
       </div>
     </div>`;
 
+  const captionInput = (section === 'stock' || section === 'demand')
+    ? `<input class="card-caption-input watch-card-caption" type="text" placeholder="Caption / note (optional)" value="${escapeHtml(it.caption || '')}" data-item-id="${it.id}" data-item-kind="${editKind}">`
+    : '';
+
+  // Text-only demand requests (no photo) need their request text visible
+  // and editable \u2014 this is the ONLY content on the card for these items.
+  const textRequestInput = (section === 'demand' && it.type === 'text')
+    ? `<textarea class="card-caption-input watch-card-text-request" rows="3" style="resize:vertical;" placeholder="Customer request text" data-item-id="${it.id}">${escapeHtml(it.text || '')}</textarea>`
+    : '';
+
+  // Price editing \u2014 stock items only. Same priceOverride field the
+  // Dashboard price input already uses, so both stay in sync.
+  const priceRowHtml = section === 'stock' ? `
+    <div class="price-row">
+      <span class="fp-label">price</span>
+      <input class="price-input watch-card-price" type="text" placeholder="not detected"
+        value="${escapeHtml((it.priceOverride !== undefined && it.priceOverride !== null ? it.priceOverride : (fp.price || '')) || '')}"
+        data-item-id="${it.id}">
+    </div>` : '';
+
+  const messageTextHtml = fp.message_text
+    ? `<div class="msg-text" style="margin-top:8px;"><p>${escapeHtml(fp.message_text)}</p></div>` : '';
+  const lookupNotes = lookupNotesHtml(fp);
+
+  // Per-item actions \u2014 reanalyze everywhere it makes sense; sold-out for
+  // stock, remove for demand.
+  const actionsHtml = (section === 'stock' || section === 'demand') ? `
+    <div class="watch-card-actions">
+      <button class="btn small watch-card-reanalyze" data-item-id="${it.id}" data-item-kind="${editKind}">Reanalyze</button>
+      ${section === 'stock'
+        ? `<button class="btn small watch-card-sold" data-item-id="${it.id}">Sold out</button>`
+        : `<button class="btn small danger-text watch-card-remove" data-item-id="${it.id}">Remove</button>`}
+    </div>` : '';
+
+  const errorHtml = it.status === 'error'
+    ? `<p style="font-size:11px;color:var(--rust-bright);margin:6px 0;">${escapeHtml(it.error || 'analysis failed')}</p>` : '';
+
   return `
   <div class="watch-card ${options.altCard ? 'alt-card' : ''}" data-id="${it.id}">
     ${section === 'demand' && !it.imageData ? '' : photoHtml}
     <div class="watch-card-body">
+      ${textRequestInput}
       <div class="watch-card-heading">
         ${brandUpper ? `<div class="watch-card-brand">${brandUpper}</div>` : ''}
         <div class="watch-card-model">${escapeHtml(model)}</div>
@@ -3303,7 +3368,13 @@ function renderWatchCard(it, options){
       ${hasAnyField ? '<div class="watch-card-divider"></div>' : ''}
       ${hasAnyField ? `<div class="watch-card-fields">${fieldsHtml}</div>` : ''}
       ${badgesHtml}
+      ${captionInput}
+      ${errorHtml}
+      ${messageTextHtml}
+      ${lookupNotes}
+      ${priceRowHtml}
       ${detailToggle}
+      ${actionsHtml}
     </div>
     ${stripHtml}
   </div>`;
@@ -5304,20 +5375,39 @@ function runMatching(opts){
     const dFp = d.fingerprint;
     if (!d.matchDecisions) d.matchDecisions = {};
 
+    // Manual matches apply FIRST, regardless of ref number status on either
+    // side \u2014 this is what lets you link two watches by hand even when
+    // ref extraction failed or the numbers genuinely differ.
+    const manualMatches = [];
+    const manuallyMatchedIds = new Set();
+    Object.entries(d.matchDecisions).forEach(([stockId, decision]) => {
+      if (decision !== 'approved') return;
+      const s = allStockDone.find(x => x.id === stockId);
+      if (!s) return;
+      manualMatches.push({
+        stockId: s.id, stockItem: s, confidence: 90, matchLevel: 'full',
+        referenceMatchType: 'user_confirmed',
+        reasoning: `\u2713 You manually matched this watch${s.fingerprint.reference_number !== dFp.reference_number ? ' (different reference numbers on each side)' : ''}.`,
+        detailScore: 100
+      });
+      manuallyMatchedIds.add(stockId);
+    });
+
     /* STEP 1 \u2014 brand filter */
     const sameBrand = allStockDone.filter(s =>
       !dFp.brand || !s.fingerprint.brand || brandMatches(dFp.brand, s.fingerprint.brand)
     );
 
     if (!dFp.reference_number){
-      return { demandId: d.id, demandItem: d, matches: [], pendingReview: [],
-        similarModels: sameBrand.slice(0,3).map(s => ({
+      return { demandId: d.id, demandItem: d, matches: manualMatches, pendingReview: [],
+        similarModels: sameBrand.filter(s => !manuallyMatchedIds.has(s.id)).slice(0,3).map(s => ({
           stockId: s.id, stockItem: s, similarTag: 'Brand match \u2014 no ref on demand'
         })) };
     }
 
     /* STEP 2 \u2014 ref match within same brand (exact or prefix only) */
     const refMatched = sameBrand.filter(s =>
+      !manuallyMatchedIds.has(s.id) &&
       s.fingerprint.reference_number &&
       matchRefs(dFp.reference_number, s.fingerprint.reference_number).match
     );
@@ -5369,13 +5459,8 @@ function runMatching(opts){
       pendingReview.push({ stockId: s.id, stockItem: s, mismatches, refMatch: refMatch.confidence });
     });
 
-    const matches = strictMatches.sort((a,b) => b.confidence - a.confidence).slice(0,6);
+    const matches = [...manualMatches, ...strictMatches].sort((a,b) => b.confidence - a.confidence).slice(0,6);
 
-    // "Similar models / close alternates" (same model line, different ref)
-    // removed entirely per instruction \u2014 the ONLY thing that surfaces a
-    // candidate now is a matching reference number, and every ref match
-    // always goes through the confirm/reject queue below. No fuzzy
-    // "kind of similar" suggestions anymore.
     return { demandId: d.id, demandItem: d, matches, pendingReview, similarModels: [] };
   });
 
@@ -5395,6 +5480,7 @@ function runMatching(opts){
   }
   updateRunMatchAvailability();
 }
+
 
 async function decideMatch(demandId, stockId, decision){
   const demand = demandItems.find(d => d.id === demandId);
@@ -5801,6 +5887,58 @@ function renderResults(){
       runAIVisualMatchForDemand(btn.dataset.demandId);
     };
   });
+  list.querySelectorAll('[data-action="unmatch"]').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      decideMatch(btn.dataset.demandId, btn.dataset.stockId, 'rejected');
+    };
+  });
+  list.querySelectorAll('.manual-match-toggle').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const picker = document.getElementById('picker-' + btn.dataset.demandId);
+      if (!picker) return;
+      const showing = picker.style.display !== 'none';
+      picker.style.display = showing ? 'none' : 'block';
+      if (!showing) renderManualMatchResults(btn.dataset.demandId, '');
+    };
+  });
+  list.querySelectorAll('.manual-match-search').forEach(input => {
+    input.onclick = (e) => e.stopPropagation();
+    input.oninput = (e) => renderManualMatchResults(input.dataset.demandId, e.target.value);
+  });
+}
+
+// Live-filtered list of ALL stock items (not just ref-matched ones) so you
+// can manually link a demand to any watch regardless of ref status.
+function renderManualMatchResults(demandId, query){
+  const container = document.getElementById('pickerResults-' + demandId);
+  if (!container) return;
+  const q = query.toLowerCase().trim();
+  const results = stockItems
+    .filter(s => s.status === 'done' && s.fingerprint)
+    .filter(s => {
+      if (!q) return true;
+      const fp = s.fingerprint;
+      const hay = [fp.brand, fp.model_line, fp.reference_number, fp.dial_color].filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(q);
+    })
+    .slice(0, 20);
+
+  container.innerHTML = results.length
+    ? results.map(s => `
+      <div class="manual-match-item" data-demand-id="${demandId}" data-stock-id="${s.id}">
+        ${thumbHtml(s, 32)}
+        <span>${escapeHtml(itemLabel(s))} ${refBadge(s.fingerprint)}</span>
+      </div>`).join('')
+    : `<div class="manual-match-empty">No stock items match "${escapeHtml(query)}"</div>`;
+
+  container.querySelectorAll('.manual-match-item').forEach(el => {
+    el.onclick = (e) => {
+      e.stopPropagation();
+      decideMatch(el.dataset.demandId, el.dataset.stockId, 'approved');
+    };
+  });
 }
 
 // Same ref number found on both sides — needs a human look, not an automated
@@ -6011,7 +6149,13 @@ function renderResultRow(r){
         <p>${escapeHtml(top.reasoning || '')}</p>
       </div>
       ${altMatches ? `<div class="alt-matches"><h4>Other possible matches</h4>${altMatches}</div>` : ''}
+      <button class="btn small danger-text" data-action="unmatch" data-demand-id="${r.demandId}" data-stock-id="${top.stockId}" style="margin-top:10px;">Unmatch</button>
       ` : pendingNotice}
+      <button class="btn small manual-match-toggle" data-demand-id="${r.demandId}" style="margin-top:12px;">+ Manually match to a different watch</button>
+      <div class="manual-match-picker" id="picker-${r.demandId}" style="display:none;">
+        <input class="manual-match-search" type="text" placeholder="Search stock by brand, model, or ref\u2026" data-demand-id="${r.demandId}">
+        <div class="manual-match-results" id="pickerResults-${r.demandId}"></div>
+      </div>
     </div>
   </div>`;
 }
@@ -6176,6 +6320,65 @@ function init(){
 
   // Delegated handler for "Full details" toggle — works for every card,
   // present or future, without re-wiring on each render.
+  // Caption input on watch cards \u2014 lightweight in-memory update while
+  // typing, persisted on blur (matches the old dead-code behavior this
+  // replaces: renderStockCard/renderDemandCard had this wiring but stopped
+  // being called once cards switched to the unified renderWatchCard).
+  document.body.addEventListener('input', (e) => {
+    const capInput = e.target.closest('.watch-card-caption');
+    if (capInput){
+      const kind = capInput.dataset.itemKind;
+      const list = kind === 'demand' ? demandItems : stockItems;
+      const item = list.find(it => it.id === capInput.dataset.itemId);
+      if (item) item.caption = capInput.value;
+      return;
+    }
+    const textReq = e.target.closest('.watch-card-text-request');
+    if (textReq){
+      const item = demandItems.find(it => it.id === textReq.dataset.itemId);
+      if (item) item.text = textReq.value;
+      return;
+    }
+  });
+  document.body.addEventListener('focusout', (e) => {
+    const capInput = e.target.closest('.watch-card-caption');
+    if (capInput){
+      const kind = capInput.dataset.itemKind;
+      if (kind === 'demand') saveDemandCatalog(); else saveStockCatalog();
+      return;
+    }
+    const textReq = e.target.closest('.watch-card-text-request');
+    if (textReq){ saveDemandCatalog(); return; }
+    const priceInput = e.target.closest('.watch-card-price');
+    if (priceInput){
+      const item = stockItems.find(s => s.id === priceInput.dataset.itemId);
+      if (item){ item.priceOverride = priceInput.value; saveStockCatalog(); renderDashboard(); }
+      return;
+    }
+  });
+  document.body.addEventListener('input', (e) => {
+    const priceInput = e.target.closest('.watch-card-price');
+    if (!priceInput) return;
+    const item = stockItems.find(s => s.id === priceInput.dataset.itemId);
+    if (item) item.priceOverride = priceInput.value;
+  });
+  document.body.addEventListener('click', (e) => {
+    const reanalyzeBtn = e.target.closest('.watch-card-reanalyze');
+    if (reanalyzeBtn){ reanalyzeItem(reanalyzeBtn.dataset.itemId, reanalyzeBtn.dataset.itemKind); return; }
+    const soldBtn = e.target.closest('.watch-card-sold');
+    if (soldBtn){ markSold(soldBtn.dataset.itemId); return; }
+    const removeBtn = e.target.closest('.watch-card-remove');
+    if (removeBtn){
+      const id = removeBtn.dataset.itemId;
+      if (!confirm('Remove this demand item?')) return;
+      demandItems = demandItems.filter(d => d.id !== id);
+      imageStore.delete('demand:' + id);
+      saveDemandCatalog();
+      renderDemand();
+      return;
+    }
+  });
+
   document.body.addEventListener('click', (e) => {
     const toggleBtn = e.target.closest('.watch-card-detail-toggle');
     if (toggleBtn){
