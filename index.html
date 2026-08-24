@@ -2226,6 +2226,7 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
       <div class="tab-toolbar">
         <button class="btn" id="analyzeStockBtn" disabled>Analyze pending</button>
         <button class="btn danger-text" id="clearStockBtn">Clear all</button>
+        <button class="btn danger-text" id="reanalyzeAllBtnStock" title="Reanalyze every stock and demand item from scratch">Reanalyze all</button>
         <label class="btn primary file-btn" style="margin-left:auto;">
           + Add images
           <input type="file" id="stockFileInput" accept="image/*" multiple hidden>
@@ -2251,6 +2252,7 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
         <button class="btn" id="addTextDemandBtn">+ Text request</button>
         <button class="btn" id="analyzeDemandBtn" disabled>Analyze pending</button>
         <button class="btn danger-text" id="clearDemandBtn">Clear all</button>
+        <button class="btn danger-text" id="reanalyzeAllBtnDemand" title="Reanalyze every stock and demand item from scratch">Reanalyze all</button>
         <label class="btn primary file-btn" style="margin-left:auto;">
           + Add image request
           <input type="file" id="demandFileInput" accept="image/*" multiple hidden>
@@ -2274,6 +2276,7 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
       </div>
       <div class="tab-toolbar">
         <button class="btn danger-text" id="clearResultsBtn">Clear all</button>
+        <button class="btn danger-text" id="reanalyzeAllBtnResults" title="Reanalyze every stock and demand item from scratch">Reanalyze all</button>
         <button class="btn" id="runAIMatchBtn" title="Uses Gemini to visually compare demand photos against stock photos one by one \u2014 slower and costs a few cents per run, but catches things field-matching might miss" style="margin-left:auto;">&#128269; AI Visual Match</button>
         <button class="btn primary" id="runMatchBtn" disabled>Run matching (free)</button>
       </div>
@@ -6211,6 +6214,12 @@ function init(){
   document.getElementById('exportPdfBtn').onclick = generatePDF;
   document.getElementById('bulkReanalyzeBtn').onclick = bulkReanalyzeStaleDialData;
   document.getElementById('reanalyzeAllBtn').onclick = reanalyzeAllItems;
+  const raStock = document.getElementById('reanalyzeAllBtnStock');
+  if (raStock) raStock.onclick = reanalyzeAllItems;
+  const raDemand = document.getElementById('reanalyzeAllBtnDemand');
+  if (raDemand) raDemand.onclick = reanalyzeAllItems;
+  const raResults = document.getElementById('reanalyzeAllBtnResults');
+  if (raResults) raResults.onclick = reanalyzeAllItems;
   const aiMatchBtn = document.getElementById('runAIMatchBtn');
   if (aiMatchBtn) aiMatchBtn.onclick = runAIVisualMatching;
   const aiMatchBtnDash = document.getElementById('runAIMatchBtnDash');
