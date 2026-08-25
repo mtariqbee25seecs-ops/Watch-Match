@@ -2212,6 +2212,19 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
 }
 .manual-match-item:hover{ background: var(--surface-hover); color: var(--text); }
 .manual-match-empty{ padding: 10px; font-size: 11.5px; color: var(--text-faint); text-align: center; }
+
+.wc-badge.group-badge{
+  border-color: rgba(201,169,97,0.3);
+  color: var(--gold-bright);
+  background: rgba(201,169,97,0.06);
+  max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wc-badge.phone-badge{
+  border-color: rgba(90,143,176,0.3);
+  color: var(--steel-bright);
+  background: rgba(90,143,176,0.06);
+  font-family: var(--mono); font-size: 10px;
+}
 </style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2864,7 +2877,7 @@ function getApiKey(){
 function setApiKey(key){
   try{ window.localStorage.setItem('sm:anthropic-api-key', key.trim()); }catch(e){}
 }
-const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
+const ANTHROPIC_MODEL = 'claude-sonnet-5';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 
 function getFirebaseConfigRaw(){
@@ -3216,6 +3229,10 @@ function renderWatchCard(it, options){
   const badges = [];
   const clientBadgeHtml = fp.client_name
     ? `<span class="wc-badge client-badge">${escapeHtml(fp.client_name)}</span>` : '';
+  const groupBadgeHtml = fp.group_name
+    ? `<span class="wc-badge group-badge" title="Group / channel">&#128172; ${escapeHtml(fp.group_name)}</span>` : '';
+  const phoneBadgeHtml = fp.phone_number
+    ? `<span class="wc-badge phone-badge" title="Phone number">&#9742; ${escapeHtml(fp.phone_number)}</span>` : '';
   const genderInitial = fp.gender === 'mens' ? 'M' : fp.gender === 'ladies' ? 'L' : fp.gender === 'unisex' ? 'U' : '';
   const genderBadgeHtml = fp.gender
     ? `<span class="wc-badge gender-${fp.gender} gender-mono">${genderInitial}</span>` : '';
@@ -3224,6 +3241,8 @@ function renderWatchCard(it, options){
 
   if (section === 'demand'){
     if (clientBadgeHtml) badges.push(clientBadgeHtml);
+    if (groupBadgeHtml) badges.push(groupBadgeHtml);
+    if (phoneBadgeHtml) badges.push(phoneBadgeHtml);
     if (condBadgeHtml) badges.push(condBadgeHtml);
     if (genderBadgeHtml) badges.push(genderBadgeHtml);
   } else {
@@ -3297,6 +3316,23 @@ function renderWatchCard(it, options){
     ['watch_color',         'Watch/case color'],
     ['condition',           'Condition (new / used)'],
   ];
+  // Group name / client name / phone number are demand-specific — only
+  // editable on demand cards, no reason for them to appear on stock cards.
+  if (section === 'demand'){
+    editableFields.push(
+      ['group_name',   'Group / channel name'],
+      ['client_name',  'Client / sender name'],
+      ['phone_number', 'Phone number']
+    );
+  }
+  // Group/sender/phone are demand-side header fields \u2014 only worth editing there.
+  if (section === 'demand'){
+    editableFields.push(
+      ['client_name',  'Sender name'],
+      ['group_name',   'Group / channel name'],
+      ['phone_number', 'Phone number']
+    );
+  }
   const editRows = editableFields.map(([key, label]) => {
     const val = fp[key] || '';
     return `<div class="edit-row">
@@ -3868,7 +3904,11 @@ For "date_complication": "date" (single date window), "day-date" (both day and d
 For "condition": "new" (unworn/sealed/NOS) or "used" (pre-owned/worn/secondhand) \u2014 only from message text, null otherwise.
 For "watch_color": overall case+bracelet finish. "silver/steel", "yellow gold", "rose gold/Everose", "white gold", "two-tone gold & steel", "black PVD", "titanium grey".
 For "strap_color": color of the bracelet/strap material itself.
-For "client_name": WhatsApp sender name or number shown at the very top of the screenshot. null if not visible.
+For WhatsApp header info — a typical screenshot has THREE separate pieces at the top, don't conflate them:
+  - "group_name": the chat/channel/group name at the very top (e.g. "NTQ/WTB GLOBAL...", "DANISH LUXURY/ Watches Deira"). This is the conversation title, not a person.
+  - "client_name": the individual sender's name, usually shown in colored text next to their message (e.g. "~Eddie", "Halid"). This is a PERSON, not the group.
+  - "phone_number": a phone number shown at the top of the screenshot if visible (e.g. "+1 (917) 880-9475"). Only if actually shown as digits — never invent one.
+  Fill in whichever of these three are actually visible; leave any that aren't shown as null. Don't guess one from another.
 For "year": 4-digit year if stated in message text, null otherwise.
 For "distinguishing_markings": any special features not covered elsewhere (special engravings, limited edition text, etc.).
 For "message_text": transcribe any visible chat/message text verbatim.
@@ -3900,6 +3940,8 @@ OUTPUT SCHEMA (strict JSON, no markdown, no commentary)
   "diamonds": "factory" or "aftermarket" or "none" or "unclear",
   "distinguishing_markings": string or null,
   "client_name": string or null,
+  "group_name": string or null,
+  "phone_number": string or null,
   "year": string or null,
   "message_text": string or null,
   "price": string or null,
