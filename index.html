@@ -4760,13 +4760,20 @@ async function analyzeBatch(items, kind, renderFn){
     setTimeout(() => showToast('Tip: use "Backup catalog" on the Dashboard tab to save this analysis to a file'), 3500);
   }
 
-  // Auto-reanalyze items with no ref (up to 2 auto-retries each)
-  const noRefItems = items.filter(it =>
-    it.status === 'done' &&
-    it.fingerprint &&
-    !it.fingerprint.reference_number &&
-    (!it.autoRetryCount || it.autoRetryCount < 2)
-  );
+  // Auto-reanalyze items with no ref — capped at 1 retry (was 2), AND
+  // skipped entirely when there's no ref-shaped digit pattern anywhere in
+  // the transcribed message text. Many demand requests are genuinely vague
+  // ("looking for a nice Daytona") with no ref ever stated by the customer
+  // — retrying THAT is pure waste, since no amount of re-asking invents
+  // information that was never there. Only retry when there's an actual
+  // reason to believe a ref might be findable on a second look.
+  const noRefItems = items.filter(it => {
+    if (it.status !== 'done' || !it.fingerprint || it.fingerprint.reference_number) return false;
+    if (it.autoRetryCount && it.autoRetryCount >= 1) return false;
+    const text = (it.fingerprint.message_text || '') + ' ' + (it.caption || '');
+    const hasRefShapedToken = /\b\d{4,6}[A-Za-z]{0,8}\b/.test(text);
+    return hasRefShapedToken; // only retry if there's SOMETHING digit-shaped to chase
+  });
   if (noRefItems.length){
     noRefItems.forEach(it => {
       it.autoRetryCount = (it.autoRetryCount || 0) + 1;
