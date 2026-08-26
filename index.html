@@ -2877,7 +2877,7 @@ function getApiKey(){
 function setApiKey(key){
   try{ window.localStorage.setItem('sm:anthropic-api-key', key.trim()); }catch(e){}
 }
-const ANTHROPIC_MODEL = 'claude-sonnet-5';
+const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 
 function getFirebaseConfigRaw(){
@@ -4615,7 +4615,7 @@ function itemNeedsDialReanalysis(it){
 async function reanalyzeAllItems(){
   const total = stockItems.length + demandItems.length;
   if (!total){ showToast('Nothing to reanalyze \u2014 add some items first'); return; }
-  if (!confirm(`Reanalyze ALL ${total} item${total===1?'':'s'} (${stockItems.length} stock + ${demandItems.length} demand) from scratch with the current extraction rules?\n\nThis re-checks everything, not just items missing data \u2014 useful for a clean, consistent dataset after prompt improvements.\n\nCost: roughly $0.003\u2013$0.006 per item (Claude Sonnet) plus any Gemini ref lookups needed.\n\nContinue?`)) return;
+  if (!confirm(`Reanalyze ALL ${total} item${total===1?'':'s'} (${stockItems.length} stock + ${demandItems.length} demand) from scratch with the current extraction rules?\n\nThis re-checks everything, not just items missing data \u2014 useful for a clean, consistent dataset after prompt improvements.\n\nCost: roughly $0.001\u2013$0.002 per item (Claude Haiku) plus any Gemini ref lookups needed.\n\nContinue?`)) return;
 
   stockItems.forEach(it => { it.status = 'pending'; it.autoRetryCount = 0; it.error = null; });
   demandItems.forEach(it => { it.status = 'pending'; it.autoRetryCount = 0; it.error = null; });
@@ -4638,7 +4638,7 @@ async function bulkReanalyzeStaleDialData(){
     showToast('Nothing to fix \u2014 every analyzed item already has dial marker/material data');
     return;
   }
-  if (!confirm(`Reanalyze ${total} item${total === 1 ? '' : 's'} to pick up dial marker/material detection?\n\nCost: roughly $0.003\u2013$0.006 per item (Claude Sonnet).`)) return;
+  if (!confirm(`Reanalyze ${total} item${total === 1 ? '' : 's'} to pick up dial marker/material detection?\n\nCost: roughly $0.001\u2013$0.002 per item (Claude Haiku).`)) return;
 
   staleStock.forEach(it  => { it.status = 'pending'; it.autoRetryCount = 0; it.error = null; });
   staleDemand.forEach(it => { it.status = 'pending'; it.autoRetryCount = 0; it.error = null; });
