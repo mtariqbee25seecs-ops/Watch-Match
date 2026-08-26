@@ -4256,7 +4256,7 @@ function getOfficialSiteForBrand(brand){
 }
 
 async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt, caption){
-  const MAX_LOOKUP_ATTEMPTS = 4; // try all 5 sources across 4 attempts before giving up
+  const MAX_LOOKUP_ATTEMPTS = 4; // Ref number gets up to 4 tries since it's the critical field — but the loop exits the MOMENT a ref is grounded (search-confirmed or caption-stated), so descriptive details (dial/strap/etc) never get extra retries just for their own sake. They're accepted from whichever single attempt succeeds.
   // Chrono24-only mode — no official site lookup needed
   const officialSiteInstruction = '';
 
@@ -4429,7 +4429,20 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
   });
   const fp = parseJsonLoose(text);
 
-  // Always lookup when no ref visible — stock images need this too.
+  // FREE first check: does the caption itself spell out the ref number
+  // ("Ref: 116598saco")? If so, use it directly \u2014 zero API cost, no
+  // Google verification needed at all for this field.
+  if (!fp.reference_number && caption){
+    const capRef = extractRefFromCaptionText(caption);
+    if (capRef && isValidRef(fp.brand, capRef)){
+      fp.reference_number = capRef.toUpperCase();
+      fp.reference_number_source = 'stated';
+      if (!fp.confidence_notes) fp.confidence_notes = '';
+      fp.confidence_notes = (fp.confidence_notes + ' Ref read directly from caption \u2014 no web lookup needed.').trim();
+    }
+  }
+
+  // Only pay for a Gemini lookup if the caption genuinely didn't have it.
   if (!fp.reference_number){
     const lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType, onLookupAttempt, caption);
     fp.reference_number = lookup.reference_number || null;
@@ -5198,6 +5211,34 @@ function getPatekRefHints(fp){
   if (model.includes('calatrava'))      return ['5196 (manual)', '6119 (manual)', '5227 (auto)', '6006 (pointer date)'];
   if (model.includes('complications'))  return ['5205 (annual cal moon)', '5396 (annual cal)', '5940 (annual cal cushion)'];
   if (model.includes('twenty'))         return ['7300/1200 (Twenty-4 auto)', '7010 (Twenty-4 quartz)'];
+  return null;
+}
+
+// Zero-cost, no-API ref extraction straight from caption text. Catches the
+// common dealer format ("Ref: 116598saco", "Reference: 126234") with plain
+// string matching \u2014 no Claude or Gemini call needed at all when the
+// caption already spells it out. This runs BEFORE any paid lookup, so a
+// well-labeled caption never triggers Google verification in the first place.
+function extractRefFromCaptionText(text){
+  if (!text) return null;
+
+  // Pattern 1: explicit label — "Ref: 126718grnr", "Reference #126234"
+  const labeled = text.match(/\bref(?:erence)?\.?:?\s*#?\s*([A-Za-z0-9][A-Za-z0-9\/\-\.]{3,25})/i);
+  if (labeled){
+    const candidate = labeled[1].trim().replace(/[.,;:]+$/, '');
+    if (/\d/.test(candidate)) return candidate;
+  }
+
+  // Pattern 2: no label at all — dealer just opens with the bare ref number,
+  // e.g. "126300. Brand new 2026. 41k aed". Very common shorthand. Take the
+  // first token of the caption and check it's ref-shaped (digits + optional
+  // letters, not a bare year like "2026" and not a price like "41k").
+  const firstToken = text.trim().split(/[\s.,]/)[0];
+  if (firstToken && /^\d{4,6}[A-Za-z]{0,8}$/.test(firstToken)){
+    const isBareYear = /^20[0-3]\d$/.test(firstToken); // reject 2000-2039 read as a ref
+    if (!isBareYear) return firstToken;
+  }
+
   return null;
 }
 
@@ -6462,10 +6503,13 @@ function init(){
         const val = input.value.trim();
         item.fingerprint[key] = val || null;
       });
-      if (kind === 'demand'){ saveDemandCatalog(); renderDemand(); }
-      else{ saveStockCatalog(); renderStock(); }
+      // Reset to "All" filter so the card you just fixed doesn't silently
+      // vanish because it no longer matches whatever filter was active
+      // (e.g. you were on "No Ref", fixed the ref, and it stopped matching).
+      if (kind === 'demand'){ demandFilter = 'all'; saveDemandCatalog(); renderDemand(); }
+      else{ stockFilter = 'all'; saveStockCatalog(); renderStock(); }
       renderDashboard();
-      showToast('Saved \u2014 re-run matching to see the change reflected in results');
+      showToast('Saved \u2014 changes are live');
       return;
     }
   });
