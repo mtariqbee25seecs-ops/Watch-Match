@@ -2225,6 +2225,40 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
   background: rgba(90,143,176,0.06);
   font-family: var(--mono); font-size: 10px;
 }
+
+/* Inline-editable badges — look like the read-only pills they replace,
+   but are actually inputs you can click straight into and type. */
+.wc-badge.editable-badge{
+  padding: 0 4px 0 9px;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.wc-badge.editable-badge input{
+  background: none; border: none; outline: none;
+  color: inherit; font-family: inherit; font-size: inherit;
+  padding: 3px 5px 3px 0;
+  width: 90px;
+  min-width: 40px;
+}
+.wc-badge.editable-badge input::placeholder{ color: var(--text-faint); opacity: 0.7; }
+.wc-badge.editable-badge input:focus{
+  background: rgba(255,255,255,0.04);
+  border-radius: 4px;
+}
+.wc-badge.client-badge.editable-badge::before{ content: '\1F4F1'; font-size: 10.5px; margin-left: 5px; }
+
+.msg-text-edit{
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  resize: vertical;
+  transition: border-color 0.15s;
+}
+.msg-text-edit:focus{ outline: none; border-color: var(--border-strong); }
 </style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3166,6 +3200,7 @@ function renderWatchCard(it, options){
   options = options || {};
   const section = options.section || 'stock';
   const fp = it.fingerprint || {};
+  const editKind = section === 'demand' ? 'demand' : 'stock'; // declared early — used by ref/dial/date/strap/case inputs before the badges section
 
   // Photo section — real image or brand-tinted placeholder
   const brandLower = (fp.brand || '').toLowerCase();
@@ -3188,9 +3223,11 @@ function renderWatchCard(it, options){
     : refSource === 'looked_up' || refSource === 'best_match' ? 'looked_up' : 'none';
 
   // Ref line
-  const refLine = fp.reference_number
-    ? `<div class="watch-card-ref"><span class="ref-source-dot ${refDotClass}"></span>${escapeHtml(fp.reference_number)}</div>`
-    : `<div class="watch-card-ref-empty">ref not confirmed</div>`;
+  const refLine = `<div class="watch-card-ref">
+    <span class="ref-source-dot ${refDotClass}"></span>
+    <input class="ref-value-input watch-card-field" data-field="reference_number" data-item-id="${it.id}" data-item-kind="${editKind}"
+      type="text" value="${escapeHtml(fp.reference_number || '')}" placeholder="ref not confirmed">
+  </div>`;
 
   // Fixed 4-field grid — Dial / Date / Strap / Case, always in this order like image 2
   const dashChar = '\u2014';
@@ -3213,26 +3250,43 @@ function renderWatchCard(it, options){
     markersVal = markersVal === dashChar ? 'Diamond' : markersVal + ' + diamond';
   }
 
+  // Dial / Date / Strap / Case are directly editable inline \u2014 click the
+  // value and type, same pattern as everything else. Markers stays
+  // read-only since it's derived/inferred, not a single authoritative field.
+  // Edits save to the PRIMARY underlying field (dial_color, date_complication,
+  // bracelet_or_strap, case_size), consolidating any fallback-derived display
+  // value into that field once you touch it.
+  const editableWf = (label, displayVal, fieldKey) => `
+    <div class="wf-item">
+      <span class="wf-label">${label}</span>
+      <input class="wf-value-input watch-card-field" data-field="${fieldKey}" data-item-id="${it.id}" data-item-kind="${editKind}"
+        type="text" value="${displayVal === dashChar ? '' : escapeHtml(displayVal)}" placeholder="${dashChar}">
+    </div>`;
+
   const fields = [
-    ['Dial',    escapeHtml(dialVal),    'text'],
-    ['Markers', escapeHtml(markersVal), 'text'],
-    ['Date',    escapeHtml(dateVal),    'text'],
-    ['Strap',   escapeHtml(strapVal),   'text'],
-    ['Case',    escapeHtml(caseVal),    'text']
+    editableWf('Dial',  dialVal,  'dial_color'),
+    `<div class="wf-item"><span class="wf-label">Markers</span><span class="wf-value text">${escapeHtml(markersVal)}</span></div>`,
+    editableWf('Date',  dateVal,  'date_complication'),
+    editableWf('Strap', strapVal, 'bracelet_or_strap'),
+    editableWf('Case',  caseVal,  'case_size'),
   ];
-  const fieldsHtml = fields.map(([lbl, val, cls]) =>
-    `<div class="wf-item"><span class="wf-label">${lbl}</span><span class="wf-value ${cls}">${val}</span></div>`
-  ).join('');
+  const fieldsHtml = fields.join('');
   const hasAnyField = fp.dial_color || fp.date_complication || fp.bracelet_or_strap || fp.case_size || fp.case_material;
 
   // Badges — order depends on section (client first for demand)
   const badges = [];
-  const clientBadgeHtml = fp.client_name
-    ? `<span class="wc-badge client-badge">${escapeHtml(fp.client_name)}</span>` : '';
-  const groupBadgeHtml = fp.group_name
-    ? `<span class="wc-badge group-badge" title="Group / channel">&#128172; ${escapeHtml(fp.group_name)}</span>` : '';
-  const phoneBadgeHtml = fp.phone_number
-    ? `<span class="wc-badge phone-badge" title="Phone number">&#9742; ${escapeHtml(fp.phone_number)}</span>` : '';
+  // These three are directly editable right on the card face \u2014 click
+  // into the badge and type, same as the caption field, no panel needed.
+  // Only shown at all for demand cards (where these concepts apply).
+  const clientBadgeHtml = section === 'demand'
+    ? `<span class="wc-badge client-badge editable-badge"><input class="badge-edit-input watch-card-field" data-field="client_name" data-item-id="${it.id}" type="text" placeholder="Client name" value="${escapeHtml(fp.client_name || '')}"></span>`
+    : '';
+  const groupBadgeHtml = section === 'demand'
+    ? `<span class="wc-badge group-badge editable-badge" title="Group / channel">&#128172;<input class="badge-edit-input watch-card-field" data-field="group_name" data-item-id="${it.id}" type="text" placeholder="Group" value="${escapeHtml(fp.group_name || '')}"></span>`
+    : '';
+  const phoneBadgeHtml = section === 'demand'
+    ? `<span class="wc-badge phone-badge editable-badge" title="Phone number">&#9742;<input class="badge-edit-input watch-card-field" data-field="phone_number" data-item-id="${it.id}" type="text" placeholder="Phone" value="${escapeHtml(fp.phone_number || '')}"></span>`
+    : '';
   const genderInitial = fp.gender === 'mens' ? 'M' : fp.gender === 'ladies' ? 'L' : fp.gender === 'unisex' ? 'U' : '';
   const genderBadgeHtml = fp.gender
     ? `<span class="wc-badge gender-${fp.gender} gender-mono">${genderInitial}</span>` : '';
@@ -3306,7 +3360,6 @@ function renderWatchCard(it, options){
   const detailPanelId = 'detail-' + it.id + '-' + section;
   // Editable fields \u2014 the ones matching actually uses. Fix a wrong
   // extraction directly instead of paying for another analysis.
-  const editKind = section === 'demand' ? 'demand' : 'stock';
   const editableFields = [
     ['reference_number',    'Reference number'],
     ['dial_color',          'Dial color'],
@@ -3316,15 +3369,8 @@ function renderWatchCard(it, options){
     ['watch_color',         'Watch/case color'],
     ['condition',           'Condition (new / used)'],
   ];
-  // Group name / client name / phone number are demand-specific — only
-  // editable on demand cards, no reason for them to appear on stock cards.
-  if (section === 'demand'){
-    editableFields.push(
-      ['group_name',   'Group / channel name'],
-      ['client_name',  'Client / sender name'],
-      ['phone_number', 'Phone number']
-    );
-  }
+  // group_name/client_name/phone_number are edited directly on the card
+  // face now (inline, right on the badges) instead of buried here.
   // Group/sender/phone are demand-side header fields \u2014 only worth editing there.
   if (section === 'demand'){
     editableFields.push(
@@ -3374,8 +3420,9 @@ function renderWatchCard(it, options){
         data-item-id="${it.id}">
     </div>` : '';
 
-  const messageTextHtml = fp.message_text
-    ? `<div class="msg-text" style="margin-top:8px;"><p>${escapeHtml(fp.message_text)}</p></div>` : '';
+  const messageTextHtml = (fp.message_text || section === 'demand')
+    ? `<div class="msg-text" style="margin-top:8px;"><textarea class="msg-text-edit watch-card-field" data-field="message_text" data-item-id="${it.id}" rows="2" placeholder="Message text">${escapeHtml(fp.message_text || '')}</textarea></div>`
+    : '';
   const lookupNotes = lookupNotesHtml(fp);
 
   // Per-item actions \u2014 reanalyze everywhere it makes sense; sold-out for
@@ -3557,13 +3604,17 @@ function reanalyzeItem(id, kind){
   }
   item.status = 'pending';
   item.error = null;
-  item.autoRetryCount = 0; // reset so auto-retry kicks in again if still no ref
+  item.autoRetryCount = 0; // reset so the full manual retry allowance applies
+  // Scoped to ONLY this item (not the whole array) and flagged manual so it
+  // gets the thorough retry policy \u2014 clicking Reanalyze on one card should
+  // never silently trigger retries on other unrelated cards, and should try
+  // as hard as the original design intended for a deliberate single click.
   if (kind === 'stock'){
     renderStock();
-    analyzeBatch(stockItems, 'stock', renderStock);
+    analyzeBatch([item], 'stock', renderStock, { manual: true });
   } else {
     renderDemand();
-    analyzeBatch(demandItems, 'demand', renderDemand);
+    analyzeBatch([item], 'demand', renderDemand, { manual: true });
   }
 }
 
@@ -4652,7 +4703,8 @@ async function bulkReanalyzeStaleDialData(){
   showToast(`Done \u2014 ${total} item${total === 1 ? '' : 's'} reanalyzed. Re-run matching to see the difference.`);
 }
 
-async function analyzeBatch(items, kind, renderFn){
+async function analyzeBatch(items, kind, renderFn, opts){
+  opts = opts || {};
   const toProcess = items.filter(it => it.status === 'pending' || it.status === 'error');
   if (!toProcess.length) return;
 
@@ -4767,12 +4819,19 @@ async function analyzeBatch(items, kind, renderFn){
   // — retrying THAT is pure waste, since no amount of re-asking invents
   // information that was never there. Only retry when there's an actual
   // reason to believe a ref might be findable on a second look.
+  // Manual per-item Reanalyze (opts.manual) keeps the ORIGINAL thorough
+  // behavior \u2014 up to 2 retries, no vague-text gate, because that's a
+  // deliberate single click where thoroughness matters more than cost.
+  // Bulk/automatic batches (initial upload, Reanalyze All, auto-retry after
+  // upload) stay cost-conscious: capped at 1 retry, skipped entirely when
+  // the message has no ref-shaped signal at all to chase.
+  const RETRY_CAP = opts.manual ? 2 : 1;
   const noRefItems = items.filter(it => {
     if (it.status !== 'done' || !it.fingerprint || it.fingerprint.reference_number) return false;
-    if (it.autoRetryCount && it.autoRetryCount >= 1) return false;
+    if (it.autoRetryCount && it.autoRetryCount >= RETRY_CAP) return false;
+    if (opts.manual) return true; // manual reanalyze: always retry, no gating
     const text = (it.fingerprint.message_text || '') + ' ' + (it.caption || '');
-    const hasRefShapedToken = /\b\d{4,6}[A-Za-z]{0,8}\b/.test(text);
-    return hasRefShapedToken; // only retry if there's SOMETHING digit-shaped to chase
+    return /\b\d{4,6}[A-Za-z]{0,8}\b/.test(text); // bulk: only if something ref-shaped to chase
   });
   if (noRefItems.length){
     noRefItems.forEach(it => {
@@ -4782,7 +4841,7 @@ async function analyzeBatch(items, kind, renderFn){
     });
     renderFn();
     showToast(`${noRefItems.length} item${noRefItems.length > 1 ? 's' : ''} had no ref \u2014 retrying\u2026`);
-    await analyzeBatch(items, kind, renderFn);
+    await analyzeBatch(items, kind, renderFn, opts);
     return;
   }
 
@@ -6442,6 +6501,21 @@ function init(){
       if (item) item.text = textReq.value;
       return;
     }
+    // Generic inline field editor \u2014 covers ref/dial/date/strap/case on
+    // ALL cards, plus client/group/phone/message-text on demand cards.
+    // Checks the correct array via data-item-kind \u2014 this was previously
+    // demand-only, which silently broke editing on stock cards.
+    const fieldInput = e.target.closest('.watch-card-field');
+    if (fieldInput){
+      const kind = fieldInput.dataset.itemKind;
+      const list = kind === 'demand' ? demandItems : stockItems;
+      const item = list.find(it => it.id === fieldInput.dataset.itemId);
+      if (item){
+        if (!item.fingerprint) item.fingerprint = {};
+        item.fingerprint[fieldInput.dataset.field] = fieldInput.value || null;
+      }
+      return;
+    }
   });
   document.body.addEventListener('focusout', (e) => {
     const capInput = e.target.closest('.watch-card-caption');
@@ -6452,6 +6526,12 @@ function init(){
     }
     const textReq = e.target.closest('.watch-card-text-request');
     if (textReq){ saveDemandCatalog(); return; }
+    const fieldInput = e.target.closest('.watch-card-field');
+    if (fieldInput){
+      if (fieldInput.dataset.itemKind === 'demand') saveDemandCatalog();
+      else { saveStockCatalog(); renderDashboard(); }
+      return;
+    }
     const priceInput = e.target.closest('.watch-card-price');
     if (priceInput){
       const item = stockItems.find(s => s.id === priceInput.dataset.itemId);
