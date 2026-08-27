@@ -2327,6 +2327,7 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
         <button class="btn" id="analyzeDemandBtn" disabled>Analyze pending</button>
         <button class="btn danger-text" id="clearDemandBtn">Clear all</button>
         <button class="btn danger-text" id="reanalyzeAllBtnDemand" title="Reanalyze every stock and demand item from scratch">Reanalyze all</button>
+        <button class="btn primary" id="exportDemandPdfBtn" title="Export demand list as PDF">&#128196; Export PDF</button>
         <label class="btn primary file-btn" style="margin-left:auto;">
           + Add image request
           <input type="file" id="demandFileInput" accept="image/*" multiple hidden>
@@ -3963,7 +3964,20 @@ For WhatsApp header info — a typical screenshot has THREE separate pieces at t
 For "year": 4-digit year if stated in message text, null otherwise.
 For "distinguishing_markings": any special features not covered elsewhere (special engravings, limited edition text, etc.).
 For "message_text": transcribe any visible chat/message text verbatim.
-For "price": price if stated in message. Include currency.
+For "price": price if stated anywhere visible \u2014 in a chat message OR overlaid
+directly on a forwarded product card/listing image. Include currency.
+
+IMPORTANT \u2014 forwarded product/listing cards: some demand photos aren't a
+plain WhatsApp chat bubble at all \u2014 they're a dealer's product card or
+catalog listing (often forwarded from another chat/channel) with the
+reference number and price printed directly ON the image itself, e.g. a
+white card showing "5204G-010" and "\u00a3307,500" above or below the watch
+photo, sometimes with a small "Forwarded" label and a source channel name
+above it. Treat any text printed on such a card exactly the same as message
+text \u2014 read the ref number and price directly from it, don't skip it just
+because it's not inside a chat bubble. The customer's own short reply below
+the card (e.g. "Looking for new") is the actual demand request; the ref/price
+on the forwarded card is what they're referencing.
 For "confidence_notes": brief 1-2 sentence explanation of anything ambiguous or worth flagging.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -4493,8 +4507,13 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
     }
   }
 
-  // Only pay for a Gemini lookup if the caption genuinely didn't have it.
-  if (!fp.reference_number){
+  // Only pay for a Gemini lookup if the caption genuinely didn't have it,
+  // AND lookup is actually allowed for this item. STOCK items don't get
+  // Gemini lookup at all \u2014 dealer captions already have everything
+  // (ref, dial, strap, condition), so there's nothing to verify from Google.
+  // DEMAND items keep lookup enabled since customer messages are often
+  // vague and genuinely need help identifying the exact watch.
+  if (!fp.reference_number && allowLookup){
     const lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType, onLookupAttempt, caption);
     fp.reference_number = lookup.reference_number || null;
     fp.reference_number_source = lookup.reference_number_source || null;
@@ -4743,7 +4762,9 @@ async function analyzeBatch(items, kind, renderFn, opts){
         };
         if (item.type === 'image'){
           if (!item.imageData) throw new Error('image not attached this session');
-          fp = await extractFingerprintFromImage(item.imageData, item.caption, onRetryWait, imageMimeTypeOf(item), onLookupAttempt, true);
+          // Gemini lookup only for demand items — stock relies entirely
+          // on the caption/message text + Claude's own reading, no Google.
+          fp = await extractFingerprintFromImage(item.imageData, item.caption, onRetryWait, imageMimeTypeOf(item), onLookupAttempt, kind === 'demand');
         } else {
           fp = await extractFingerprintFromText(item.text || '', onRetryWait, onLookupAttempt);
         }
@@ -6601,6 +6622,8 @@ function init(){
     }
   });
   document.getElementById('exportPdfBtn').onclick = generatePDF;
+  const exportDemandPdfBtn = document.getElementById('exportDemandPdfBtn');
+  if (exportDemandPdfBtn) exportDemandPdfBtn.onclick = generateDemandPDF;
   document.getElementById('bulkReanalyzeBtn').onclick = bulkReanalyzeStaleDialData;
   document.getElementById('reanalyzeAllBtn').onclick = reanalyzeAllItems;
   const raStock = document.getElementById('reanalyzeAllBtnStock');
@@ -6760,6 +6783,78 @@ async function clearCloudImages(){
     showToast('Clear failed: ' + (e.message || e), true);
   }
   if (btn){ btn.disabled = false; btn.textContent = 'Clear cloud images'; }
+}
+
+function generateDemandPDF(){
+  const win = window.open('', '_blank');
+  if (!win){ showToast('Pop-up blocked \u2014 allow pop-ups for this site and try again', true); return; }
+
+  const analyzedDemand = deduplicateDemand(demandItems).filter(it => it.fingerprint);
+
+  function demandCard(it){
+    const fp = it.fingerprint;
+    const imgTag = it.imageData
+      ? `<img class="pc-img" src="data:${imageMimeTypeOf(it)};base64,${it.imageData}" alt="">`
+      : `<div class="pc-no-img">No image</div>`;
+    const contactBits = [fp.client_name, fp.group_name, fp.phone_number].filter(Boolean);
+    return `
+    <div class="pc">
+      ${imgTag}
+      <div class="pc-body">
+        <div class="pc-brand">${escapeHtml(fp.brand || 'Unknown')}</div>
+        <div class="pc-model">${escapeHtml(fp.model_line || '')}${fp.date_complication ? ' \u00b7 ' + escapeHtml(fp.date_complication) : ''}</div>
+        <table class="pc-tbl">
+          <tr><td class="pc-lbl">Ref</td><td class="pc-val ref-val">${escapeHtml(fp.reference_number || '\u2014')}</td></tr>
+          <tr><td class="pc-lbl">Dial</td><td class="pc-val">${escapeHtml(fp.dial_color || '\u2014')}</td></tr>
+          <tr><td class="pc-lbl">Strap</td><td class="pc-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}</td></tr>
+          <tr><td class="pc-lbl">Condition</td><td class="pc-val">${escapeHtml(fp.condition || '\u2014')}</td></tr>
+        </table>
+        ${contactBits.length ? `<div class="pc-contact">${contactBits.map(escapeHtml).join(' \u00b7 ')}</div>` : ''}
+        ${fp.message_text ? `<div class="pc-msg">"${escapeHtml(fp.message_text)}"</div>` : ''}
+      </div>
+    </div>`;
+  }
+
+  const cardsHtml = analyzedDemand.map(demandCard).join('');
+  const date = new Date().toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' });
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>Demand List \u2014 ${date}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff;}
+@page{size:A4;margin:12mm 14mm;}
+h1{font-size:26px;font-weight:800;color:#0f172a;letter-spacing:0.02em;}
+.sub{color:#64748b;font-size:13px;margin-top:6px;}
+.dt{color:#94a3b8;font-size:11px;margin-top:4px;}
+.cover{padding:40px 0 28px;border-bottom:3px solid #d4a84b;margin-bottom:26px;}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+.pc{border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;break-inside:avoid;}
+.pc-img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;}
+.pc-no-img{width:100%;aspect-ratio:4/3;background:#f8fafc;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;}
+.pc-body{padding:10px 12px 13px;}
+.pc-brand{font-size:13px;font-weight:700;color:#0f172a;margin-bottom:1px;}
+.pc-model{font-size:10.5px;color:#64748b;margin-bottom:8px;}
+.pc-tbl{width:100%;border-collapse:collapse;}
+.pc-lbl{color:#94a3b8;font-size:9.5px;text-transform:uppercase;letter-spacing:0.05em;padding:2px 6px 2px 0;white-space:nowrap;vertical-align:top;}
+.pc-val{font-size:11px;color:#1e293b;font-weight:500;padding:2px 0;vertical-align:top;}
+.pc-val.ref-val{color:#b8860b;font-family:monospace;font-size:10.5px;font-weight:700;}
+.pc-contact{font-size:10px;color:#0f172a;font-weight:600;margin-top:8px;padding-top:7px;border-top:1px solid #f1f5f9;}
+.pc-msg{font-size:9.5px;color:#78716c;font-style:italic;margin-top:5px;line-height:1.4;}
+@media print{body{print-color-adjust:exact;-webkit-print-color-adjust:exact;}}
+</style></head><body>
+<div class="cover">
+  <h1>Demand List</h1>
+  <div class="sub">${analyzedDemand.length} active request${analyzedDemand.length !== 1 ? 's' : ''}</div>
+  <div class="dt">Generated ${date}</div>
+</div>
+<div class="grid">${cardsHtml}</div>
+<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});<\/script>
+</body></html>`;
+
+  win.document.write(html);
+  win.document.close();
+  showToast('PDF preview opened \u2014 use your browser\u2019s print dialog to save as PDF');
 }
 
 function generatePDF(){
