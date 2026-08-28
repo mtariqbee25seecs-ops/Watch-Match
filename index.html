@@ -4237,7 +4237,7 @@ function extractRetryDelaySeconds(response, errJson){
   return 15;
 }
 
-const GEMINI_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.5-flash-lite']; // 2.5 family retires Oct 16 2026 — migrated off it
+const GEMINI_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash-lite']; // 2.5 family retires Oct 16 2026 — migrated off it
 function geminiUrlFor(model){
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 }
