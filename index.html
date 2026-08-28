@@ -2259,6 +2259,110 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
   transition: border-color 0.15s;
 }
 .msg-text-edit:focus{ outline: none; border-color: var(--border-strong); }
+
+/* ─── Card default: inputs look like clean readable text, not form fields ───
+   Only when .card-edit-mode is active do they become real editable inputs.
+   This removes the "form full of boxes" look on mobile without losing any
+   inline-edit functionality. */
+
+.watch-card:not(.card-edit-mode) .wf-value-input,
+.watch-card:not(.card-edit-mode) .ref-value-input {
+  pointer-events: none;
+  background: transparent !important;
+  border-color: transparent !important;
+  padding-left: 0;
+  box-shadow: none;
+  cursor: default;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.watch-card:not(.card-edit-mode) .badge-edit-input {
+  pointer-events: none;
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none;
+  cursor: default;
+  width: auto;
+  min-width: 0;
+}
+
+.watch-card:not(.card-edit-mode) .watch-card-caption,
+.watch-card:not(.card-edit-mode) .watch-card-text-request,
+.watch-card:not(.card-edit-mode) .msg-text-edit {
+  display: none; /* hide empty/typed fields by default */
+}
+
+/* Show message text if it has content, compactly */
+.watch-card:not(.card-edit-mode) .msg-text-nonempty {
+  display: block;
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Hide empty badges in default mode */
+.watch-card:not(.card-edit-mode) .editable-badge:has(input:placeholder-shown):not(:has(input[value]):not(:has(input[value=""]))) {
+  display: none;
+}
+
+/* Edit mode: everything becomes interactive */
+.watch-card.card-edit-mode .wf-value-input,
+.watch-card.card-edit-mode .ref-value-input {
+  pointer-events: auto;
+  background: var(--bg) !important;
+  border: 1px solid var(--border) !important;
+  padding: 5px 8px;
+}
+
+.watch-card.card-edit-mode .badge-edit-input {
+  pointer-events: auto;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+.watch-card.card-edit-mode .watch-card-caption,
+.watch-card.card-edit-mode .watch-card-text-request,
+.watch-card.card-edit-mode .msg-text-edit {
+  display: block;
+}
+
+.watch-card.card-edit-mode .msg-text-nonempty { display: none; }
+
+/* Edit toggle button — pencil icon, top-right of card */
+.card-edit-toggle {
+  position: absolute;
+  top: 10px; right: 10px;
+  background: rgba(20,22,26,0.7);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.15s;
+  z-index: 2;
+}
+.card-edit-toggle:hover { color: var(--gold); border-color: var(--border-strong); }
+.watch-card.card-edit-mode .card-edit-toggle { color: var(--gold); }
+.watch-card-photo { position: relative; }
+
+/* Action buttons only shown in edit mode */
+.watch-card:not(.card-edit-mode) .watch-card-actions { display: none; }
+.watch-card.card-edit-mode .watch-card-actions { display: flex; }
+
+/* Price row — hide in default mode */
+.watch-card:not(.card-edit-mode) .price-row .watch-card-price {
+  pointer-events: none;
+  background: transparent !important;
+  border-color: transparent !important;
+}
 </style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2389,6 +2493,9 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
 
       <div class="dash-section-label" id="matchesSectionLabel" style="display:none;">Matches found</div>
       <div id="dashboardMatches"></div>
+      <div class="corrections-panel" id="correctionsPanel" style="margin-top:24px;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);">
+        <div style="font-family:var(--display);font-size:14px;font-weight:600;color:var(--text);margin-bottom:10px;">&#129302; Learning from corrections</div>
+      </div>
 
       <div class="dash-section-label" id="stockSectionLabel" style="display:none;">All stock</div>
 
@@ -3439,8 +3546,14 @@ function renderWatchCard(it, options){
   const errorHtml = it.status === 'error'
     ? `<p style="font-size:11px;color:var(--rust-bright);margin:6px 0;">${escapeHtml(it.error || 'analysis failed')}</p>` : '';
 
+  const msgTextCompact = fp.message_text
+    ? `<div class="msg-text-nonempty">&#x201C;${escapeHtml(fp.message_text.slice(0,80))}${fp.message_text.length > 80 ? '\u2026' : ''}&#x201D;</div>` : '';
+  const editToggle = (section === 'stock' || section === 'demand')
+    ? `<button class="card-edit-toggle" data-card-id="${it.id}">&#9998;</button>` : '';
+
   return `
-  <div class="watch-card ${options.altCard ? 'alt-card' : ''}" data-id="${it.id}">
+  <div class="watch-card ${options.altCard ? 'alt-card' : ''}" data-id="${it.id}" style="position:relative;">
+    ${editToggle}
     ${section === 'demand' && !it.imageData ? '' : photoHtml}
     <div class="watch-card-body">
       ${textRequestInput}
@@ -3452,6 +3565,7 @@ function renderWatchCard(it, options){
       ${hasAnyField ? '<div class="watch-card-divider"></div>' : ''}
       ${hasAnyField ? `<div class="watch-card-fields">${fieldsHtml}</div>` : ''}
       ${badgesHtml}
+      ${msgTextCompact}
       ${captionInput}
       ${errorHtml}
       ${messageTextHtml}
@@ -4483,8 +4597,9 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
     : 'No caption was provided. Rely on the image alone.';
   const effectiveMimeType = (mimeType && mimeType.startsWith('image/')) ? mimeType : 'image/jpeg';
 
+  const learnedHints = getLearnedPromptHints();
   const { text } = await callAnthropic({
-    systemText: FINGERPRINT_SCHEMA_PROMPT,
+    systemText: FINGERPRINT_SCHEMA_PROMPT + learnedHints,
     userParts: [
       { inline_data: { mime_type: effectiveMimeType, data: base64 } },
       { text: userText }
@@ -5306,6 +5421,97 @@ function getPatekRefHints(fp){
 // string matching \u2014 no Claude or Gemini call needed at all when the
 // caption already spells it out. This runs BEFORE any paid lookup, so a
 // well-labeled caption never triggers Google verification in the first place.
+// ════════════════════════════════════════════════════════════════
+// CORRECTIONS LEARNING — tracks every manual field edit, builds brand/
+// model-specific hints from patterns, gets smarter over time with zero
+// extra API calls. Pure JS, stored in localStorage.
+// ════════════════════════════════════════════════════════════════
+
+const CORRECTIONS_KEY = 'stockmatch-corrections-v1';
+
+function loadCorrections(){
+  try{ return JSON.parse(localStorage.getItem(CORRECTIONS_KEY) || '[]'); }
+  catch(e){ return []; }
+}
+function saveCorrections(log){
+  try{ localStorage.setItem(CORRECTIONS_KEY, JSON.stringify(log.slice(-1000))); }catch(e){}
+}
+
+function logCorrection(item, field, oldVal, newVal){
+  if (!item || !item.fingerprint) return;
+  if (String(oldVal||'').trim() === String(newVal||'').trim()) return; // no change
+  const fp = item.fingerprint;
+  const log = loadCorrections();
+  log.push({
+    ts: Date.now(),
+    brand: fp.brand || '', model: fp.model_line || '',
+    field, oldVal: oldVal||null, newVal: newVal||null
+  });
+  saveCorrections(log);
+}
+
+function getCorrectionsInsights(){
+  const log = loadCorrections();
+  if (!log.length) return null;
+  const byField = {};
+  const byBrandField = {};
+  log.forEach(c => {
+    byField[c.field] = (byField[c.field] || 0) + 1;
+    const bfKey = `${c.brand}|${c.field}`;
+    byBrandField[bfKey] = (byBrandField[bfKey] || 0) + 1;
+  });
+  const topFields = Object.entries(byField).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const topBrandFields = Object.entries(byBrandField).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  return { total: log.length, topFields, topBrandFields };
+}
+
+// Generates a compact, prompt-injectable hint string based on which fields
+// have been corrected most for each brand. Gets added to FINGERPRINT_SCHEMA_PROMPT
+// dynamically so extraction improves over time without any additional API cost.
+function getLearnedPromptHints(){
+  const log = loadCorrections();
+  if (!log.length) return '';
+  const brandFieldNewVal = {};
+  log.forEach(c => {
+    if (!c.brand || !c.newVal) return;
+    const k = `${c.brand}|${c.field}`;
+    if (!brandFieldNewVal[k]) brandFieldNewVal[k] = {};
+    brandFieldNewVal[k][c.newVal] = (brandFieldNewVal[k][c.newVal] || 0) + 1;
+  });
+  const hints = [];
+  Object.entries(brandFieldNewVal).forEach(([key, vals]) => {
+    const [brand, field] = key.split('|');
+    const topVal = Object.entries(vals).sort((a,b)=>b[1]-a[1])[0];
+    if (topVal && topVal[1] >= 3){ // only suggest after 3+ consistent corrections
+      hints.push(`${brand} ${field}: commonly "${topVal[0]}" (from ${topVal[1]} corrections)`);
+    }
+  });
+  return hints.length ? `\nLEARNED HINTS (from your previous corrections \u2014 pay extra attention):\n${hints.join('\n')}\n` : '';
+}
+
+function getCorrectionsCount(){
+  return loadCorrections().length;
+}
+
+function renderCorrectionsInsights(){
+  const panel = document.getElementById('correctionsPanel');
+  if (!panel) return;
+  const data = getCorrectionsInsights();
+  if (!data){ panel.innerHTML = '<p style="color:var(--text-faint);font-size:12px;">No corrections recorded yet. Edit any card field to start tracking.</p>'; return; }
+  panel.innerHTML = `
+    <div style="font-family:var(--sans);font-size:12px;">
+      <div style="color:var(--text-muted);margin-bottom:10px;">${data.total} correction${data.total===1?'':'s'} recorded \u2014 top misread fields:</div>
+      <table style="width:100%;border-collapse:collapse;">
+        ${data.topFields.map(([f,n])=>`<tr><td style="color:var(--text);padding:4px 8px 4px 0;">${f}</td><td style="color:var(--rust-bright);font-family:var(--mono);font-weight:600;">${n}</td></tr>`).join('')}
+      </table>
+      ${data.topBrandFields.length ? `<div style="color:var(--text-muted);margin:10px 0 6px;">By brand:</div>
+      <table style="width:100%;border-collapse:collapse;">
+        ${data.topBrandFields.map(([k,n])=>{const[brand,field]=k.split('|');return`<tr><td style="color:var(--text);padding:3px 8px 3px 0;font-size:11px;">${brand} \u00b7 ${field}</td><td style="color:var(--text-muted);font-family:var(--mono);font-size:11px;">${n}x</td></tr>`;}).join('')}
+      </table>` : ''}
+      <div style="color:var(--text-faint);font-size:10.5px;margin-top:10px;">After 3+ consistent corrections for the same brand+field, that pattern gets injected into Claude\u2019s extraction prompt automatically.</div>
+    </div>`;
+}
+
 function extractRefFromCaptionText(text){
   if (!text) return null;
 
@@ -6017,6 +6223,7 @@ function renderDashboard(){
   });
 
   updateBulkReanalyzeCount();
+  renderCorrectionsInsights();
 }
 
 function formatPrice(num){
@@ -6533,6 +6740,8 @@ function init(){
       const item = list.find(it => it.id === fieldInput.dataset.itemId);
       if (item){
         if (!item.fingerprint) item.fingerprint = {};
+        // Log the correction BEFORE overwriting so we capture old vs new
+        logCorrection(item, fieldInput.dataset.field, item.fingerprint[fieldInput.dataset.field], fieldInput.value);
         item.fingerprint[fieldInput.dataset.field] = fieldInput.value || null;
       }
       return;
@@ -6584,6 +6793,12 @@ function init(){
   });
 
   document.body.addEventListener('click', (e) => {
+    const editToggleBtn = e.target.closest('.card-edit-toggle');
+    if (editToggleBtn){
+      const card = editToggleBtn.closest('.watch-card');
+      if (card) card.classList.toggle('card-edit-mode');
+      return;
+    }
     const toggleBtn = e.target.closest('.watch-card-detail-toggle');
     if (toggleBtn){
       const panel = document.getElementById(toggleBtn.dataset.detailTarget);
