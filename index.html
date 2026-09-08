@@ -4490,18 +4490,38 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
     }
   }
 
+  // Cross-validate 'stated' refs for demand items: Claude sometimes marks
+  // a visually-guessed ref as 'stated' even when no ref appears in the
+  // actual message text. Catch this by checking whether the extracted ref
+  // actually appears in fp.message_text (the text Claude transcribed from
+  // the image). If it claims 'stated' but the ref isn't in the text,
+  // downgrade it to 'inferred' so web verification kicks in.
+  // Also cross-check against the app's typed caption via free regex.
+  if (allowLookup && fp.reference_number &&
+     (fp.reference_number_source === 'stated' || fp.reference_number_source === 'visible')){
+    const numericPart = fp.reference_number.replace(/[^0-9]/g, '').slice(0, 6);
+    const inMessageText  = numericPart.length >= 4 && fp.message_text &&
+      fp.message_text.replace(/[^0-9]/g, '').includes(numericPart);
+    const inTypedCaption = numericPart.length >= 4 && caption &&
+      caption.replace(/[^0-9]/g, '').includes(numericPart);
+    if (!inMessageText && !inTypedCaption){
+      // Claude is claiming it read a ref from text, but the ref's digits
+      // don't appear anywhere in the transcribed message or typed caption.
+      // This is a hallucinated source \u2014 treat it as an unverified visual guess.
+      fp.reference_number_source = 'inferred';
+      if (!fp.confidence_notes) fp.confidence_notes = '';
+      fp.confidence_notes = (fp.confidence_notes +
+        ' Note: Claude claimed ref was stated in text but digits not found in message \u2014 sending to web verification.').trim();
+    }
+  }
+
   // Trigger web lookup for demand items when:
   //   a) No ref was found at all, OR
-  //   b) A ref was found but only through VISUAL GUESSING (source not
-  //      'stated' from text, not 'visible' from a card/label in the image,
-  //      not already 'looked_up'). A visual guess on a Nautilus or Datejust
-  //      can easily pick the wrong variant \u2014 e.g. 5719/1G (white gold)
-  //      vs 7118/1200A (steel) look nearly identical in photos. Web search
-  //      verifies the guess against real listings and corrects it if wrong.
-  // STOCK items: never verify \u2014 dealer captions have accurate info.
+  //   b) Ref source is not trusted (not 'stated' confirmed in text,
+  //      not already 'looked_up' from a prior search)
+  // STOCK items: never verify \u2014 dealer captions already have accurate info.
   const refIsUntrusted = fp.reference_number &&
     fp.reference_number_source !== 'stated' &&
-    fp.reference_number_source !== 'visible' &&
     fp.reference_number_source !== 'looked_up';
 
   if (allowLookup && (!fp.reference_number || refIsUntrusted)){
