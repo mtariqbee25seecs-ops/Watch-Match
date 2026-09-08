@@ -2456,7 +2456,7 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
       <div class="tab-toolbar">
         <button class="btn danger-text" id="clearResultsBtn">Clear all</button>
         <button class="btn danger-text" id="reanalyzeAllBtnResults" title="Reanalyze every stock and demand item from scratch">Reanalyze all</button>
-        <button class="btn" id="runAIMatchBtn" title="Uses Gemini to visually compare demand photos against stock photos one by one \u2014 slower and costs a few cents per run, but catches things field-matching might miss" style="margin-left:auto;">&#128269; AI Visual Match</button>
+        <button class="btn" id="runAIMatchBtn" title="Uses Claude to visually compare demand photos against stock photos one by one \u2014 slower and costs a few cents per run, but catches things field-matching might miss" style="margin-left:auto;">&#128269; AI Visual Match</button>
         <button class="btn primary" id="runMatchBtn" disabled>Run matching (free)</button>
       </div>
 
@@ -2487,7 +2487,7 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
         <button class="btn danger-text" id="clearCloudBtn" title="Delete all images from cloud storage">Clear cloud images</button>
         <button class="btn danger-text" id="bulkReanalyzeBtn" title="Reanalyze only items missing dial marker/material data">Fix stale dial data</button>
         <button class="btn danger-text" id="reanalyzeAllBtn" title="Reanalyze every item from scratch, not just stale ones">Reanalyze all</button>
-        <button class="btn" id="runAIMatchBtnDash" title="Ask Gemini to visually advise on pending ref-matches (see Results tab)">&#128269; AI Visual Match</button>
+        <button class="btn" id="runAIMatchBtnDash" title="Ask Claude to visually advise on pending ref-matches (see Results tab)">&#128269; AI Visual Match</button>
         <button class="btn primary" id="exportPdfBtn" title="Export dashboard as PDF" style="margin-left:auto;">&#128196; Export PDF</button>
       </div>
 
@@ -2556,14 +2556,7 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
     </p>
     <input type="password" id="apiKeyInput" class="card-caption-input" placeholder="Paste your Anthropic API key" autocomplete="off" spellcheck="false">
 
-    <p class="settings-copy" style="margin-top:16px;">
-      When a reference number isn't legible, it's looked up via <strong>Gemini with Google Search</strong> &mdash; Gemini looks at the photo directly and grounds its answer in real Google results. Get a key at <strong>aistudio.google.com/apikey</strong>, and make sure billing is enabled on the linked Google Cloud project for reliable quota. Free for several thousand lookups/month, then a small per-lookup charge after that. Leave blank to skip lookup (no reference will be shown for unclear photos rather than a guess).
-    </p>
-    <input type="password" id="geminiApiKeyInput" class="card-caption-input" placeholder="Paste your Gemini API key" autocomplete="off" spellcheck="false">
-
-    <p class="settings-copy" style="margin-top:10px;font-size:11.5px;">
-      Both keys are stored only in this browser, never sent anywhere except directly to Anthropic's and Google's APIs.
-    </p>
+    
 
     <p class="settings-copy" style="margin-top:16px;">
       <strong>Cross-device sync (optional):</strong> by default everything you analyze stays only on this device. To see the same stock/demand on your phone and your PC, fill in both pieces below and use the exact same values on every device you want synced. Leave both blank to keep this device-only.
@@ -3047,12 +3040,6 @@ function setSupabaseAnonKey(key){
   try{ window.localStorage.setItem('sm:supabase-anon-key', key.trim()); }catch(e){}
 }
 
-function getGeminiApiKey(){
-  try{ return window.localStorage.getItem('sm:gemini-api-key') || 'AQ.Ab8RN6JPUP-JzHDGk0cdYqk_SpzntiarbWXmMsOPCoyGcZp9BA'; }catch(e){ return 'AQ.Ab8RN6JPUP-JzHDGk0cdYqk_SpzntiarbWXmMsOPCoyGcZp9BA'; }
-}
-function setGeminiApiKey(key){
-  try{ window.localStorage.setItem('sm:gemini-api-key', key.trim()); }catch(e){}
-}
 
 /* ===================== utils ===================== */
 
@@ -4133,7 +4120,7 @@ OUTPUT SCHEMA (strict JSON, no markdown, no commentary)
   }
 }`;
 
-// Applies every field Gemini's web lookup actually verified back onto the
+// Applies every field Claude's web search actually verified back onto the
 // fingerprint. Previously only date_complication/watch_color/strap_color
 // were applied here \u2014 dial_color, dial_markers_type, bracelet_type, and
 // bracelet_or_strap were being fetched (the prompt asks for them, tokens
@@ -4237,162 +4224,11 @@ function extractRetryDelaySeconds(response, errJson){
   return 15;
 }
 
-const GEMINI_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash-lite']; // 2.5 family retires Oct 16 2026 — migrated off it
-function geminiUrlFor(model){
-  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-}
 
-async function callGeminiWithSearch({ base64Image, mimeType, promptText }, attempt = 1, modelIndex = 0){
-  const apiKey = getGeminiApiKey();
-  if (!apiKey){
-    throw new Error('No Gemini API key set \u2014 add one in settings to enable reference lookups');
-  }
-
-  const parts = [];
-  if (base64Image) parts.push({ inline_data: { mime_type: mimeType || 'image/jpeg', data: base64Image } });
-  parts.push({ text: promptText });
-
-  const model = GEMINI_MODELS[modelIndex] || GEMINI_MODELS[0];
-  let response;
-  try{
-    response = await fetch(`${geminiUrlFor(model)}?key=${encodeURIComponent(apiKey)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts }],
-        tools: [{ urlContext: {} }, { googleSearch: {} }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 2500 }
-      })
-    });
-  }catch(networkErr){
-    if (attempt <= 4){
-      const waitSeconds = attempt * 4;
-      await new Promise(r => setTimeout(r, waitSeconds * 1000));
-      return callGeminiWithSearch({ base64Image, mimeType, promptText }, attempt + 1, modelIndex);
-    }
-    if (modelIndex < GEMINI_MODELS.length - 1){
-      return callGeminiWithSearch({ base64Image, mimeType, promptText }, 1, modelIndex + 1);
-    }
-    throw new Error('Network error reaching Gemini (' + (networkErr.message || 'connection failed') + ') \u2014 check your connection and try again');
-  }
-
-  if (!response.ok){
-    let errJson = null;
-    try{ errJson = await response.json(); }catch(e){}
-    const detail = errJson?.error?.message || '';
-
-    const isRateLimit = response.status === 429;
-    const isTransientServerError = [500, 502, 503, 504].includes(response.status);
-    if ((isRateLimit || isTransientServerError) && attempt <= 4){
-      const waitSeconds = isRateLimit ? extractRetryDelaySeconds(response, errJson) : (attempt * 4);
-      await new Promise(r => setTimeout(r, waitSeconds * 1000));
-      return callGeminiWithSearch({ base64Image, mimeType, promptText }, attempt + 1, modelIndex);
-    }
-
-    if (isTransientServerError && modelIndex < GEMINI_MODELS.length - 1){
-      return callGeminiWithSearch({ base64Image, mimeType, promptText }, 1, modelIndex + 1);
-    }
-
-    if (response.status === 401 || response.status === 403){
-      throw new Error(`Gemini auth failed (${response.status})${detail ? ': ' + detail : ''}. Your key format may be wrong \u2014 Gemini keys from aistudio.google.com start with "AIzaSy..." (39 chars). Update it in gear icon settings.`);
-    }
-    if (response.status === 429){
-      throw new Error(`Gemini quota exceeded (429)${detail ? ': ' + detail : ''}. Enable billing at console.cloud.google.com to unlock paid quota (fractions of a cent per image).`);
-    }
-    throw new Error('Gemini API error ' + response.status + (detail ? ': ' + detail : ''));
-  }
-  const data = await response.json();
-  const candidate = data.candidates && data.candidates[0];
-  const textParts = (candidate && candidate.content && candidate.content.parts || []).filter(p => p.text).map(p => p.text);
-  if (!textParts.length){
-    const finishReason = candidate && candidate.finishReason;
-    throw new Error('No text response from Gemini' + (finishReason ? ' (finishReason: ' + finishReason + ')' : ''));
-  }
-
-  const grounding = candidate && candidate.groundingMetadata;
-  const searchQueries = (grounding && grounding.webSearchQueries) || [];
-  const sources = ((grounding && grounding.groundingChunks) || [])
-    .map(c => c.web && c.web.title)
-    .filter(Boolean);
-
-  const urlMeta = (candidate && candidate.urlContextMetadata && candidate.urlContextMetadata.urlMetadata) || [];
-  const pagesRead = urlMeta
-    .filter(u => u.urlRetrievalStatus === 'URL_RETRIEVAL_STATUS_SUCCESS')
-    .map(u => u.retrievedUrl)
-    .filter(Boolean);
-
-  return { text: textParts.join('\n'), searchQueries, sources, pagesRead };
-}
 
 // Pure vision comparison — no search tools, just look at the photos.
 // Sends one demand photo + up to a handful of candidate stock photos in a
-// single call and asks Gemini to judge which (if any) are the same watch.
-async function callGeminiVisualCompare({ demandImage, demandMime, candidates, promptText }, attempt = 1, modelIndex = 0){
-  const apiKey = getGeminiApiKey();
-  if (!apiKey){
-    throw new Error('No Gemini API key set \u2014 add one in settings to enable AI visual matching');
-  }
-
-  const parts = [{ text: promptText }];
-  parts.push({ text: '\n\nDEMAND PHOTO (what the customer wants):' });
-  if (demandImage) parts.push({ inline_data: { mime_type: demandMime || 'image/jpeg', data: demandImage } });
-
-  candidates.forEach(cand => {
-    parts.push({ text: `\n\nCANDIDATE ${cand.label} (stock item):\n${cand.summary}` });
-    if (cand.image) parts.push({ inline_data: { mime_type: cand.mime || 'image/jpeg', data: cand.image } });
-  });
-
-  const model = GEMINI_MODELS[modelIndex] || GEMINI_MODELS[0];
-  let response;
-  try{
-    response = await fetch(`${geminiUrlFor(model)}?key=${encodeURIComponent(apiKey)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 2000 }
-      })
-    });
-  }catch(networkErr){
-    if (attempt <= 3){
-      await new Promise(r => setTimeout(r, attempt * 4000));
-      return callGeminiVisualCompare({ demandImage, demandMime, candidates, promptText }, attempt + 1, modelIndex);
-    }
-    throw new Error('Network error reaching Gemini (' + (networkErr.message || 'connection failed') + ')');
-  }
-
-  if (!response.ok){
-    let errJson = null;
-    try{ errJson = await response.json(); }catch(e){}
-    const detail = errJson?.error?.message || '';
-    const isRateLimit = response.status === 429;
-    const isTransient = [500,502,503,504].includes(response.status);
-    if ((isRateLimit || isTransient) && attempt <= 3){
-      const waitSeconds = isRateLimit ? extractRetryDelaySeconds(response, errJson) : (attempt * 4);
-      await new Promise(r => setTimeout(r, waitSeconds * 1000));
-      return callGeminiVisualCompare({ demandImage, demandMime, candidates, promptText }, attempt + 1, modelIndex);
-    }
-    if (isTransient && modelIndex < GEMINI_MODELS.length - 1){
-      return callGeminiVisualCompare({ demandImage, demandMime, candidates, promptText }, 1, modelIndex + 1);
-    }
-    if (response.status === 401 || response.status === 403){
-      throw new Error(`Gemini auth failed (${response.status})${detail ? ': ' + detail : ''}. Check your API key in settings.`);
-    }
-    if (response.status === 429){
-      throw new Error(`Gemini quota exceeded (429)${detail ? ': ' + detail : ''}. Enable billing at console.cloud.google.com.`);
-    }
-    throw new Error('Gemini API error ' + response.status + (detail ? ': ' + detail : ''));
-  }
-
-  const data = await response.json();
-  const candidate = data.candidates && data.candidates[0];
-  const textParts = (candidate && candidate.content && candidate.content.parts || []).filter(p => p.text).map(p => p.text);
-  if (!textParts.length){
-    const finishReason = candidate && candidate.finishReason;
-    throw new Error('No text response from Gemini' + (finishReason ? ' (finishReason: ' + finishReason + ')' : ''));
-  }
-  return textParts.join('\n');
-}
+// single call and asks Claude to judge which (if any) are the same watch.
 
 const VISUAL_MATCH_PROMPT = `You are a luxury watch dealer's assistant comparing a customer's requested watch (the DEMAND photo) against several candidate watches currently in stock, to find which one (if any) is the EXACT SAME watch.
 
@@ -4465,18 +4301,28 @@ async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt, capti
     try{
       // Only send the image on attempt 1 — retries use text description only.
       // Images are the biggest token cost; the text fingerprint is enough for retries.
-      const { text, searchQueries, sources, pagesRead } = await callGeminiWithSearch({
-        base64Image: attempt === 1 ? base64Image : null,
-        mimeType: attempt === 1 ? mimeType : null,
-        promptText: REFERENCE_LOOKUP_PROMPT + '\n\n' + promptText +
-          (attempt > 1 ? `\n\n(This is retry attempt ${attempt} \u2014 a previous attempt did not reach a confirmed result. The photo is not re-attached for this retry to save tokens \u2014 use the extracted watch details above plus different search query angles. Try broader searches without the specific dial color if color-specific searches keep failing.)` : '')
+      const retryNote = attempt > 1
+        ? `\n\n(Retry attempt ${attempt} \u2014 previous attempt did not reach a confirmed result. Try different search angles and broader queries without specific dial color if color-specific searches keep failing.)`
+        : '';
+      const lookupUserParts = [];
+      if (attempt === 1 && base64Image){
+        lookupUserParts.push({ inline_data: { mime_type: mimeType || 'image/jpeg', data: base64Image } });
+      }
+      lookupUserParts.push({ text: promptText + retryNote });
+      const { text, searchQueries, sources } = await callAnthropic({
+        systemText: REFERENCE_LOOKUP_PROMPT,
+        userParts: lookupUserParts,
+        enableWebSearch: true,
+        maxOutputTokens: 2000,
+        onRetryWait: null
       });
+      const pagesRead = []; // Claude web search doesn't separately track pages read
       const result = parseJsonLoose(text);
 
       const reallySearched = searchQueries.length > 0 || pagesRead.length > 0;
       const claimsGrounded = result.reference_number_source === 'looked_up' || result.reference_number_source === 'best_match';
       const claimsFromCaption = result.reference_number_source === 'stated';
-      // A "stated" source means Gemini read the answer directly out of the
+      // A "stated" source means Claude read the answer directly out of the
       // dealer's caption, not a search — that's legitimate and should NOT
       // require search grounding. Only discard "looked_up"/"best_match"
       // claims that have no actual search behind them (genuine hallucination).
@@ -4622,9 +4468,9 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
     }
   }
 
-  // Only pay for a Gemini lookup if the caption genuinely didn't have it,
+  // Only pay for a Claude web search lookup if the caption genuinely didn't have it,
   // AND lookup is actually allowed for this item. STOCK items don't get
-  // Gemini lookup at all \u2014 dealer captions already have everything
+  // Claude web lookup at all \u2014 dealer captions already have everything
   // (ref, dial, strap, condition), so there's nothing to verify from Google.
   // DEMAND items keep lookup enabled since customer messages are often
   // vague and genuinely need help identifying the exact watch.
@@ -4800,7 +4646,7 @@ function itemNeedsDialReanalysis(it){
 async function reanalyzeAllItems(){
   const total = stockItems.length + demandItems.length;
   if (!total){ showToast('Nothing to reanalyze \u2014 add some items first'); return; }
-  if (!confirm(`Reanalyze ALL ${total} item${total===1?'':'s'} (${stockItems.length} stock + ${demandItems.length} demand) from scratch with the current extraction rules?\n\nThis re-checks everything, not just items missing data \u2014 useful for a clean, consistent dataset after prompt improvements.\n\nCost: roughly $0.001\u2013$0.002 per item (Claude Haiku) plus any Gemini ref lookups needed.\n\nContinue?`)) return;
+  if (!confirm(`Reanalyze ALL ${total} item${total===1?'':'s'} (${stockItems.length} stock + ${demandItems.length} demand) from scratch with the current extraction rules?\n\nThis re-checks everything, not just items missing data \u2014 useful for a clean, consistent dataset after prompt improvements.\n\nCost: roughly $0.001\u2013$0.002 per item (Claude Haiku) plus any web search lookups needed.\n\nContinue?`)) return;
 
   stockItems.forEach(it => { it.status = 'pending'; it.autoRetryCount = 0; it.error = null; });
   demandItems.forEach(it => { it.status = 'pending'; it.autoRetryCount = 0; it.error = null; });
@@ -4877,7 +4723,7 @@ async function analyzeBatch(items, kind, renderFn, opts){
         };
         if (item.type === 'image'){
           if (!item.imageData) throw new Error('image not attached this session');
-          // Gemini lookup only for demand items — stock relies entirely
+          // Web lookup only for demand items — stock relies entirely
           // on the caption/message text + Claude's own reading, no Google.
           fp = await extractFingerprintFromImage(item.imageData, item.caption, onRetryWait, imageMimeTypeOf(item), onLookupAttempt, kind === 'demand');
         } else {
@@ -4905,7 +4751,7 @@ async function analyzeBatch(items, kind, renderFn, opts){
           }
         }
         // Only clear refs with NO source at all (training knowledge guesses).
-        // best_match = real web candidates were found, Gemini picked the closest one — keep it.
+        // best_match = real web candidates were found, Claude picked the closest one — keep it.
         // looked_up  = confirmed from a specific source — keep it.
         // visible    = read directly from photo — keep it.
         // null source with a ref = unverified guess — clear it.
@@ -5269,7 +5115,7 @@ const REF_WORD_BLOCKLIST = new Set([
 ]);
 
 // Programmatic Rolex ref hints based on known model/material/bezel combinations.
-// Used to give Gemini specific refs to search, dramatically improving accuracy.
+// Used to give Claude specific refs to search, dramatically improving accuracy.
 function getRolexRefHints(fp){
   if (!fp || !fp.brand || !fp.brand.toLowerCase().includes('rolex')) return null;
   const model  = (fp.model_line || '').toLowerCase();
@@ -5404,7 +5250,7 @@ function isValidRef(brand, ref){
   return /\d/.test(ref) && !looksLikePhoneNumber(ref);
 }
 
-// Patek Philippe ref family hints — passed to Gemini so it searches specific model families.
+// Patek Philippe ref family hints — passed to Claude so it searches specific model families.
 function getPatekRefHints(fp){
   if (!fp || !fp.brand || !fp.brand.toLowerCase().includes('patek')) return null;
   const model = (fp.model_line || '').toLowerCase();
@@ -5418,7 +5264,7 @@ function getPatekRefHints(fp){
 
 // Zero-cost, no-API ref extraction straight from caption text. Catches the
 // common dealer format ("Ref: 116598saco", "Reference: 126234") with plain
-// string matching \u2014 no Claude or Gemini call needed at all when the
+// string matching \u2014 no Claude or Claude call needed at all when the
 // caption already spells it out. This runs BEFORE any paid lookup, so a
 // well-labeled caption never triggers Google verification in the first place.
 // ════════════════════════════════════════════════════════════════
@@ -5634,7 +5480,7 @@ function refSourceLabel(source){
    "close alternates" under that demand, never mixed across demands.
    ══════════════════════════════════════════════════════════════════════ */
 // Core worker: given one demand item and its pending (ref-matched, undecided)
-// stock candidates, ask Gemini to visually judge each one. Returns judgments
+// stock candidates, ask Claude to visually judge each one. Returns judgments
 // only \u2014 never touches matchResults or matchDecisions directly. This is
 // advisory information for the human reviewer, not an automatic decision.
 async function getAIVisualHints(demandItem, pendingCandidates){
@@ -5651,10 +5497,22 @@ async function getAIVisualHints(demandItem, pendingCandidates){
       summary: `Brand: ${p.stockItem.fingerprint.brand || '?'} | Model: ${p.stockItem.fingerprint.model_line || '?'} | Ref: ${p.stockItem.fingerprint.reference_number || 'unknown'} | Dial: ${p.stockItem.fingerprint.dial_color || '?'} | Strap: ${p.stockItem.fingerprint.bracelet_or_strap || '?'} ${p.stockItem.fingerprint.strap_color || ''}`
     }));
     try{
-      const promptText = VISUAL_MATCH_PROMPT + `\n\nDEMAND DATA (context only \u2014 trust the photo more):\nBrand: ${dFp.brand || '?'} | Model: ${dFp.model_line || '?'} | Ref: ${dFp.reference_number || 'unknown'} | Dial: ${dFp.dial_color || '?'} | Strap: ${dFp.bracelet_or_strap || '?'} ${dFp.strap_color || ''}`;
-      const text = await callGeminiVisualCompare({
-        demandImage: demandItem.imageData, demandMime: imageMimeTypeOf(demandItem),
-        candidates: candPayload, promptText
+      const demandDataText = `DEMAND DATA (context only \u2014 trust the photo more):\nBrand: ${dFp.brand || '?'} | Model: ${dFp.model_line || '?'} | Ref: ${dFp.reference_number || 'unknown'} | Dial: ${dFp.dial_color || '?'} | Strap: ${dFp.bracelet_or_strap || '?'} ${dFp.strap_color || ''}`;
+      // Build multi-image userParts: demand photo + each candidate photo + text
+      const visualUserParts = [];
+      if (demandItem.imageData){
+        visualUserParts.push({ inline_data: { mime_type: imageMimeTypeOf(demandItem), data: demandItem.imageData } });
+        visualUserParts.push({ text: 'DEMAND photo (above).' });
+      }
+      candPayload.forEach(cand => {
+        if (cand.image) visualUserParts.push({ inline_data: { mime_type: cand.mime || 'image/jpeg', data: cand.image } });
+        visualUserParts.push({ text: `CANDIDATE ${cand.label}: ${cand.summary}` });
+      });
+      visualUserParts.push({ text: demandDataText });
+      const { text } = await callAnthropic({
+        systemText: VISUAL_MATCH_PROMPT,
+        userParts: visualUserParts,
+        maxOutputTokens: 1000
       });
       const parsed = parseJsonLoose(text);
       (parsed && parsed.results || []).forEach(r => {
@@ -5726,7 +5584,7 @@ async function runAIVisualMatching(){
   const demandGroups = Object.values(byDemand);
   const totalCalls = demandGroups.reduce((sum, g) => sum + Math.ceil(g.items.length / 5), 0);
 
-  if (!confirm(`AI Visual Match will check ${allPending.length} same-ref candidate${allPending.length===1?'':'s'} across ${demandGroups.length} demand item${demandGroups.length===1?'':'s'} (~${totalCalls} Gemini call${totalCalls===1?'':'s'}).\n\nThis only ADVISES on pending items \u2014 you still approve or reject each one yourself. Nothing gets auto-decided, and nothing already confirmed is touched.\n\nEstimated cost: a few cents total.\n\nContinue?`)) return;
+  if (!confirm(`AI Visual Match will check ${allPending.length} same-ref candidate${allPending.length===1?'':'s'} across ${demandGroups.length} demand item${demandGroups.length===1?'':'s'} (~${totalCalls} Claude web search call${totalCalls===1?'':'s'}).\n\nThis only ADVISES on pending items \u2014 you still approve or reject each one yourself. Nothing gets auto-decided, and nothing already confirmed is touched.\n\nEstimated cost: a few cents total.\n\nContinue?`)) return;
 
   const btn = document.getElementById('runAIMatchBtn') || document.getElementById('runAIMatchBtnDash');
   const originalText = btn ? btn.textContent : null;
@@ -6444,7 +6302,7 @@ function renderReviewQueue(){
           <div class="review-actions">
             <button class="btn review-approve" data-demand-id="${d.id}" data-stock-id="${s.id}">&#10003; Same watch \u2014 match</button>
             <button class="btn review-reject" data-demand-id="${d.id}" data-stock-id="${s.id}">&#10005; Different watch</button>
-            <button class="btn small ai-check-btn" data-demand-id="${d.id}" title="Ask Gemini to visually compare this and any other pending candidates for this demand">&#128269; AI</button>
+            <button class="btn small ai-check-btn" data-demand-id="${d.id}" title="Ask Claude to visually compare this and any other pending candidates for this demand">&#128269; AI</button>
           </div>
         </div>`;
           }).join('')}
@@ -6673,7 +6531,7 @@ function init(){
   document.getElementById('lightboxOverlay').onclick = (e) => { if (e.target.id === 'lightboxOverlay') e.target.classList.remove('open'); };
   function openSettingsModal(){
     document.getElementById('apiKeyInput').value = getApiKey();
-    document.getElementById('geminiApiKeyInput').value = getGeminiApiKey();
+    
     document.getElementById('firebaseConfigInput').value = getFirebaseConfigRaw();
     document.getElementById('supabaseUrlInput').value = getSupabaseUrl();
     document.getElementById('supabaseAnonKeyInput').value = getSupabaseAnonKey();
@@ -6685,7 +6543,7 @@ function init(){
   document.getElementById('settingsModalCancel').onclick = () => { document.getElementById('settingsModalOverlay').classList.remove('open'); };
   document.getElementById('settingsModalSave').onclick = () => {
     const key = document.getElementById('apiKeyInput').value.trim();
-    const geminiKey = document.getElementById('geminiApiKeyInput').value.trim();
+    
     const firebaseConfigRaw = document.getElementById('firebaseConfigInput').value.trim();
     const supabaseUrl = document.getElementById('supabaseUrlInput').value.trim();
     const supabaseAnonKey = document.getElementById('supabaseAnonKeyInput').value.trim();
@@ -6694,7 +6552,7 @@ function init(){
     if ((firebaseConfigRaw || supabaseUrl || supabaseAnonKey) && !syncId){ showToast('Add a Sync ID too \u2014 it\u2019s needed alongside Firebase/Supabase', true); return; }
     if (supabaseUrl && !/^https?:\/\//i.test(supabaseUrl)){ showToast('Supabase URL should start with https://', true); return; }
     const wasSupabaseConfigured = supabaseSyncConfigured();
-    setApiKey(key); setGeminiApiKey(geminiKey); setFirebaseConfigRaw(firebaseConfigRaw);
+    setApiKey(key);  setFirebaseConfigRaw(firebaseConfigRaw);
     setSupabaseUrl(supabaseUrl); setSupabaseAnonKey(supabaseAnonKey); setSyncId(syncId);
     _firebaseApp = null; _firestoreDb = null; _firebaseInitError = null;
     _supabaseClient = null; _supabaseInitError = null;
