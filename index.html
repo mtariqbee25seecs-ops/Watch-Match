@@ -3427,8 +3427,10 @@ function renderWatchCard(it, options){
       stripHtml = `<div class="watch-card-strip strip-emerald"><span class="strip-dot"></span>Verified \u2014 2+ sources agree</div>`;
     } else if (src === 'looked_up' && conflicts){
       stripHtml = `<div class="watch-card-strip strip-rust"><span class="strip-dot"></span>Single source \u2014 verify</div>`;
-    } else if (src === 'visible' || src === 'stated'){
-      stripHtml = `<div class="watch-card-strip strip-emerald"><span class="strip-dot"></span>Read directly from photo/message</div>`;
+    } else if (src === 'stated'){
+      stripHtml = `<div class="watch-card-strip strip-emerald"><span class="strip-dot"></span>Ref confirmed in message text</div>`;
+    } else if (src === 'visible'){
+      stripHtml = `<div class="watch-card-strip strip-emerald"><span class="strip-dot"></span>Ref read from visible label/card</div>`;
     } else {
       stripHtml = `<div class="watch-card-strip strip-muted"><span class="strip-dot"></span>Pending lookup</div>`;
     }
@@ -4280,7 +4282,7 @@ function getOfficialSiteForBrand(brand){
   return null;
 }
 
-async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt, caption){
+async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt, caption, visualGuessRef){
   const MAX_LOOKUP_ATTEMPTS = 4; // Ref number gets up to 4 tries since it's the critical field — but the loop exits the MOMENT a ref is grounded (search-confirmed or caption-stated), so descriptive details (dial/strap/etc) never get extra retries just for their own sake. They're accepted from whichever single attempt succeeds.
   // Chrono24-only mode — no official site lookup needed
   const officialSiteInstruction = '';
@@ -4304,13 +4306,10 @@ async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt, capti
   // If Claude already guessed a ref visually, tell the lookup to VERIFY it,
   // not just find any ref. This catches wrong-variant guesses (e.g. 5719/1G
   // vs 7118/1200A on a Nautilus ladies) that look identical in photos.
-  const hasVisualGuess = fp.reference_number &&
-    fp.reference_number_source !== 'stated' &&
-    fp.reference_number_source !== 'visible' &&
-    fp.reference_number_source !== 'looked_up';
-
-  const verifyNote = hasVisualGuess
-    ? `\n\nIMPORTANT: The model has already guessed ref "${fp.reference_number}" from visual analysis alone \u2014 but this may be WRONG (e.g. same model exists in steel vs white gold with near-identical appearance). Search for this specific ref AND similar variants to verify whether this is actually the correct ref for the watch shown. If search results consistently point to a different ref, use that instead and set reference_number_source to "looked_up".`
+  // If a visual guess ref was passed (cleared from fp to avoid circular
+  // confirmation), include it as a hint without anchoring to it.
+  const verifyNote = visualGuessRef
+    ? `\n\nNOTE: The initial visual analysis guessed ref "${visualGuessRef}" but this has NOT been confirmed \u2014 it may be WRONG. Common errors: men's vs ladies variant, steel vs white gold version, wrong size suffix. Please search fresh to find the correct reference number. If searches confirm "${visualGuessRef}", use it. If they point to a different ref consistently, use that instead. Do NOT just repeat the guessed ref without searching.`
     : '';
 
   const promptText = base64Image
@@ -4525,7 +4524,17 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
     fp.reference_number_source !== 'looked_up';
 
   if (allowLookup && (!fp.reference_number || refIsUntrusted)){
-    const lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType, onLookupAttempt, caption);
+    // CRITICAL: if the ref came from a visual guess (untrusted), clear it from
+    // fp before passing to the lookup. Otherwise Claude sees its own wrong ref
+    // in the context, anchors to it, and just confirms it again \u2014 creating
+    // a circular loop where the wrong ref never gets corrected. We pass it
+    // separately as a "visual guess to check" via verifyNote in the prompt.
+    const visualGuessRef = refIsUntrusted ? fp.reference_number : null;
+    if (refIsUntrusted) {
+      fp.reference_number = null;
+      fp.reference_number_source = null;
+    }
+    const lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType, onLookupAttempt, caption, visualGuessRef);
     fp.reference_number = lookup.reference_number || null;
     fp.reference_number_source = lookup.reference_number_source || null;
     fp.reference_source_site = lookup.confirming_source || null;
