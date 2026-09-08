@@ -4282,7 +4282,7 @@ function getOfficialSiteForBrand(brand){
   return null;
 }
 
-async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt, caption, visualGuessRef){
+async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt, caption, visualGuessRef, visualGuessModel){
   const MAX_LOOKUP_ATTEMPTS = 4; // Ref number gets up to 4 tries since it's the critical field — but the loop exits the MOMENT a ref is grounded (search-confirmed or caption-stated), so descriptive details (dial/strap/etc) never get extra retries just for their own sake. They're accepted from whichever single attempt succeeds.
   // Chrono24-only mode — no official site lookup needed
   const officialSiteInstruction = '';
@@ -4306,10 +4306,21 @@ async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt, capti
   // If Claude already guessed a ref visually, tell the lookup to VERIFY it,
   // not just find any ref. This catches wrong-variant guesses (e.g. 5719/1G
   // vs 7118/1200A on a Nautilus ladies) that look identical in photos.
-  // If a visual guess ref was passed (cleared from fp to avoid circular
-  // confirmation), include it as a hint without anchoring to it.
-  const verifyNote = visualGuessRef
-    ? `\n\nNOTE: The initial visual analysis guessed ref "${visualGuessRef}" but this has NOT been confirmed \u2014 it may be WRONG. Common errors: men's vs ladies variant, steel vs white gold version, wrong size suffix. Please search fresh to find the correct reference number. If searches confirm "${visualGuessRef}", use it. If they point to a different ref consistently, use that instead. Do NOT just repeat the guessed ref without searching.`
+  // Include visual guess hints WITHOUT anchoring — tell Claude what was
+  // guessed but instruct it to verify from scratch using the image.
+  const modelGuessNote = visualGuessModel
+    ? `\n  - Initial model guess: "${visualGuessModel}" — this may also be WRONG. For Patek:
+      * AQUANAUT = checked/diagonal embossed dial pattern, rounded octagonal case, rubber/composite strap. Refs: 5167, 5168, 5267, 5268, 5072 series.
+      * NAUTILUS LUCE (ladies) = horizontal wave/stripe dial, porthole-shaped case, composite or integrated strap. Refs: 7010, 7021 series.
+      * NAUTILUS (ladies) = horizontal wave/stripe dial, porthole case, integrated bracelet. Refs: 7118, 7119 series.
+      * NAUTILUS (men) = same wave dial, larger case 40mm+. Refs: 5711, 5712, 5726, 5740 series.
+      Look at the DIAL PATTERN in the image first (checked = Aquanaut, horizontal waves = Nautilus/Nautilus Luce) before forming search queries. Also check if this is ladies-sized (under 36mm) — ladies models have completely different ref families than men's.`
+    : '';
+
+  const verifyNote = visualGuessRef || visualGuessModel
+    ? `\n\nCRITICAL \u2014 The initial visual analysis is UNCONFIRMED and may be wrong:
+  - Guessed ref: "${visualGuessRef || 'none'}" \u2014 do NOT anchor to this.${modelGuessNote}
+  Search completely fresh using the photo. Look at the dial pattern and case shape to identify the exact model family first, then search for the correct reference. If you find the guessed ref consistently confirmed across multiple sources, use it. If sources point elsewhere, use the correct one. Do NOT repeat the guessed ref without actual search confirmation.`
     : '';
 
   const promptText = base64Image
@@ -4524,17 +4535,20 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
     fp.reference_number_source !== 'looked_up';
 
   if (allowLookup && (!fp.reference_number || refIsUntrusted)){
-    // CRITICAL: if the ref came from a visual guess (untrusted), clear it from
-    // fp before passing to the lookup. Otherwise Claude sees its own wrong ref
-    // in the context, anchors to it, and just confirms it again \u2014 creating
-    // a circular loop where the wrong ref never gets corrected. We pass it
-    // separately as a "visual guess to check" via verifyNote in the prompt.
-    const visualGuessRef = refIsUntrusted ? fp.reference_number : null;
+    // CRITICAL: if the ref came from a visual guess (untrusted), clear BOTH
+    // the ref AND the model_line from fp before the lookup. The model can be
+    // just as wrong as the ref (e.g. "Aquanaut" when it's actually a "Nautilus
+    // Luce", or a men's model when it's clearly ladies). Leaving the wrong
+    // model in fp anchors the web search to the wrong family entirely.
+    // We pass them separately as hints so Claude can cross-check vs the image.
+    const visualGuessRef   = refIsUntrusted ? fp.reference_number  : null;
+    const visualGuessModel = refIsUntrusted ? fp.model_line         : null;
     if (refIsUntrusted) {
-      fp.reference_number = null;
+      fp.reference_number       = null;
       fp.reference_number_source = null;
+      fp.model_line             = null; // don't anchor the search to possibly-wrong model
     }
-    const lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType, onLookupAttempt, caption, visualGuessRef);
+    const lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType, onLookupAttempt, caption, visualGuessRef, visualGuessModel);
     fp.reference_number = lookup.reference_number || null;
     fp.reference_number_source = lookup.reference_number_source || null;
     fp.reference_source_site = lookup.confirming_source || null;
@@ -5318,11 +5332,24 @@ function isValidRef(brand, ref){
 function getPatekRefHints(fp){
   if (!fp || !fp.brand || !fp.brand.toLowerCase().includes('patek')) return null;
   const model = (fp.model_line || '').toLowerCase();
-  if (model.includes('nautilus'))       return ['5711/1A (steel time-only)', '5712/1A (steel moon)', '5726/1A (annual cal)', '5990/1A (travel time chrono)', '7118/1A (ladies)'];
-  if (model.includes('aquanaut'))       return ['5167A (steel)', '5168G (white gold)', '5060 (previous)', '5164A (travel time)'];
-  if (model.includes('calatrava'))      return ['5196 (manual)', '6119 (manual)', '5227 (auto)', '6006 (pointer date)'];
-  if (model.includes('complications'))  return ['5205 (annual cal moon)', '5396 (annual cal)', '5940 (annual cal cushion)'];
-  if (model.includes('twenty'))         return ['7300/1200 (Twenty-4 auto)', '7010 (Twenty-4 quartz)'];
+  const gender = (fp.gender || '').toLowerCase();
+  const isLadies = gender === 'ladies' || (fp.case_size && parseInt(fp.case_size) <= 36);
+
+  if (model.includes('nautilus luce') || (model.includes('nautilus') && model.includes('luce'))){
+    // Nautilus Luce = ladies Nautilus with composite strap, horizontal wave dial
+    return ['7010G-013 (Nautilus Luce WG blue)', '7010G-012 (Nautilus Luce WG grey)', '7021G-010 (Nautilus Luce WG rose)'];
+  }
+  if (model.includes('nautilus')){
+    if (isLadies) return ['7118/1200A-001 (Nautilus ladies steel grey)', '7118/1200A-011 (Nautilus ladies steel blue)', '7118/1200G-001 (Nautilus ladies WG)', '7010G-013 (Nautilus Luce WG)'];
+    return ['5711/1A (steel time-only)', '5712/1A (steel moon)', '5726/1A (annual cal)', '5990/1A (travel time chrono)', '5740/1G (perpetual cal)'];
+  }
+  if (model.includes('aquanaut')){
+    if (isLadies) return ['5268G-010 (Aquanaut Luce WG blue)', '5268G-001 (Aquanaut Luce WG pink)', '5267A-010 (Aquanaut Luce steel)', '5072A-001 (Aquanaut Luce prev gen)'];
+    return ['5167A-001 (steel)', '5168G-010 (WG blue)', '5164A-001 (travel time)', '5165A-001 (power reserve)'];
+  }
+  if (model.includes('calatrava'))      return ['5196G (manual WG)', '6119G (manual WG)', '5227G (auto WG)', '6006G (pointer date)'];
+  if (model.includes('complications'))  return ['5205G (annual cal moon)', '5396G (annual cal)', '5940G (annual cal cushion)'];
+  if (model.includes('twenty') || model.includes('24')) return ['7300/1200R (Twenty-4 RG auto)', '7300/1200A (Twenty-4 steel auto)', '7010G-010 (quartz WG)'];
   return null;
 }
 
