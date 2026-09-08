@@ -4019,6 +4019,16 @@ HARD RULES (violate these and the matcher makes wrong sales calls)
 
 3. For dial_color: use specific color names (black, blue, silver, champagne, olive green, slate grey, etc.), not vague ones. If lighting/glare makes it genuinely ambiguous between two colors, pick the more likely one but set field_confidence.dial_color to "low". Do not default to "black" as a safe guess \u2014 black and blue are the most commonly confused pair under artificial light, look for blue undertones in reflections before committing to black.
 
+3b. ROLEX NAMED DIAL VARIANTS — these are specific Rolex marketing names used by dealers that you MUST recognize instead of guessing a generic color:
+- Wimbledon = dark chocolate-brown with subtle gradation, often looks near-black in photos. Ref 126333/126334 with this look = Wimbledon.
+- Rhodium = cold silver-grey, very clean, common on white gold models.
+- Cognac/Chocolate = warm brown tones.
+- Anthracite = very dark charcoal grey.
+- Olive Green = warm earthy green, not bright green.
+- Slate Grey / Rhodium = cool medium grey.
+- Onyx = pure flat black, diamond set.
+If the caption/message says "wim", "wimb", "wimbledon" — use "Wimbledon" as the dial color, do NOT override it with your visual guess.
+
 3a. ANGLE/GLARE CONSISTENCY: A single watch photographed from different angles can look like different colors \u2014 direct flash glare washes a dial out to look white/silver, a steep angle can make a blue or green dial look black, warm indoor lighting can shift colors toward yellow/brown. Before committing to a color, check whether strong glare or an extreme angle is covering most of the dial \u2014 if so, look at the small unobscured edges/shadowed portions for the true base color rather than the glare-washed center, and lower field_confidence.dial_color to "low" if you genuinely can't tell. Do not treat "the photo looks different" as "the watch is different" \u2014 lighting artifacts are common in WhatsApp photos and should not produce a confident but wrong color.
 
 4. For dial_markers_type, look specifically at the hour markers (not the dial texture): applied_indices (batons/shapes, no numbers), roman_numerals (I, II, III...), arabic_numerals (1, 2, 3...), dot_markers (small round dots only), baton_markers (thin rectangular lines), mixed (e.g. numerals at 12/6/9 with indices elsewhere). If markers aren't clearly visible, output "unknown", not a guess.
@@ -4291,9 +4301,21 @@ async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt, capti
   } else if (patekHints){
     hintsText = `\n\nPATEK PHILIPPE REF FAMILIES: The following ref families are common for this model line. Use them as search hints only, never as the answer itself:\n${patekHints.map(h => '  • ' + h).join('\n')}\nSearch these on Chrono24/WatchCharts, open a listing that visually matches, and read the exact ref (including dial-suffix like -010, -001) from the listing.`;
   }
+  // If Claude already guessed a ref visually, tell the lookup to VERIFY it,
+  // not just find any ref. This catches wrong-variant guesses (e.g. 5719/1G
+  // vs 7118/1200A on a Nautilus ladies) that look identical in photos.
+  const hasVisualGuess = fp.reference_number &&
+    fp.reference_number_source !== 'stated' &&
+    fp.reference_number_source !== 'visible' &&
+    fp.reference_number_source !== 'looked_up';
+
+  const verifyNote = hasVisualGuess
+    ? `\n\nIMPORTANT: The model has already guessed ref "${fp.reference_number}" from visual analysis alone \u2014 but this may be WRONG (e.g. same model exists in steel vs white gold with near-identical appearance). Search for this specific ref AND similar variants to verify whether this is actually the correct ref for the watch shown. If search results consistently point to a different ref, use that instead and set reference_number_source to "looked_up".`
+    : '';
+
   const promptText = base64Image
-    ? `${detailsText}${hintsText}\n\nThe photo is attached. Identify the exact reference number using the photo plus multiple Google searches, per your instructions.${officialSiteInstruction}`
-    : `${detailsText}${hintsText}\n\nNo photo is available, only the description above. Identify the exact reference number using multiple Google searches based on these details, per your instructions.${officialSiteInstruction}`;
+    ? `${detailsText}${hintsText}${verifyNote}\n\nThe photo is attached. Identify the exact reference number using the photo plus multiple Google searches, per your instructions.${officialSiteInstruction}`
+    : `${detailsText}${hintsText}${verifyNote}\n\nNo photo is available, only the description above. Identify the exact reference number using multiple Google searches based on these details, per your instructions.${officialSiteInstruction}`;
 
   let lastResult = null;
   for (let attempt = 1; attempt <= MAX_LOOKUP_ATTEMPTS; attempt++){
@@ -4439,7 +4461,7 @@ async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWa
 
 async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeType, onLookupAttempt, allowLookup){
   const userText = caption
-    ? `Caption / note written by the dealer: "${caption}". TREAT THIS AS AUTHORITATIVE for anything it explicitly states \u2014 same priority as message text on a demand photo. If the caption says the ref number, dial color, strap type, or bracelet style, use that exact value directly rather than guessing from the image. Only fall back to reading the photo for details the caption doesn't mention.`
+    ? `Caption / note written by the dealer: "${caption}". TREAT THIS AS AUTHORITATIVE for anything it explicitly states \u2014 same priority as message text on a demand photo. If the caption says the ref number, dial color, strap type, or bracelet style, use that exact value directly rather than guessing from the image. Only fall back to reading the photo for details the caption doesn't mention.\n\nDEALER SHORTHAND \u2014 expand these abbreviations from captions automatically:\nDial: wim/wimb=Wimbledon | choc=Chocolate | champ=Champagne | mop=Mother of Pearl | blk/bk=Black | blu/bl=Blue | slv=Silver | grn=Green | meteor=Meteorite | tt=Two-Tone | panda=Panda\nMarkers: rom/rn=Roman numerals | arab/an=Arabic numerals | diam/dia=Diamond markers | baton/st=Baton/stick indices\nStrap: jub=Jubilee | oys=Oyster | pres=President | leath=Leather | rub=Rubber\nCondition: bn/uw/lnib=New or Unworn | used=Pre-owned`
     : 'No caption was provided. Rely on the image alone.';
   const effectiveMimeType = (mimeType && mimeType.startsWith('image/')) ? mimeType : 'image/jpeg';
 
@@ -4468,13 +4490,21 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
     }
   }
 
-  // Only pay for a Claude web search lookup if the caption genuinely didn't have it,
-  // AND lookup is actually allowed for this item. STOCK items don't get
-  // Claude web lookup at all \u2014 dealer captions already have everything
-  // (ref, dial, strap, condition), so there's nothing to verify from Google.
-  // DEMAND items keep lookup enabled since customer messages are often
-  // vague and genuinely need help identifying the exact watch.
-  if (!fp.reference_number && allowLookup){
+  // Trigger web lookup for demand items when:
+  //   a) No ref was found at all, OR
+  //   b) A ref was found but only through VISUAL GUESSING (source not
+  //      'stated' from text, not 'visible' from a card/label in the image,
+  //      not already 'looked_up'). A visual guess on a Nautilus or Datejust
+  //      can easily pick the wrong variant \u2014 e.g. 5719/1G (white gold)
+  //      vs 7118/1200A (steel) look nearly identical in photos. Web search
+  //      verifies the guess against real listings and corrects it if wrong.
+  // STOCK items: never verify \u2014 dealer captions have accurate info.
+  const refIsUntrusted = fp.reference_number &&
+    fp.reference_number_source !== 'stated' &&
+    fp.reference_number_source !== 'visible' &&
+    fp.reference_number_source !== 'looked_up';
+
+  if (allowLookup && (!fp.reference_number || refIsUntrusted)){
     const lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType, onLookupAttempt, caption);
     fp.reference_number = lookup.reference_number || null;
     fp.reference_number_source = lookup.reference_number_source || null;
@@ -4812,8 +4842,13 @@ async function analyzeBatch(items, kind, renderFn, opts){
     if (it.status !== 'done' || !it.fingerprint || it.fingerprint.reference_number) return false;
     if (it.autoRetryCount && it.autoRetryCount >= RETRY_CAP) return false;
     if (opts.manual) return true; // manual reanalyze: always retry, no gating
+    // Stock items have dealer captions with all the info — if Claude didn't
+    // find the ref on the first pass, a retry won't help and wastes a call.
+    // Only demand items retry, since customer messages are often ambiguous
+    // and a second attempt with a different angle can genuinely help.
+    if (kind === 'stock') return false;
     const text = (it.fingerprint.message_text || '') + ' ' + (it.caption || '');
-    return /\b\d{4,6}[A-Za-z]{0,8}\b/.test(text); // bulk: only if something ref-shaped to chase
+    return /\b\d{4,6}[A-Za-z]{0,8}\b/.test(text); // demand only: retry if ref-shaped token exists
   });
   if (noRefItems.length){
     noRefItems.forEach(it => {
