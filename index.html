@@ -3031,31 +3031,55 @@ async function callSerpAPIGoogleLens(base64Image, mimeType){
   const key = getSerpAPIKey();
   if (!key) throw new Error('No SerpAPI key \u2014 add it in Settings');
 
-  // Convert base64 \u2192 Blob for multipart upload
-  const blob = base64ToBlob(base64Image, mimeType || 'image/jpeg');
+  // SerpAPI is server-side by design \u2014 browser requests get blocked by CORS.
+  // corsproxy.io is a free public CORS proxy that forwards our requests.
+  // For production, replace with your own proxy or a server-side function.
+  const CORS = 'https://corsproxy.io/?url=';
+
+  // Compress image to under 450KB before upload (SerpAPI limit is 500KB)
+  let uploadBase64 = base64Image;
+  try{
+    const blob0 = base64ToBlob(base64Image, mimeType || 'image/jpeg');
+    if (blob0.size > 450000){
+      // Re-compress at lower quality until under limit
+      uploadBase64 = await new Promise(res => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const scale = Math.min(1, Math.sqrt(450000 / blob0.size));
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          res(canvas.toDataURL('image/jpeg', 0.65).split(',')[1]);
+        };
+        img.src = `data:${mimeType || 'image/jpeg'};base64,${base64Image}`;
+      });
+    }
+  }catch(e){ /* use original if compression fails */ }
+
+  const blob = base64ToBlob(uploadBase64, mimeType || 'image/jpeg');
   const formData = new FormData();
   formData.append('image', blob, 'watch.jpg');
 
-  // Step 1: Upload image to get image_id
+  // Step 1: Upload image to get image_id (via CORS proxy)
   const uploadRes = await fetch(
-    `https://serpapi.com/image?api_key=${encodeURIComponent(key)}`,
+    `${CORS}${encodeURIComponent(`https://serpapi.com/image?api_key=${key}`)}`,
     { method: 'POST', body: formData }
   );
   if (!uploadRes.ok){
-    const err = await uploadRes.text().catch(() => uploadRes.status);
-    throw new Error(`SerpAPI upload failed (${uploadRes.status}): ${err}`);
+    const err = await uploadRes.text().catch(() => String(uploadRes.status));
+    throw new Error(`SerpAPI upload failed (${uploadRes.status}): ${err.slice(0, 200)}`);
   }
   const uploadData = await uploadRes.json();
   const imageId = uploadData.image_id;
-  if (!imageId) throw new Error('SerpAPI did not return image_id');
+  if (!imageId) throw new Error(`SerpAPI upload returned no image_id. Response: ${JSON.stringify(uploadData).slice(0,200)}`);
 
-  // Step 2: Google Lens search — get product matches + visual matches
-  const searchRes = await fetch(
-    `https://serpapi.com/search.json?engine=google_lens&image_id=${encodeURIComponent(imageId)}&type=products&api_key=${encodeURIComponent(key)}`
-  );
+  // Step 2: Google Lens visual search (via CORS proxy)
+  const searchUrl = `https://serpapi.com/search.json?engine=google_lens&image_id=${encodeURIComponent(imageId)}&type=products&api_key=${key}`;
+  const searchRes = await fetch(`${CORS}${encodeURIComponent(searchUrl)}`);
   if (!searchRes.ok){
-    const err = await searchRes.text().catch(() => searchRes.status);
-    throw new Error(`SerpAPI Lens search failed (${searchRes.status}): ${err}`);
+    const err = await searchRes.text().catch(() => String(searchRes.status));
+    throw new Error(`SerpAPI Lens search failed (${searchRes.status}): ${err.slice(0, 200)}`);
   }
   return searchRes.json();
 }
@@ -4651,7 +4675,13 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
         if (onLookupAttempt) onLookupAttempt(1, 2);
         lookup = await lookupRefWithGoogleLens(fp, base64, effectiveMimeType, caption, visualGuessRef, visualGuessModel);
       }catch(lensErr){
-        console.warn('SerpAPI Google Lens failed, falling back to web search:', lensErr.message);
+        // Make the error visible in confidence_notes so it shows in the
+        // card's Lookup Details section \u2014 easier to diagnose than digging
+        // through the browser console.
+        const errMsg = lensErr.message || String(lensErr);
+        console.warn('SerpAPI Google Lens failed:', errMsg);
+        fp.confidence_notes = (fp.confidence_notes ? fp.confidence_notes + ' | ' : '') +
+          `SerpAPI failed: ${errMsg.slice(0, 150)}. Falling back to Claude web search.`;
         lookup = null;
       }
     }
