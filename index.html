@@ -2363,6 +2363,18 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
   background: transparent !important;
   border-color: transparent !important;
 }
+
+.web-search-btn{
+  width: 100%; margin-top: 8px;
+  background: rgba(90,143,176,0.08);
+  border: 1px dashed rgba(90,143,176,0.35);
+  color: var(--steel-bright);
+  font-size: 11px;
+}
+.web-search-btn:hover{
+  background: rgba(90,143,176,0.16);
+  border-color: var(--steel-bright);
+}
 </style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2555,6 +2567,11 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
       Get a key at <strong>console.anthropic.com</strong> and add some credit.
     </p>
     <input type="password" id="apiKeyInput" class="card-caption-input" placeholder="Paste your Anthropic API key" autocomplete="off" spellcheck="false">
+
+    <p class="settings-copy" style="margin-top:16px;">
+      <strong>Gemini API key</strong> &mdash; Used for ALL watch image extraction (both stock and demand). Free tier: 1,500 images/day, 60/minute &mdash; enough for ~45,000 images/month. Get your key free at <strong>aistudio.google.com</strong> &rarr; Get API key.
+    </p>
+    <input type="password" id="geminiKeyInput" class="card-caption-input" placeholder="Paste your Gemini API key" autocomplete="off" spellcheck="false">
 
     <p class="settings-copy" style="margin-top:16px;">
       <strong>SerpAPI key</strong> &mdash; Used for Google Lens visual search on demand watches with no ref in the message. Finds the correct watch variant from the photo directly (much more accurate than text search). Get a key at <strong>serpapi.com</strong> &mdash; free plan includes 250 searches/month, Developer plan is $50/month for 5,000 searches ($0.01 each). Leave blank to skip visual search and use Claude web search only.
@@ -3128,6 +3145,81 @@ If no clear reference is identifiable, return {"reference_number":null}.`;
   };
 }
 
+function getGeminiKey(){
+  try{ return window.localStorage.getItem('sm:gemini-key') || ''; }catch(e){ return ''; }
+}
+function setGeminiKey(key){
+  try{ window.localStorage.setItem('sm:gemini-key', key.trim()); }catch(e){}
+}
+
+// Gemini 2.0 Flash — free tier, 1500 req/day, 60 RPM
+// Used for ALL extraction (stock + demand). Zero cost within free tier at
+// ~150 images/day average. 90% cheaper than Claude Haiku for this task.
+const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_URL   = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+let _geminiLastCall = 0; // rate-limit enforcement: 60 RPM = 1/sec
+
+async function callGemini({ systemText, imageParts, userText, maxOutputTokens }, attempt = 1){
+  const key = getGeminiKey();
+  if (!key) throw new Error('No Gemini API key \u2014 add it in Settings (gear icon)');
+
+  // Enforce 60 RPM: wait if last call was less than 1.1 seconds ago
+  const now = Date.now();
+  const elapsed = now - _geminiLastCall;
+  if (elapsed < 1100) await new Promise(r => setTimeout(r, 1100 - elapsed));
+  _geminiLastCall = Date.now();
+
+  const parts = [];
+  (imageParts || []).forEach(p => {
+    if (p.inline_data) parts.push({ inlineData: { mimeType: p.inline_data.mime_type, data: p.inline_data.data } });
+  });
+  if (userText) parts.push({ text: userText });
+
+  const body = {
+    contents: [{ role: 'user', parts }],
+    systemInstruction: systemText ? { parts: [{ text: systemText }] } : undefined,
+    generationConfig: {
+      responseMimeType: 'application/json',
+      temperature: 0.1,
+      maxOutputTokens: maxOutputTokens || 1200
+    }
+  };
+
+  let response;
+  try{
+    response = await fetch(`${GEMINI_URL}?key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  }catch(networkErr){
+    if (attempt <= 3){
+      await new Promise(r => setTimeout(r, attempt * 3000));
+      return callGemini({ systemText, imageParts, userText, maxOutputTokens }, attempt + 1);
+    }
+    throw new Error('Network error reaching Gemini: ' + (networkErr.message || 'connection failed'));
+  }
+
+  if (!response.ok){
+    let errJson = null;
+    try{ errJson = await response.json(); }catch(e){}
+    const detail = errJson?.error?.message || '';
+    const isRateLimit = response.status === 429;
+    const isTransient  = [500, 502, 503, 504].includes(response.status);
+    if ((isRateLimit || isTransient) && attempt <= 4){
+      const wait = isRateLimit ? (parseInt((response.headers.get('Retry-After') || '10')) || 10) : attempt * 4;
+      await new Promise(r => setTimeout(r, wait * 1000));
+      return callGemini({ systemText, imageParts, userText, maxOutputTokens }, attempt + 1);
+    }
+    throw new Error('Gemini API error ' + response.status + (detail ? ': ' + detail.slice(0, 200) : ''));
+  }
+
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Gemini returned no text content');
+  return { text };
+}
+
 function getApiKey(){
   try{ return window.localStorage.getItem('sm:anthropic-api-key') || ''; }catch(e){ return ''; }
 }
@@ -3680,6 +3772,9 @@ function renderWatchCard(it, options){
       ${captionInput}
       ${errorHtml}
       ${messageTextHtml}
+      ${section === 'demand' && it.needs_manual_lookup
+        ? `<button class="btn small web-search-btn" data-item-id="${it.id}" title="SerpAPI couldn't identify this watch — trigger manual Claude web search">&#128269; Search Web for ref</button>`
+        : ''}
       ${lookupNotes}
       ${priceRowHtml}
       ${detailToggle}
@@ -4592,108 +4687,119 @@ async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWa
 }
 
 async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeType, onLookupAttempt, allowLookup){
-  const userText = caption
-    ? `Caption / note written by the dealer: "${caption}". TREAT THIS AS AUTHORITATIVE for anything it explicitly states \u2014 same priority as message text on a demand photo. If the caption says the ref number, dial color, strap type, or bracelet style, use that exact value directly rather than guessing from the image. Only fall back to reading the photo for details the caption doesn't mention.\n\nDEALER SHORTHAND \u2014 expand these abbreviations from captions automatically:\nDial: wim/wimb=Wimbledon | choc=Chocolate | champ=Champagne | mop=Mother of Pearl | blk/bk=Black | blu/bl=Blue | slv=Silver | grn=Green | meteor=Meteorite | tt=Two-Tone | panda=Panda\nMarkers: rom/rn=Roman numerals | arab/an=Arabic numerals | diam/dia=Diamond markers | baton/st=Baton/stick indices\nStrap: jub=Jubilee | oys=Oyster | pres=President | leath=Leather | rub=Rubber\nCondition: bn/uw/lnib=New or Unworn | used=Pre-owned`
-    : 'No caption was provided. Rely on the image alone.';
   const effectiveMimeType = (mimeType && mimeType.startsWith('image/')) ? mimeType : 'image/jpeg';
 
-  const learnedHints = getLearnedPromptHints();
-  const { text } = await callAnthropic({
-    systemText: FINGERPRINT_SCHEMA_PROMPT + learnedHints,
-    userParts: [
-      { inline_data: { mime_type: effectiveMimeType, data: base64 } },
-      { text: userText }
-    ],
-    maxOutputTokens: 1200,
-    onRetryWait
-  });
-  const fp = parseJsonLoose(text);
+  // ── Build caption/abbreviation guidance ──
+  const captionGuide = caption ? `Caption / note written by the dealer: "${caption}".
+TREAT THIS AS AUTHORITATIVE for anything it explicitly states \u2014 same priority as message text.
+If the caption states the ref number, dial color, strap, or bracelet use that exact value directly.
+Only fall back to reading the photo for details the caption does not mention.
 
-  // FREE first check: does the caption itself spell out the ref number
-  // ("Ref: 116598saco")? If so, use it directly \u2014 zero API cost, no
-  // Google verification needed at all for this field.
+DEALER SHORTHAND \u2014 expand these automatically:
+Dial: wim/wimb=Wimbledon | choc=Chocolate | champ=Champagne | mop=Mother of Pearl | blk/bk=Black | blu/bl=Blue | slv=Silver | grn=Green | meteor=Meteorite | tt=Two-Tone | panda=Panda
+Markers: rom/rn=Roman numerals | arab/an=Arabic numerals | diam/dia=Diamond markers | baton/st=Baton/stick
+Strap: jub=Jubilee | oys=Oyster | pres=President | leath=Leather | rub=Rubber
+Condition: bn/uw/lnib=New/Unworn | used=Pre-owned` : 'No caption provided. Rely on the image alone.';
+
+  // ── Inject learned correction hints (ML system) ──
+  const learnedHints = getLearnedPromptHints();
+  const systemPrompt = FINGERPRINT_SCHEMA_PROMPT + learnedHints;
+
+  // ── Call Gemini 2.0 Flash (free tier) for vision extraction ──
+  const { text } = await callGemini({
+    systemText:    systemPrompt,
+    imageParts:    [{ inline_data: { mime_type: effectiveMimeType, data: base64 } }],
+    userText:      captionGuide,
+    maxOutputTokens: 1200
+  });
+
+  const fp = parseJsonLoose(text);
+  if (!fp) throw new Error('Gemini returned unparseable JSON for fingerprint extraction');
+
+  // ── Free caption ref extraction (zero API cost) ──
+  // Catches "Ref: 126300" or "126300. Brand new..." patterns before any
+  // paid lookup. If found, mark as 'stated' (authoritative, no lookup needed).
   if (!fp.reference_number && caption){
     const capRef = extractRefFromCaptionText(caption);
     if (capRef && isValidRef(fp.brand, capRef)){
-      fp.reference_number = capRef.toUpperCase();
+      fp.reference_number        = capRef.toUpperCase();
       fp.reference_number_source = 'stated';
-      if (!fp.confidence_notes) fp.confidence_notes = '';
-      fp.confidence_notes = (fp.confidence_notes + ' Ref read directly from caption \u2014 no web lookup needed.').trim();
+      fp.confidence_notes = ((fp.confidence_notes || '') + ' Ref read directly from caption.').trim();
     }
   }
 
-  // Cross-validate 'stated' refs for demand items: Claude sometimes marks
-  // a visually-guessed ref as 'stated' even when no ref appears in the
-  // actual message text. Catch this by checking whether the extracted ref
-  // actually appears in fp.message_text (the text Claude transcribed from
-  // the image). If it claims 'stated' but the ref isn't in the text,
-  // downgrade it to 'inferred' so web verification kicks in.
-  // Also cross-check against the app's typed caption via free regex.
+  // ── Cross-validate claimed 'stated'/'visible' refs ──
+  // Gemini (like Claude) sometimes marks a visually-guessed ref as 'stated'
+  // even when it does not appear in the actual message text. Catch this by
+  // checking whether the ref digits are actually present in fp.message_text
+  // or the typed caption. If not, downgrade to 'inferred' so the visual
+  // lookup triggers.
   if (allowLookup && fp.reference_number &&
-     (fp.reference_number_source === 'stated' || fp.reference_number_source === 'visible')){
+      (fp.reference_number_source === 'stated' || fp.reference_number_source === 'visible')){
     const numericPart = fp.reference_number.replace(/[^0-9]/g, '').slice(0, 6);
-    const inMessageText  = numericPart.length >= 4 && fp.message_text &&
-      fp.message_text.replace(/[^0-9]/g, '').includes(numericPart);
-    const inTypedCaption = numericPart.length >= 4 && caption &&
-      caption.replace(/[^0-9]/g, '').includes(numericPart);
-    if (!inMessageText && !inTypedCaption){
-      // Claude is claiming it read a ref from text, but the ref's digits
-      // don't appear anywhere in the transcribed message or typed caption.
-      // This is a hallucinated source \u2014 treat it as an unverified visual guess.
+    const inMsg     = numericPart.length >= 4 && fp.message_text &&
+                      fp.message_text.replace(/[^0-9]/g, '').includes(numericPart);
+    const inCaption = numericPart.length >= 4 && caption &&
+                      caption.replace(/[^0-9]/g, '').includes(numericPart);
+    if (!inMsg && !inCaption){
       fp.reference_number_source = 'inferred';
-      if (!fp.confidence_notes) fp.confidence_notes = '';
-      fp.confidence_notes = (fp.confidence_notes +
-        ' Note: Claude claimed ref was stated in text but digits not found in message \u2014 sending to web verification.').trim();
+      fp.confidence_notes = ((fp.confidence_notes || '') +
+        ' Source downgraded: ref digits not found in message text \u2014 visual guess, needs lookup.').trim();
     }
   }
 
-  // Trigger web lookup for demand items when:
-  //   a) No ref was found at all, OR
-  //   b) Ref source is not trusted (not 'stated' confirmed in text,
-  //      not already 'looked_up' from a prior search)
-  // STOCK items: never verify \u2014 dealer captions already have accurate info.
+  // ── Validate and normalise ref ──
+  if (fp.reference_number){
+    const ref = fp.reference_number.trim();
+    if (!isValidRef(fp.brand, ref)){
+      fp.reference_number        = null;
+      fp.reference_number_source = null;
+      fp.confidence_notes = ((fp.confidence_notes || '') +
+        ` [Ref rejected: "${ref}" does not match ${fp.brand || 'brand'} format]`).trim();
+    } else {
+      fp.reference_number = ref.toUpperCase();
+    }
+  }
+
+  // ── Determine if visual lookup is needed ──
+  // Only for demand items (stock captions already have accurate data).
+  // Triggers when: no ref found, OR ref is an untrusted visual guess.
   const refIsUntrusted = fp.reference_number &&
     fp.reference_number_source !== 'stated' &&
     fp.reference_number_source !== 'looked_up';
 
   if (allowLookup && (!fp.reference_number || refIsUntrusted)){
+    // Save the guess before clearing, so lookup gets the hint
     const visualGuessRef   = refIsUntrusted ? fp.reference_number : null;
-    const visualGuessModel = refIsUntrusted ? fp.model_line        : null;
+    const visualGuessModel = refIsUntrusted ? fp.model_line       : null;
     if (refIsUntrusted){
       fp.reference_number        = null;
       fp.reference_number_source = null;
-      fp.model_line              = null;
+      fp.model_line              = null; // don't anchor the search to a wrong model
     }
 
+    // ── SerpAPI Google Lens visual search (primary, free tier) ──
     let lookup = null;
-
-    // STEP A \u2014 Google Lens visual search via SerpAPI (most accurate for
-    // identifying exact watch variants from photos). Only runs when the
-    // image is available and a SerpAPI key is configured.
     if (base64 && getSerpAPIKey()){
       try{
-        if (onLookupAttempt) onLookupAttempt(1, 2);
+        if (onLookupAttempt) onLookupAttempt(1, 1);
         lookup = await lookupRefWithGoogleLens(fp, base64, effectiveMimeType, caption, visualGuessRef, visualGuessModel);
       }catch(lensErr){
-        // Make the error visible in confidence_notes so it shows in the
-        // card's Lookup Details section \u2014 easier to diagnose than digging
-        // through the browser console.
         const errMsg = lensErr.message || String(lensErr);
         console.warn('SerpAPI Google Lens failed:', errMsg);
-        fp.confidence_notes = (fp.confidence_notes ? fp.confidence_notes + ' | ' : '') +
-          `SerpAPI failed: ${errMsg.slice(0, 150)}. Falling back to Claude web search.`;
+        // Make error visible in Lookup Details section of card
+        fp.confidence_notes = ((fp.confidence_notes || '') +
+          ` | SerpAPI failed: ${errMsg.slice(0, 150)}`).trim();
         lookup = null;
       }
     }
 
-    // STEP B \u2014 Claude web search fallback (runs if Lens failed, no key,
-    // no image, or Lens returned no confident result).
+    // ── If SerpAPI found nothing: flag for MANUAL web search ──
+    // NO automatic Claude web search fallback \u2014 that was costing $8-9/month
+    // for 4k demand items. User clicks "Search Web" on the card instead.
     if (!lookup || !lookup.reference_number){
-      if (onLookupAttempt) onLookupAttempt(lookup ? 2 : 1, 2);
-      lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType, onLookupAttempt, caption, visualGuessRef, visualGuessModel);
-    }
-
-    if (lookup){
+      fp.needs_manual_lookup = true; // signals the card to show the Search Web button
+    } else {
       fp.reference_number        = lookup.reference_number        || null;
       fp.reference_number_source = lookup.reference_number_source || null;
       fp.reference_source_site   = lookup.confirming_source       || null;
@@ -4707,8 +4813,10 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
       }
     }
   }
+
   return fp;
 }
+
 
 async function extractFingerprintFromText(text, onRetryWait, onLookupAttempt){
   const textSystemPrompt = FINGERPRINT_SCHEMA_PROMPT
@@ -4919,7 +5027,11 @@ async function analyzeBatch(items, kind, renderFn, opts){
 
   let done = 0;
   const total = toProcess.length;
-  const CONCURRENCY = 4;
+  // Gemini 2.0 Flash free tier: 60 RPM = 1/second.
+  // callGemini() enforces 1.1s between calls internally, so concurrency
+  // above 1 would just queue up and wait. Keep it low to avoid memory
+  // and UI issues from spawning many simultaneous workers.
+  const CONCURRENCY = 2;
   let idx = 0;
   let rateLimitNotice = '';
 
@@ -4973,6 +5085,10 @@ async function analyzeBatch(items, kind, renderFn, opts){
             fp.reference_number = ref.toUpperCase();
           }
         }
+        // Persist manual lookup flag so the card shows "Search Web" button
+        if (fp.needs_manual_lookup) item.needs_manual_lookup = true;
+        else item.needs_manual_lookup = false;
+
         // Only clear refs with NO source at all (training knowledge guesses).
         // best_match = real web candidates were found, Claude picked the closest one — keep it.
         // looked_up  = confirmed from a specific source — keep it.
@@ -6775,6 +6891,7 @@ function init(){
   function openSettingsModal(){
     document.getElementById('apiKeyInput').value = getApiKey();
   document.getElementById('serpaKeyInput').value = getSerpAPIKey();
+  document.getElementById('geminiKeyInput').value = getGeminiKey();
     
     document.getElementById('firebaseConfigInput').value = getFirebaseConfigRaw();
     document.getElementById('supabaseUrlInput').value = getSupabaseUrl();
@@ -6789,6 +6906,8 @@ function init(){
     const key = document.getElementById('apiKeyInput').value.trim();
     const serpaKey = document.getElementById('serpaKeyInput').value.trim();
     if (serpaKey) setSerpAPIKey(serpaKey);
+    const geminiKey = document.getElementById('geminiKeyInput').value.trim();
+    if (geminiKey) setGeminiKey(geminiKey);
     
     const firebaseConfigRaw = document.getElementById('firebaseConfigInput').value.trim();
     const supabaseUrl = document.getElementById('supabaseUrlInput').value.trim();
@@ -6896,7 +7015,41 @@ function init(){
     }
   });
 
-  document.body.addEventListener('click', (e) => {
+  document.body.addEventListener('click', async (e) => {
+    // Manual web search for demand items where SerpAPI couldn't identify ref
+    const wsBtn = e.target.closest('.web-search-btn');
+    if (wsBtn){
+      const item = demandItems.find(it => it.id === wsBtn.dataset.itemId);
+      if (!item || !item.imageData){ showToast('Image not loaded this session', true); return; }
+      wsBtn.disabled = true;
+      wsBtn.textContent = 'Searching\u2026';
+      try{
+        const fp = item.fingerprint || {};
+        const lookup = await lookupReferenceNumber(
+          fp, item.imageData, imageMimeTypeOf(item), null, item.caption, null, fp.model_line
+        );
+        if (lookup && lookup.reference_number){
+          item.fingerprint.reference_number        = lookup.reference_number;
+          item.fingerprint.reference_number_source = lookup.reference_number_source || 'looked_up';
+          item.fingerprint.reference_source_site   = lookup.confirming_source || null;
+          item.needs_manual_lookup = false;
+          applyWebVerifiedFields(item.fingerprint, lookup);
+          await saveDemandCatalog();
+          renderDemand();
+          showToast('Ref found: ' + lookup.reference_number);
+        } else {
+          wsBtn.disabled = false;
+          wsBtn.textContent = '\uD83D\uDD0D Search Web for ref';
+          showToast('Web search found no confident ref \u2014 edit manually', true);
+        }
+      }catch(err){
+        wsBtn.disabled = false;
+        wsBtn.textContent = '\uD83D\uDD0D Search Web for ref';
+        showToast('Web search failed: ' + (err.message || err), true);
+      }
+      return;
+    }
+
     const editToggleBtn = e.target.closest('.card-edit-toggle');
     if (editToggleBtn){
       const card = editToggleBtn.closest('.watch-card');
