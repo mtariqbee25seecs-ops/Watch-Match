@@ -2556,6 +2556,11 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
     </p>
     <input type="password" id="apiKeyInput" class="card-caption-input" placeholder="Paste your Anthropic API key" autocomplete="off" spellcheck="false">
 
+    <p class="settings-copy" style="margin-top:16px;">
+      <strong>SerpAPI key</strong> &mdash; Used for Google Lens visual search on demand watches with no ref in the message. Finds the correct watch variant from the photo directly (much more accurate than text search). Get a key at <strong>serpapi.com</strong> &mdash; free plan includes 250 searches/month, Developer plan is $50/month for 5,000 searches ($0.01 each). Leave blank to skip visual search and use Claude web search only.
+    </p>
+    <input type="password" id="serpaKeyInput" class="card-caption-input" placeholder="Paste your SerpAPI key" autocomplete="off" spellcheck="false">
+
     
 
     <p class="settings-copy" style="margin-top:16px;">
@@ -3005,6 +3010,99 @@ const localStore = {
     }catch(e){ return null; }
   }
 };
+
+function getSerpAPIKey(){
+  try{ return window.localStorage.getItem('sm:serpa-key') || ''; }catch(e){ return ''; }
+}
+function setSerpAPIKey(key){
+  try{ window.localStorage.setItem('sm:serpa-key', key.trim()); }catch(e){}
+}
+
+// ════════════════════════════════════════════════════════════════
+// SERPA API — Google Lens visual search
+// Step 1: Upload base64 image → get image_id
+// Step 2: Search Google Lens with image_id → get product/visual matches
+// Step 3: Pass match titles to Claude Haiku (text-only, tiny cost)
+//         to extract the clean reference number
+// Only called for demand items with no confirmed ref in text.
+// ════════════════════════════════════════════════════════════════
+
+async function callSerpAPIGoogleLens(base64Image, mimeType){
+  const key = getSerpAPIKey();
+  if (!key) throw new Error('No SerpAPI key \u2014 add it in Settings');
+
+  // Convert base64 \u2192 Blob for multipart upload
+  const blob = base64ToBlob(base64Image, mimeType || 'image/jpeg');
+  const formData = new FormData();
+  formData.append('image', blob, 'watch.jpg');
+
+  // Step 1: Upload image to get image_id
+  const uploadRes = await fetch(
+    `https://serpapi.com/image?api_key=${encodeURIComponent(key)}`,
+    { method: 'POST', body: formData }
+  );
+  if (!uploadRes.ok){
+    const err = await uploadRes.text().catch(() => uploadRes.status);
+    throw new Error(`SerpAPI upload failed (${uploadRes.status}): ${err}`);
+  }
+  const uploadData = await uploadRes.json();
+  const imageId = uploadData.image_id;
+  if (!imageId) throw new Error('SerpAPI did not return image_id');
+
+  // Step 2: Google Lens search — get product matches + visual matches
+  const searchRes = await fetch(
+    `https://serpapi.com/search.json?engine=google_lens&image_id=${encodeURIComponent(imageId)}&type=products&api_key=${encodeURIComponent(key)}`
+  );
+  if (!searchRes.ok){
+    const err = await searchRes.text().catch(() => searchRes.status);
+    throw new Error(`SerpAPI Lens search failed (${searchRes.status}): ${err}`);
+  }
+  return searchRes.json();
+}
+
+async function lookupRefWithGoogleLens(fp, base64Image, mimeType, caption, visualGuessRef, visualGuessModel){
+  const results = await callSerpAPIGoogleLens(base64Image, mimeType);
+
+  // Collect titles from visual_matches and products (best sources for watch refs)
+  const candidates = [];
+  (results.visual_matches || []).slice(0, 12).forEach(m => { if (m.title) candidates.push(m.title); });
+  (results.products || []).slice(0, 12).forEach(m => { if (m.title) candidates.push(m.title); });
+
+  if (!candidates.length) return null;
+
+  // Extract ref using Claude Haiku text-only (no image, very cheap)
+  const prompt = `Google Lens found these visual matches for a watch image:
+
+${candidates.map((t, i) => `${i + 1}. ${t}`).join('\n')}
+
+${visualGuessRef   ? `Initial visual guess (UNCONFIRMED, may be wrong): ${visualGuessRef}` : ''}
+${visualGuessModel ? `Initial model guess  (UNCONFIRMED, may be wrong): ${visualGuessModel}` : ''}
+${fp.brand ? `Brand from image: ${fp.brand}` : ''}
+${caption  ? `Dealer caption: ${caption}` : ''}
+
+Look at the most frequently mentioned or most specific reference number in the results. Return ONLY this JSON:
+{"reference_number":"EXACT_REF","model_line":"Model","brand":"Brand","confidence":"high|medium|low","reasoning":"1 sentence"}
+
+If no clear reference is identifiable, return {"reference_number":null}.`;
+
+  const { text } = await callAnthropic({
+    systemText: 'Extract watch reference numbers from Google Lens results. Return valid JSON only, no markdown.',
+    userParts: [{ text: prompt }],
+    maxOutputTokens: 200
+  });
+
+  const parsed = parseJsonLoose(text);
+  if (!parsed || !parsed.reference_number) return null;
+
+  return {
+    reference_number:        parsed.reference_number,
+    reference_number_source: 'looked_up',
+    model_line:              parsed.model_line  || fp.model_line  || null,
+    brand:                   parsed.brand       || fp.brand       || null,
+    confidence_notes:        `Google Lens visual search (${candidates.length} matches). Confidence: ${parsed.confidence}. ${parsed.reasoning || ''}`,
+    confirming_source:       'Google Lens via SerpAPI'
+  };
+}
 
 function getApiKey(){
   try{ return window.localStorage.getItem('sm:anthropic-api-key') || ''; }catch(e){ return ''; }
@@ -4535,26 +4633,48 @@ async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeTyp
     fp.reference_number_source !== 'looked_up';
 
   if (allowLookup && (!fp.reference_number || refIsUntrusted)){
-    // CRITICAL: if the ref came from a visual guess (untrusted), clear BOTH
-    // the ref AND the model_line from fp before the lookup. The model can be
-    // just as wrong as the ref (e.g. "Aquanaut" when it's actually a "Nautilus
-    // Luce", or a men's model when it's clearly ladies). Leaving the wrong
-    // model in fp anchors the web search to the wrong family entirely.
-    // We pass them separately as hints so Claude can cross-check vs the image.
-    const visualGuessRef   = refIsUntrusted ? fp.reference_number  : null;
-    const visualGuessModel = refIsUntrusted ? fp.model_line         : null;
-    if (refIsUntrusted) {
-      fp.reference_number       = null;
+    const visualGuessRef   = refIsUntrusted ? fp.reference_number : null;
+    const visualGuessModel = refIsUntrusted ? fp.model_line        : null;
+    if (refIsUntrusted){
+      fp.reference_number        = null;
       fp.reference_number_source = null;
-      fp.model_line             = null; // don't anchor the search to possibly-wrong model
+      fp.model_line              = null;
     }
-    const lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType, onLookupAttempt, caption, visualGuessRef, visualGuessModel);
-    fp.reference_number = lookup.reference_number || null;
-    fp.reference_number_source = lookup.reference_number_source || null;
-    fp.reference_source_site = lookup.confirming_source || null;
-    applyWebVerifiedFields(fp, lookup);
-    if (lookup.confidence_notes){
-      fp.confidence_notes = fp.confidence_notes ? fp.confidence_notes + ' | ' + lookup.confidence_notes : lookup.confidence_notes;
+
+    let lookup = null;
+
+    // STEP A \u2014 Google Lens visual search via SerpAPI (most accurate for
+    // identifying exact watch variants from photos). Only runs when the
+    // image is available and a SerpAPI key is configured.
+    if (base64 && getSerpAPIKey()){
+      try{
+        if (onLookupAttempt) onLookupAttempt(1, 2);
+        lookup = await lookupRefWithGoogleLens(fp, base64, effectiveMimeType, caption, visualGuessRef, visualGuessModel);
+      }catch(lensErr){
+        console.warn('SerpAPI Google Lens failed, falling back to web search:', lensErr.message);
+        lookup = null;
+      }
+    }
+
+    // STEP B \u2014 Claude web search fallback (runs if Lens failed, no key,
+    // no image, or Lens returned no confident result).
+    if (!lookup || !lookup.reference_number){
+      if (onLookupAttempt) onLookupAttempt(lookup ? 2 : 1, 2);
+      lookup = await lookupReferenceNumber(fp, base64, effectiveMimeType, onLookupAttempt, caption, visualGuessRef, visualGuessModel);
+    }
+
+    if (lookup){
+      fp.reference_number        = lookup.reference_number        || null;
+      fp.reference_number_source = lookup.reference_number_source || null;
+      fp.reference_source_site   = lookup.confirming_source       || null;
+      if (lookup.model_line && !fp.model_line) fp.model_line = lookup.model_line;
+      if (lookup.brand      && !fp.brand)      fp.brand      = lookup.brand;
+      applyWebVerifiedFields(fp, lookup);
+      if (lookup.confidence_notes){
+        fp.confidence_notes = fp.confidence_notes
+          ? fp.confidence_notes + ' | ' + lookup.confidence_notes
+          : lookup.confidence_notes;
+      }
     }
   }
   return fp;
@@ -6600,6 +6720,8 @@ function wireFileInput(inputId, handlerFn){
 }
 
 function init(){
+  // Pre-fill test SerpAPI key if none set yet
+  if (!getSerpAPIKey()) setSerpAPIKey('f7bc2356e9783db0f54bc3ac95b81451d279589277df8bd96193481bf80c24e2');
   document.querySelectorAll('.tab').forEach(tab => { tab.onclick = () => setView(tab.dataset.view); });
   wireFileInput('stockFileInput', handleStockFiles);
   wireFileInput('demandFileInput', handleDemandFiles);
@@ -6622,6 +6744,7 @@ function init(){
   document.getElementById('lightboxOverlay').onclick = (e) => { if (e.target.id === 'lightboxOverlay') e.target.classList.remove('open'); };
   function openSettingsModal(){
     document.getElementById('apiKeyInput').value = getApiKey();
+  document.getElementById('serpaKeyInput').value = getSerpAPIKey();
     
     document.getElementById('firebaseConfigInput').value = getFirebaseConfigRaw();
     document.getElementById('supabaseUrlInput').value = getSupabaseUrl();
@@ -6634,6 +6757,8 @@ function init(){
   document.getElementById('settingsModalCancel').onclick = () => { document.getElementById('settingsModalOverlay').classList.remove('open'); };
   document.getElementById('settingsModalSave').onclick = () => {
     const key = document.getElementById('apiKeyInput').value.trim();
+    const serpaKey = document.getElementById('serpaKeyInput').value.trim();
+    if (serpaKey) setSerpAPIKey(serpaKey);
     
     const firebaseConfigRaw = document.getElementById('firebaseConfigInput').value.trim();
     const supabaseUrl = document.getElementById('supabaseUrlInput').value.trim();
