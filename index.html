@@ -3179,10 +3179,13 @@ async function callGemini({ systemText, imageParts, userText, maxOutputTokens },
   const key = getGeminiKey();
   if (!key) throw new Error('No Gemini API key \u2014 add it in Settings (gear icon)');
 
-  // Enforce 60 RPM: wait if last call was less than 1.1 seconds ago
+  // Enforce safe rate: 30 RPM (2s gap) — well under the 60 RPM limit.
+  // Using 30 RPM intentionally: free tier bursts can still 429 at 50+ RPM,
+  // and sequential processing at 2s/image = ~30 images/minute which is
+  // fast enough for normal use while staying reliably under the limit.
   const now = Date.now();
   const elapsed = now - _geminiLastCall;
-  if (elapsed < 1100) await new Promise(r => setTimeout(r, 1100 - elapsed));
+  if (elapsed < 2000) await new Promise(r => setTimeout(r, 2000 - elapsed));
   _geminiLastCall = Date.now();
 
   const parts = [];
@@ -3222,9 +3225,16 @@ async function callGemini({ systemText, imageParts, userText, maxOutputTokens },
     const detail = errJson?.error?.message || '';
     const isRateLimit = response.status === 429;
     const isTransient  = [500, 502, 503, 504].includes(response.status);
-    if ((isRateLimit || isTransient) && attempt <= 4){
-      const wait = isRateLimit ? (parseInt((response.headers.get('Retry-After') || '10')) || 10) : attempt * 4;
+    if (isRateLimit && attempt <= 6){
+      // On 429: wait longer each retry, up to 60s. The Retry-After header
+      // from Gemini is often missing or 0 — use exponential backoff instead.
+      const wait = Math.min(15 * attempt, 60);
       await new Promise(r => setTimeout(r, wait * 1000));
+      _geminiLastCall = Date.now(); // reset timer after the forced wait
+      return callGemini({ systemText, imageParts, userText, maxOutputTokens }, attempt + 1);
+    }
+    if (isTransient && attempt <= 3){
+      await new Promise(r => setTimeout(r, attempt * 4000));
       return callGemini({ systemText, imageParts, userText, maxOutputTokens }, attempt + 1);
     }
     throw new Error('Gemini API error ' + response.status + (detail ? ': ' + detail.slice(0, 200) : ''));
@@ -5043,11 +5053,10 @@ async function analyzeBatch(items, kind, renderFn, opts){
 
   let done = 0;
   const total = toProcess.length;
-  // Gemini 2.0 Flash free tier: 60 RPM = 1/second.
-  // callGemini() enforces 1.1s between calls internally, so concurrency
-  // above 1 would just queue up and wait. Keep it low to avoid memory
-  // and UI issues from spawning many simultaneous workers.
-  const CONCURRENCY = 2;
+  // Gemini free tier: 60 RPM. CONCURRENCY must be 1 — with 2 workers
+  // both can pass the rate-limit check before either updates the timestamp,
+  // causing two simultaneous calls that hit the limit. Sequential is safer.
+  const CONCURRENCY = 1;
   let idx = 0;
   let rateLimitNotice = '';
 
