@@ -3175,17 +3175,15 @@ const GEMINI_MODEL = 'gemini-3.5-flash-lite'; // cheapest GA model: $0.30/$2.50 
 const GEMINI_URL   = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 let _geminiLastCall = 0; // rate-limit enforcement: 60 RPM = 1/sec
 
-async function callGemini({ systemText, imageParts, userText, maxOutputTokens }, attempt = 1){
+async function callGemini({ systemText, imageParts, userText, maxOutputTokens, onRetryWait }, attempt = 1){
   const key = getGeminiKey();
   if (!key) throw new Error('No Gemini API key \u2014 add it in Settings (gear icon)');
 
-  // Enforce safe rate: 30 RPM (2s gap) — well under the 60 RPM limit.
-  // Using 30 RPM intentionally: free tier bursts can still 429 at 50+ RPM,
-  // and sequential processing at 2s/image = ~30 images/minute which is
-  // fast enough for normal use while staying reliably under the limit.
+  // Gemini 3.5 Flash-Lite free tier: 10-15 RPM actual limit.
+  // 6 second gap = 10 RPM — stays safely within the limit.
   const now = Date.now();
   const elapsed = now - _geminiLastCall;
-  if (elapsed < 2000) await new Promise(r => setTimeout(r, 2000 - elapsed));
+  if (elapsed < 6000) await new Promise(r => setTimeout(r, 6000 - elapsed));
   _geminiLastCall = Date.now();
 
   const parts = [];
@@ -3225,16 +3223,23 @@ async function callGemini({ systemText, imageParts, userText, maxOutputTokens },
     const detail = errJson?.error?.message || '';
     const isRateLimit = response.status === 429;
     const isTransient  = [500, 502, 503, 504].includes(response.status);
-    if (isRateLimit && attempt <= 6){
-      // On 429: wait longer each retry, up to 60s. The Retry-After header
-      // from Gemini is often missing or 0 — use exponential backoff instead.
-      const wait = Math.min(15 * attempt, 60);
-      await new Promise(r => setTimeout(r, wait * 1000));
-      _geminiLastCall = Date.now(); // reset timer after the forced wait
+    if (isRateLimit){
+      // Rate limited — wait 60s and retry indefinitely.
+      // Never throw an error for rate limits: the user wants results,
+      // just slowly. The onRetryWait callback updates the progress bar
+      // so the user can see what's happening.
+      const waitSecs = 60;
+      if (onRetryWait) onRetryWait(waitSecs);
+      // Count down visually so user knows it's working, not frozen
+      for (let s = waitSecs; s > 0; s -= 5){
+        if (onRetryWait) onRetryWait(s);
+        await new Promise(r => setTimeout(r, Math.min(5000, s * 1000)));
+      }
+      _geminiLastCall = 0; // reset timer after forced wait
       return callGemini({ systemText, imageParts, userText, maxOutputTokens }, attempt + 1);
     }
     if (isTransient && attempt <= 3){
-      await new Promise(r => setTimeout(r, attempt * 4000));
+      await new Promise(r => setTimeout(r, attempt * 3000));
       return callGemini({ systemText, imageParts, userText, maxOutputTokens }, attempt + 1);
     }
     throw new Error('Gemini API error ' + response.status + (detail ? ': ' + detail.slice(0, 200) : ''));
@@ -4736,7 +4741,8 @@ Condition: bn/uw/lnib=New/Unworn | used=Pre-owned` : 'No caption provided. Rely 
     systemText:    systemPrompt,
     imageParts:    [{ inline_data: { mime_type: effectiveMimeType, data: base64 } }],
     userText:      captionGuide,
-    maxOutputTokens: 1200
+    maxOutputTokens: 1200,
+    onRetryWait:   onRetryWait
   });
 
   const fp = parseJsonLoose(text);
@@ -5129,10 +5135,10 @@ async function analyzeBatch(items, kind, renderFn, opts){
         item.error = null;
       }catch(e){
         item.status = 'error';
-        item.error = e.message || 'analysis failed';
+          item.error = e.message || 'analysis failed';
+          done++;
       }
       rateLimitNotice = '';
-      done++;
       updateProgress();
       renderFn();
       if (kind === 'stock') renderDashboard();
