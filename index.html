@@ -2569,9 +2569,9 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
     <input type="password" id="apiKeyInput" class="card-caption-input" placeholder="Paste your Anthropic API key" autocomplete="off" spellcheck="false">
 
     <p class="settings-copy" style="margin-top:16px;">
-      <strong>Gemini API key</strong> &mdash; Used for ALL watch image extraction (both stock and demand). Free tier: 1,500 images/day, 60/minute &mdash; enough for ~45,000 images/month. Get your key free at <strong>aistudio.google.com</strong> &rarr; Get API key.
+      <strong>Gemini API key</strong> &mdash; Not currently used. Extraction now runs on Claude Haiku with prompt caching (~$14/month). Leave blank.
     </p>
-    <input type="password" id="geminiKeyInput" class="card-caption-input" placeholder="Paste your Gemini API key" autocomplete="off" spellcheck="false">
+    <input type="password" id="geminiKeyInput" class="card-caption-input" placeholder="Not used — leave blank" autocomplete="off" spellcheck="false" style="opacity:0.4;">
 
     <p class="settings-copy" style="margin-top:16px;">
       <strong>imgbb API key</strong> &mdash; Used to host watch images temporarily (10 min auto-delete) so SerpAPI can fetch them for Google Lens search. Free at <strong>imgbb.com/api</strong> \u2014 click "Get API key", sign up, done. No credit card needed.
@@ -4639,7 +4639,7 @@ async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt, capti
   return lastResult || { reference_number: null, reference_number_source: null, confidence_notes: `Lookup failed after ${MAX_LOOKUP_ATTEMPTS} attempts.` };
 }
 
-async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWait, enableWebSearch }, attempt = 1){
+async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWait, enableWebSearch, cacheSystem }, attempt = 1){
   const key = getApiKey();
   if (!key){
     throw new Error('No Anthropic API key set \u2014 click the settings (gear) icon to add one');
@@ -4651,10 +4651,17 @@ async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWa
     return null;
   }).filter(Boolean);
 
+  // Send system prompt as array with cache_control when requested.
+  // The large FINGERPRINT_SCHEMA_PROMPT (~4500 tokens) is sent on every
+  // extraction call — caching it cuts input cost by 90% on that portion.
+  const systemPayload = (systemText && cacheSystem)
+    ? [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }]
+    : systemText || undefined;
+
   const body = {
     model: ANTHROPIC_MODEL,
     max_tokens: maxOutputTokens || 1000,
-    system: systemText,
+    system: systemPayload,
     messages: [{ role: 'user', content }]
   };
   if (enableWebSearch){
@@ -4669,6 +4676,7 @@ async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWa
         'Content-Type': 'application/json',
         'x-api-key': key,
         'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'prompt-caching-2024-07-31',
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify(body)
@@ -4678,7 +4686,7 @@ async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWa
       const waitSeconds = attempt * 3;
       if (onRetryWait) onRetryWait(waitSeconds, attempt);
       await new Promise(r => setTimeout(r, waitSeconds * 1000));
-      return callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWait, enableWebSearch }, attempt + 1);
+      return callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWait, enableWebSearch, cacheSystem }, attempt + 1);
     }
     throw new Error('Network error reaching Anthropic (' + (networkErr.message || 'connection failed') + ') \u2014 check your connection and try again');
   }
@@ -4694,7 +4702,7 @@ async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWa
       const waitSeconds = isRateLimit ? extractRetryDelaySeconds(response, errJson) : (attempt * 3);
       if (onRetryWait) onRetryWait(waitSeconds, attempt);
       await new Promise(r => setTimeout(r, waitSeconds * 1000));
-      return callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWait, enableWebSearch }, attempt + 1);
+      return callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWait, enableWebSearch, cacheSystem }, attempt + 1);
     }
 
     if (enableWebSearch && /web.?search/i.test(detail)){
@@ -4720,37 +4728,40 @@ async function callAnthropic({ systemText, userParts, maxOutputTokens, onRetryWa
 async function extractFingerprintFromImage(base64, caption, onRetryWait, mimeType, onLookupAttempt, allowLookup){
   const effectiveMimeType = (mimeType && mimeType.startsWith('image/')) ? mimeType : 'image/jpeg';
 
-  // ── Build caption/abbreviation guidance ──
+  // Caption/abbreviation guidance for the user turn
   const captionGuide = caption ? `Caption / note written by the dealer: "${caption}".
-TREAT THIS AS AUTHORITATIVE for anything it explicitly states \u2014 same priority as message text.
+TREAT THIS AS AUTHORITATIVE for anything it explicitly states — same priority as message text.
 If the caption states the ref number, dial color, strap, or bracelet use that exact value directly.
 Only fall back to reading the photo for details the caption does not mention.
 
-DEALER SHORTHAND \u2014 expand these automatically:
+DEALER SHORTHAND — expand these automatically:
 Dial: wim/wimb=Wimbledon | choc=Chocolate | champ=Champagne | mop=Mother of Pearl | blk/bk=Black | blu/bl=Blue | slv=Silver | grn=Green | meteor=Meteorite | tt=Two-Tone | panda=Panda
 Markers: rom/rn=Roman numerals | arab/an=Arabic numerals | diam/dia=Diamond markers | baton/st=Baton/stick
 Strap: jub=Jubilee | oys=Oyster | pres=President | leath=Leather | rub=Rubber
 Condition: bn/uw/lnib=New/Unworn | used=Pre-owned` : 'No caption provided. Rely on the image alone.';
 
-  // ── Inject learned correction hints (ML system) ──
+  // Inject learned correction hints (ML system — zero extra cost)
   const learnedHints = getLearnedPromptHints();
   const systemPrompt = FINGERPRINT_SCHEMA_PROMPT + learnedHints;
 
-  // ── Call Gemini 2.0 Flash (free tier) for vision extraction ──
-  const { text } = await callGemini({
-    systemText:    systemPrompt,
-    imageParts:    [{ inline_data: { mime_type: effectiveMimeType, data: base64 } }],
-    userText:      captionGuide,
+  // Call Claude Haiku with prompt caching on the large system prompt.
+  // The ~4,500-token FINGERPRINT_SCHEMA_PROMPT is cached at $0.10/1M
+  // instead of $1/1M — 90% cheaper on the biggest cost driver.
+  const { text } = await callAnthropic({
+    systemText:      systemPrompt,
+    cacheSystem:     true,           // cache the system prompt
+    userParts: [
+      { inline_data: { mime_type: effectiveMimeType, data: base64 } },
+      { text: captionGuide }
+    ],
     maxOutputTokens: 1200,
-    onRetryWait:   onRetryWait
+    onRetryWait
   });
 
   const fp = parseJsonLoose(text);
-  if (!fp) throw new Error('Gemini returned unparseable JSON for fingerprint extraction');
+  if (!fp) throw new Error('Claude returned unparseable JSON for fingerprint extraction');
 
-  // ── Free caption ref extraction (zero API cost) ──
-  // Catches "Ref: 126300" or "126300. Brand new..." patterns before any
-  // paid lookup. If found, mark as 'stated' (authoritative, no lookup needed).
+  // Free caption ref extraction (zero API cost)
   if (!fp.reference_number && caption){
     const capRef = extractRefFromCaptionText(caption);
     if (capRef && isValidRef(fp.brand, capRef)){
@@ -4760,12 +4771,7 @@ Condition: bn/uw/lnib=New/Unworn | used=Pre-owned` : 'No caption provided. Rely 
     }
   }
 
-  // ── Cross-validate claimed 'stated'/'visible' refs ──
-  // Gemini (like Claude) sometimes marks a visually-guessed ref as 'stated'
-  // even when it does not appear in the actual message text. Catch this by
-  // checking whether the ref digits are actually present in fp.message_text
-  // or the typed caption. If not, downgrade to 'inferred' so the visual
-  // lookup triggers.
+  // Cross-validate claimed 'stated'/'visible' refs against actual message text
   if (allowLookup && fp.reference_number &&
       (fp.reference_number_source === 'stated' || fp.reference_number_source === 'visible')){
     const numericPart = fp.reference_number.replace(/[^0-9]/g, '').slice(0, 6);
@@ -4776,11 +4782,11 @@ Condition: bn/uw/lnib=New/Unworn | used=Pre-owned` : 'No caption provided. Rely 
     if (!inMsg && !inCaption){
       fp.reference_number_source = 'inferred';
       fp.confidence_notes = ((fp.confidence_notes || '') +
-        ' Source downgraded: ref digits not found in message text \u2014 visual guess, needs lookup.').trim();
+        ' Source downgraded: ref digits not found in message text — visual guess, needs lookup.').trim();
     }
   }
 
-  // ── Validate and normalise ref ──
+  // Validate and normalise ref
   if (fp.reference_number){
     const ref = fp.reference_number.trim();
     if (!isValidRef(fp.brand, ref)){
@@ -4793,44 +4799,37 @@ Condition: bn/uw/lnib=New/Unworn | used=Pre-owned` : 'No caption provided. Rely 
     }
   }
 
-  // ── Determine if visual lookup is needed ──
-  // Only for demand items (stock captions already have accurate data).
-  // Triggers when: no ref found, OR ref is an untrusted visual guess.
+  // Visual lookup for demand items with untrusted/missing ref
   const refIsUntrusted = fp.reference_number &&
     fp.reference_number_source !== 'stated' &&
     fp.reference_number_source !== 'looked_up';
 
   if (allowLookup && (!fp.reference_number || refIsUntrusted)){
-    // Save the guess before clearing, so lookup gets the hint
     const visualGuessRef   = refIsUntrusted ? fp.reference_number : null;
     const visualGuessModel = refIsUntrusted ? fp.model_line       : null;
     if (refIsUntrusted){
       fp.reference_number        = null;
       fp.reference_number_source = null;
-      fp.model_line              = null; // don't anchor the search to a wrong model
+      fp.model_line              = null;
     }
 
-    // ── SerpAPI Google Lens visual search (primary, free tier) ──
+    // SerpAPI Google Lens (primary — free tier)
     let lookup = null;
-    if (base64 && getSerpAPIKey()){
+    if (base64 && getSerpAPIKey() && getImgbbKey()){
       try{
         if (onLookupAttempt) onLookupAttempt(1, 1);
         lookup = await lookupRefWithGoogleLens(fp, base64, effectiveMimeType, caption, visualGuessRef, visualGuessModel);
       }catch(lensErr){
         const errMsg = lensErr.message || String(lensErr);
         console.warn('SerpAPI Google Lens failed:', errMsg);
-        // Make error visible in Lookup Details section of card
         fp.confidence_notes = ((fp.confidence_notes || '') +
           ` | SerpAPI failed: ${errMsg.slice(0, 150)}`).trim();
-        lookup = null;
       }
     }
 
-    // ── If SerpAPI found nothing: flag for MANUAL web search ──
-    // NO automatic Claude web search fallback \u2014 that was costing $8-9/month
-    // for 4k demand items. User clicks "Search Web" on the card instead.
+    // If SerpAPI found nothing — flag for manual web search button
     if (!lookup || !lookup.reference_number){
-      fp.needs_manual_lookup = true; // signals the card to show the Search Web button
+      fp.needs_manual_lookup = true;
     } else {
       fp.reference_number        = lookup.reference_number        || null;
       fp.reference_number_source = lookup.reference_number_source || null;
@@ -5059,10 +5058,9 @@ async function analyzeBatch(items, kind, renderFn, opts){
 
   let done = 0;
   const total = toProcess.length;
-  // Gemini free tier: 60 RPM. CONCURRENCY must be 1 — with 2 workers
-  // both can pass the rate-limit check before either updates the timestamp,
-  // causing two simultaneous calls that hit the limit. Sequential is safer.
-  const CONCURRENCY = 1;
+  // Claude Haiku has no meaningful rate limits at this volume.
+  // CONCURRENCY=4 processes 4 images in parallel — fast batch processing.
+  const CONCURRENCY = 4;
   let idx = 0;
   let rateLimitNotice = '';
 
