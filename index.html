@@ -5744,19 +5744,23 @@ function extractRefFromCaptionText(text){
   if (!text) return null;
 
   // Pattern 1: explicit label — "Ref: 126718grnr", "Reference #126234"
+  // Also catches Patek slash-format: "Ref: 7118/1200A-001"
   const labeled = text.match(/\bref(?:erence)?\.?:?\s*#?\s*([A-Za-z0-9][A-Za-z0-9\/\-\.]{3,25})/i);
   if (labeled){
     const candidate = labeled[1].trim().replace(/[.,;:]+$/, '');
     if (/\d/.test(candidate)) return candidate;
   }
 
-  // Pattern 2: no label at all — dealer just opens with the bare ref number,
-  // e.g. "126300. Brand new 2026. 41k aed". Very common shorthand. Take the
-  // first token of the caption and check it's ref-shaped (digits + optional
-  // letters, not a bare year like "2026" and not a price like "41k").
+  // Pattern 2: Patek-style slash ref at the start of text (no label),
+  // e.g. "7118/1200R Champagne 2026 132k USD" or "5711/1A-010 New full set"
+  const patekSlash = text.trim().match(/^(\d{4}\/\d{1,4}[A-Za-z]{0,2}(-\d{2,3})?)\b/);
+  if (patekSlash) return patekSlash[1];
+
+  // Pattern 3: bare ref number at start, no label, no slash
+  // e.g. "126300. Brand new 2026. 41k aed"
   const firstToken = text.trim().split(/[\s.,]/)[0];
   if (firstToken && /^\d{4,6}[A-Za-z]{0,8}$/.test(firstToken)){
-    const isBareYear = /^20[0-3]\d$/.test(firstToken); // reject 2000-2039 read as a ref
+    const isBareYear = /^20[0-3]\d$/.test(firstToken);
     if (!isBareYear) return firstToken;
   }
 
