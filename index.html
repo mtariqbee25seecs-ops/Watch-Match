@@ -2574,6 +2574,11 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
     <input type="password" id="geminiKeyInput" class="card-caption-input" placeholder="Paste your Gemini API key" autocomplete="off" spellcheck="false">
 
     <p class="settings-copy" style="margin-top:16px;">
+      <strong>imgbb API key</strong> &mdash; Used to host watch images temporarily (10 min auto-delete) so SerpAPI can fetch them for Google Lens search. Free at <strong>imgbb.com/api</strong> \u2014 click "Get API key", sign up, done. No credit card needed.
+    </p>
+    <input type="password" id="imgbbKeyInput" class="card-caption-input" placeholder="Paste your imgbb API key" autocomplete="off" spellcheck="false">
+
+    <p class="settings-copy" style="margin-top:16px;">
       <strong>SerpAPI key</strong> &mdash; Used for Google Lens visual search on demand watches with no ref in the message. Finds the correct watch variant from the photo directly (much more accurate than text search). Get a key at <strong>serpapi.com</strong> &mdash; free plan includes 250 searches/month, Developer plan is $50/month for 5,000 searches ($0.01 each). Leave blank to skip visual search and use Claude web search only.
     </p>
     <input type="password" id="serpaKeyInput" class="card-caption-input" placeholder="Paste your SerpAPI key" autocomplete="off" spellcheck="false">
@@ -6902,6 +6907,7 @@ function init(){
   function openSettingsModal(){
     document.getElementById('apiKeyInput').value = getApiKey();
   document.getElementById('serpaKeyInput').value = getSerpAPIKey();
+  document.getElementById('imgbbKeyInput').value = getImgbbKey();
   document.getElementById('geminiKeyInput').value = getGeminiKey();
     
     document.getElementById('firebaseConfigInput').value = getFirebaseConfigRaw();
@@ -6917,6 +6923,8 @@ function init(){
     const key = document.getElementById('apiKeyInput').value.trim();
     const serpaKey = document.getElementById('serpaKeyInput').value.trim();
     if (serpaKey) setSerpAPIKey(serpaKey);
+    const imgbbKey = document.getElementById('imgbbKeyInput').value.trim();
+    if (imgbbKey) setImgbbKey(imgbbKey);
     const geminiKey = document.getElementById('geminiKeyInput').value.trim();
     if (geminiKey) setGeminiKey(geminiKey);
     
