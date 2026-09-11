@@ -2574,9 +2574,9 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
     <input type="password" id="openaiKeyInput" class="card-caption-input" placeholder="Paste your OpenAI API key (sk-...)" autocomplete="off" spellcheck="false">
 
     <p class="settings-copy" style="margin-top:16px;">
-      <strong>Gemini API key</strong> &mdash; Not currently used. Extraction now runs on Claude Haiku with prompt caching (~$14/month). Leave blank.
+      <strong>Gemini API key</strong> &mdash; Primary extraction model. Gemini 2.5 Flash-Lite paid: $0.10/1M input, $0.40/1M output = ~$2.46/month for 4,500 images. Works directly from browser (no CORS issues). Get key at <strong>aistudio.google.com</strong> &rarr; Get API key (free key works but has rate limits; for paid add billing at console.cloud.google.com).
     </p>
-    <input type="password" id="geminiKeyInput" class="card-caption-input" placeholder="Not used — leave blank" autocomplete="off" spellcheck="false" style="opacity:0.4;">
+    <input type="password" id="geminiKeyInput" class="card-caption-input" placeholder="Paste your Gemini API key" autocomplete="off" spellcheck="false">
 
     <p class="settings-copy" style="margin-top:16px;">
       <strong>Google Cloud Vision keys (up to 4)</strong> &mdash; Each free Google Cloud account gives 1,000 visual lookups/month. With 4 accounts = 4,000/month — covers ALL demand watches at $0. Auto-rotates when one hits its limit. Get keys: Google Cloud Console &rarr; Enable Vision API &rarr; Credentials &rarr; Create API key. Use 4 different Google accounts.
@@ -3376,7 +3376,7 @@ function setGeminiKey(key){
 // Gemini 2.0 Flash — free tier, 1500 req/day, 60 RPM
 // Used for ALL extraction (stock + demand). Zero cost within free tier at
 // ~150 images/day average. 90% cheaper than Claude Haiku for this task.
-const GEMINI_MODEL = 'gemini-3.5-flash-lite'; // cheapest GA model: $0.30/$2.50 per 1M tokens, free tier available
+const GEMINI_MODEL = 'gemini-2.5-flash-lite'; // paid tier: $0.10/$0.40 per 1M, no rate limits, CORS works // cheapest GA model: $0.30/$2.50 per 1M tokens, free tier available
 const GEMINI_URL   = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 let _geminiLastCall = 0; // rate-limit enforcement: 60 RPM = 1/sec
 
@@ -5103,14 +5103,33 @@ Condition: bn/uw/lnib=New/Unworn | used=Pre-owned` : 'No caption provided. Rely 
 
   // Use GPT-4o-mini if key is set (10x cheaper input tokens).
   // Fall back to Claude Haiku with caching if no OpenAI key.
+  // Gemini 2.5 Flash-Lite paid tier — works from browser (CORS supported),
+  // no rate limit issues on paid, $0.10/$0.40 per 1M tokens = ~$2.46/month.
+  // OpenAI was tried but CORS blocks direct browser requests from static sites.
+  // Claude is kept as fallback since it also supports browser access.
   let extractResult;
-  if (getOpenAIKey()){
-    extractResult = await callOpenAI({
-      systemText:      systemPrompt,
-      imageParts:      [{ inline_data: { mime_type: effectiveMimeType, data: base64 } }],
-      userText,
-      maxOutputTokens: 1200
-    });
+  if (getGeminiKey()){
+    try{
+      extractResult = await callGemini({
+        systemText:      systemPrompt,
+        imageParts:      [{ inline_data: { mime_type: effectiveMimeType, data: base64 } }],
+        userText,
+        maxOutputTokens: 1200,
+        onRetryWait
+      });
+    }catch(geminiErr){
+      console.warn('Gemini failed, falling back to Claude:', geminiErr.message);
+      extractResult = await callAnthropic({
+        systemText:  systemPrompt,
+        cacheSystem: true,
+        userParts:   [
+          { inline_data: { mime_type: effectiveMimeType, data: base64 } },
+          { text: userText }
+        ],
+        maxOutputTokens: 1200,
+        onRetryWait
+      });
+    }
   } else {
     extractResult = await callAnthropic({
       systemText:  systemPrompt,
