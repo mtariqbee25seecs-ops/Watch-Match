@@ -2579,9 +2579,11 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
     <input type="password" id="imgbbKeyInput" class="card-caption-input" placeholder="Paste your imgbb API key" autocomplete="off" spellcheck="false">
 
     <p class="settings-copy" style="margin-top:16px;">
-      <strong>SerpAPI key</strong> &mdash; Used for Google Lens visual search on demand watches with no ref in the message. Finds the correct watch variant from the photo directly (much more accurate than text search). Get a key at <strong>serpapi.com</strong> &mdash; free plan includes 250 searches/month, Developer plan is $50/month for 5,000 searches ($0.01 each). Leave blank to skip visual search and use Claude web search only.
+      <strong>SerpAPI keys (up to 3)</strong> &mdash; Each free account gives 250 searches/month. With 3 accounts = 750 free searches/month, covering ~600 demand lookups. When one key hits its limit the app automatically switches to the next. Get free keys at <strong>serpapi.com</strong>.
     </p>
-    <input type="password" id="serpaKeyInput" class="card-caption-input" placeholder="Paste your SerpAPI key" autocomplete="off" spellcheck="false">
+    <input type="password" id="serpaKeyInput1" class="card-caption-input" placeholder="SerpAPI key 1 (primary)" autocomplete="off" spellcheck="false" style="margin-bottom:6px;">
+    <input type="password" id="serpaKeyInput2" class="card-caption-input" placeholder="SerpAPI key 2 (fallback)" autocomplete="off" spellcheck="false" style="margin-bottom:6px;">
+    <input type="password" id="serpaKeyInput3" class="card-caption-input" placeholder="SerpAPI key 3 (fallback)" autocomplete="off" spellcheck="false">
 
     
 
@@ -3033,11 +3035,37 @@ const localStore = {
   }
 };
 
-function getSerpAPIKey(){
-  try{ return window.localStorage.getItem('sm:serpa-key') || ''; }catch(e){ return ''; }
+// ── SerpAPI key rotation pool ──
+// Supports up to 3 keys (3 free accounts = 750 searches/month total).
+// When a key hits its monthly limit (returns 429 or "limit exceeded"),
+// the system automatically switches to the next key in the pool.
+// Index is persisted so it doesn't reset on page reload.
+function getSerpAPIKeys(){
+  try{
+    return [
+      window.localStorage.getItem('sm:serpa-key-1') || '',
+      window.localStorage.getItem('sm:serpa-key-2') || '',
+      window.localStorage.getItem('sm:serpa-key-3') || ''
+    ].filter(k => k.trim());
+  }catch(e){ return []; }
 }
-function setSerpAPIKey(key){
-  try{ window.localStorage.setItem('sm:serpa-key', key.trim()); }catch(e){}
+function setSerpAPIKey(index, key){
+  try{ window.localStorage.setItem(`sm:serpa-key-${index}`, key.trim()); }catch(e){}
+}
+function getSerpAPIKeyIndex(){
+  try{ return parseInt(window.localStorage.getItem('sm:serpa-key-index') || '0'); }catch(e){ return 0; }
+}
+function advanceSerpAPIKey(){
+  const keys = getSerpAPIKeys();
+  const next = (getSerpAPIKeyIndex() + 1) % keys.length;
+  try{ window.localStorage.setItem('sm:serpa-key-index', String(next)); }catch(e){}
+  return keys[next] || null;
+}
+// Legacy single-key getter — returns currently active key
+function getSerpAPIKey(){
+  const keys = getSerpAPIKeys();
+  if (!keys.length) return '';
+  return keys[getSerpAPIKeyIndex() % keys.length] || '';
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -3119,23 +3147,39 @@ async function uploadToImgbb(base64Image, mimeType){
   return url;
 }
 
-async function callSerpAPIGoogleLens(base64Image, mimeType){
-  const serpKey = getSerpAPIKey();
-  if (!serpKey) throw new Error('No SerpAPI key \u2014 add it in Settings');
+async function callSerpAPIGoogleLens(base64Image, mimeType, _attempt){
+  _attempt = _attempt || 1;
+  const keys = getSerpAPIKeys();
+  if (!keys.length) throw new Error('No SerpAPI keys \u2014 add up to 3 in Settings');
 
-  // Step 1: Upload to imgbb to get a public URL (browser-friendly, no CORS proxy)
+  const serpKey = getSerpAPIKey();
+  if (!serpKey) throw new Error('All SerpAPI keys exhausted or empty');
+
+  // Upload to imgbb to get a public URL (browser-friendly, no CORS proxy)
   const imageUrl = await uploadToImgbb(base64Image, mimeType);
 
-  // Step 2: Google Lens search using the public URL (direct GET to SerpAPI)
+  // Google Lens search using the public URL (direct GET)
   const searchUrl = `https://serpapi.com/search.json?engine=google_lens&url=${encodeURIComponent(imageUrl)}&type=products&api_key=${serpKey}`;
-  // 12-second timeout — if SerpAPI doesn't respond, skip visual search
   const res = await fetchWithTimeout(searchUrl, {}, 12000);
+
   if (!res.ok){
-    const err = await res.text().catch(() => String(res.status));
-    throw new Error(`SerpAPI Lens search failed (${res.status}): ${err.slice(0, 200)}`);
+    const errText = await res.text().catch(() => '');
+    const isLimit = res.status === 429 ||
+      errText.toLowerCase().includes('limit') ||
+      errText.toLowerCase().includes('quota') ||
+      errText.toLowerCase().includes('rate');
+
+    if (isLimit && _attempt < keys.length){
+      // Key hit its monthly limit — rotate to next and retry automatically
+      console.warn(`SerpAPI key ${getSerpAPIKeyIndex() + 1}/${keys.length} hit limit \u2014 switching to next key`);
+      advanceSerpAPIKey();
+      return callSerpAPIGoogleLens(base64Image, mimeType, _attempt + 1);
+    }
+    throw new Error(`SerpAPI search failed (${res.status}): ${errText.slice(0, 200)}`);
   }
   return res.json();
 }
+
 
 async function lookupRefWithGoogleLens(fp, base64Image, mimeType, caption, visualGuessRef, visualGuessModel){
   const results = await callSerpAPIGoogleLens(base64Image, mimeType);
@@ -6945,7 +6989,9 @@ function init(){
   document.getElementById('lightboxOverlay').onclick = (e) => { if (e.target.id === 'lightboxOverlay') e.target.classList.remove('open'); };
   function openSettingsModal(){
     document.getElementById('apiKeyInput').value = getApiKey();
-  document.getElementById('serpaKeyInput').value = getSerpAPIKey();
+  document.getElementById('serpaKeyInput1').value = window.localStorage.getItem('sm:serpa-key-1') || '';
+  document.getElementById('serpaKeyInput2').value = window.localStorage.getItem('sm:serpa-key-2') || '';
+  document.getElementById('serpaKeyInput3').value = window.localStorage.getItem('sm:serpa-key-3') || '';
   document.getElementById('imgbbKeyInput').value = getImgbbKey();
   document.getElementById('geminiKeyInput').value = getGeminiKey();
     
@@ -6960,8 +7006,12 @@ function init(){
   document.getElementById('settingsModalCancel').onclick = () => { document.getElementById('settingsModalOverlay').classList.remove('open'); };
   document.getElementById('settingsModalSave').onclick = () => {
     const key = document.getElementById('apiKeyInput').value.trim();
-    const serpaKey = document.getElementById('serpaKeyInput').value.trim();
-    if (serpaKey) setSerpAPIKey(serpaKey);
+    const sk1 = document.getElementById('serpaKeyInput1').value.trim();
+    const sk2 = document.getElementById('serpaKeyInput2').value.trim();
+    const sk3 = document.getElementById('serpaKeyInput3').value.trim();
+    if (sk1) setSerpAPIKey(1, sk1);
+    if (sk2) setSerpAPIKey(2, sk2);
+    if (sk3) setSerpAPIKey(3, sk3);
     const imgbbKey = document.getElementById('imgbbKeyInput').value.trim();
     if (imgbbKey) setImgbbKey(imgbbKey);
     const geminiKey = document.getElementById('geminiKeyInput').value.trim();
