@@ -3059,6 +3059,22 @@ function setImgbbKey(key){
 // Upload image to imgbb.com (free, browser-friendly, no CORS issues)
 // Returns a public URL that SerpAPI can fetch directly \u2014 eliminates the
 // need for any CORS proxy entirely.
+// Wraps a fetch call with a hard timeout. Returns the response if it
+// arrives within ms milliseconds, otherwise throws 'TIMEOUT'.
+async function fetchWithTimeout(url, opts, ms){
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try{
+    const res = await fetch(url, { ...opts, signal: controller.signal });
+    clearTimeout(timer);
+    return res;
+  }catch(e){
+    clearTimeout(timer);
+    if (e.name === 'AbortError') throw new Error('TIMEOUT');
+    throw e;
+  }
+}
+
 async function uploadToImgbb(base64Image, mimeType){
   const key = getImgbbKey();
   if (!key) throw new Error('No imgbb API key \u2014 add it in Settings (free at imgbb.com/api)');
@@ -3087,9 +3103,12 @@ async function uploadToImgbb(base64Image, mimeType){
   form.append('image', uploadBase64);
   form.append('expiration', '600'); // auto-delete after 10 minutes
 
-  const res = await fetch(`https://api.imgbb.com/1/upload?key=${encodeURIComponent(key)}`, {
-    method: 'POST', body: form
-  });
+  // 12-second timeout — if imgbb doesn't respond, skip visual search
+  const res = await fetchWithTimeout(
+    `https://api.imgbb.com/1/upload?key=${encodeURIComponent(key)}`,
+    { method: 'POST', body: form },
+    12000
+  );
   if (!res.ok){
     const err = await res.text().catch(() => String(res.status));
     throw new Error(`imgbb upload failed (${res.status}): ${err.slice(0, 200)}`);
@@ -3109,7 +3128,8 @@ async function callSerpAPIGoogleLens(base64Image, mimeType){
 
   // Step 2: Google Lens search using the public URL (direct GET to SerpAPI)
   const searchUrl = `https://serpapi.com/search.json?engine=google_lens&url=${encodeURIComponent(imageUrl)}&type=products&api_key=${serpKey}`;
-  const res = await fetch(searchUrl);
+  // 12-second timeout — if SerpAPI doesn't respond, skip visual search
+  const res = await fetchWithTimeout(searchUrl, {}, 12000);
   if (!res.ok){
     const err = await res.text().catch(() => String(res.status));
     throw new Error(`SerpAPI Lens search failed (${res.status}): ${err.slice(0, 200)}`);
@@ -4821,9 +4841,10 @@ Condition: bn/uw/lnib=New/Unworn | used=Pre-owned` : 'No caption provided. Rely 
         lookup = await lookupRefWithGoogleLens(fp, base64, effectiveMimeType, caption, visualGuessRef, visualGuessModel);
       }catch(lensErr){
         const errMsg = lensErr.message || String(lensErr);
-        console.warn('SerpAPI Google Lens failed:', errMsg);
+        const isTimeout = errMsg === 'TIMEOUT';
+        console.warn(isTimeout ? 'SerpAPI timed out (>12s) — skipping' : 'SerpAPI failed: ' + errMsg);
         fp.confidence_notes = ((fp.confidence_notes || '') +
-          ` | SerpAPI failed: ${errMsg.slice(0, 150)}`).trim();
+          ` | ${isTimeout ? 'Visual search timed out — click Search Web to retry' : 'SerpAPI: ' + errMsg.slice(0, 100)}`).trim();
       }
     }
 
@@ -5059,8 +5080,9 @@ async function analyzeBatch(items, kind, renderFn, opts){
   let done = 0;
   const total = toProcess.length;
   // Claude Haiku has no meaningful rate limits at this volume.
-  // CONCURRENCY=4 processes 4 images in parallel — fast batch processing.
-  const CONCURRENCY = 4;
+  // CONCURRENCY=6: 6 images process in parallel. Each Claude call takes
+  // ~3-5s and SerpAPI calls timeout after 12s max, so throughput is fast.
+  const CONCURRENCY = 6;
   let idx = 0;
   let rateLimitNotice = '';
 
