@@ -2569,14 +2569,22 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
     <input type="password" id="apiKeyInput" class="card-caption-input" placeholder="Paste your Anthropic API key" autocomplete="off" spellcheck="false">
 
     <p class="settings-copy" style="margin-top:16px;">
+      <strong>OpenAI API key</strong> &mdash; Primary API for everything: image extraction, text parsing, visual matching. GPT-4o-mini is 10x cheaper than Claude. Total cost ~$3.94/month for 4,500 images. Get a key at <strong>platform.openai.com/api-keys</strong>. If left blank, Claude Haiku is used as fallback for all tasks.
+    </p>
+    <input type="password" id="openaiKeyInput" class="card-caption-input" placeholder="Paste your OpenAI API key (sk-...)" autocomplete="off" spellcheck="false">
+
+    <p class="settings-copy" style="margin-top:16px;">
       <strong>Gemini API key</strong> &mdash; Not currently used. Extraction now runs on Claude Haiku with prompt caching (~$14/month). Leave blank.
     </p>
     <input type="password" id="geminiKeyInput" class="card-caption-input" placeholder="Not used — leave blank" autocomplete="off" spellcheck="false" style="opacity:0.4;">
 
     <p class="settings-copy" style="margin-top:16px;">
-      <strong>Google Cloud Vision API key</strong> &mdash; Used for visual watch identification on demand items with no ref in message. Accepts images directly (no hosting needed). <strong>First 1,000 lookups/month free</strong> — covers your full volume at $0. Get a key: Google Cloud Console &rarr; Enable Vision API &rarr; Credentials &rarr; Create API key.
+      <strong>Google Cloud Vision keys (up to 4)</strong> &mdash; Each free Google Cloud account gives 1,000 visual lookups/month. With 4 accounts = 4,000/month — covers ALL demand watches at $0. Auto-rotates when one hits its limit. Get keys: Google Cloud Console &rarr; Enable Vision API &rarr; Credentials &rarr; Create API key. Use 4 different Google accounts.
     </p>
-    <input type="password" id="gvisionKeyInput" class="card-caption-input" placeholder="Paste your Google Vision API key" autocomplete="off" spellcheck="false">
+    <input type="password" id="gvisionKeyInput1" class="card-caption-input" placeholder="Google Vision key 1 (primary)" autocomplete="off" spellcheck="false" style="margin-bottom:6px;">
+    <input type="password" id="gvisionKeyInput2" class="card-caption-input" placeholder="Google Vision key 2 (fallback)" autocomplete="off" spellcheck="false" style="margin-bottom:6px;">
+    <input type="password" id="gvisionKeyInput3" class="card-caption-input" placeholder="Google Vision key 3 (fallback)" autocomplete="off" spellcheck="false" style="margin-bottom:6px;">
+    <input type="password" id="gvisionKeyInput4" class="card-caption-input" placeholder="Google Vision key 4 (fallback)" autocomplete="off" spellcheck="false">
 
     <p class="settings-copy" style="margin-top:16px;">
       <strong>imgbb API key</strong> &mdash; Used to host watch images temporarily (10 min auto-delete) so SerpAPI can fetch them for Google Lens search. Free at <strong>imgbb.com/api</strong> \u2014 click "Get API key", sign up, done. No credit card needed.
@@ -3082,11 +3090,37 @@ function getSerpAPIKey(){
 // Only called for demand items with no confirmed ref in text.
 // ════════════════════════════════════════════════════════════════
 
-function getGoogleVisionKey(){
-  try{ return window.localStorage.getItem('sm:gvision-key') || ''; }catch(e){ return ''; }
+// ── Google Vision key rotation pool (up to 4 keys) ──
+// Each free account = 1,000 searches/month.
+// 4 accounts = 4,000/month → covers ALL demand watches at zero cost.
+// Auto-rotates to next key when one hits its quota limit.
+function getGoogleVisionKeys(){
+  try{
+    return [
+      window.localStorage.getItem('sm:gvision-key-1') || '',
+      window.localStorage.getItem('sm:gvision-key-2') || '',
+      window.localStorage.getItem('sm:gvision-key-3') || '',
+      window.localStorage.getItem('sm:gvision-key-4') || ''
+    ].filter(k => k.trim());
+  }catch(e){ return []; }
 }
-function setGoogleVisionKey(key){
-  try{ window.localStorage.setItem('sm:gvision-key', key.trim()); }catch(e){}
+function setGoogleVisionKey(index, key){
+  try{ window.localStorage.setItem(`sm:gvision-key-${index}`, key.trim()); }catch(e){}
+}
+function getGoogleVisionKeyIndex(){
+  try{ return parseInt(window.localStorage.getItem('sm:gvision-key-index') || '0'); }catch(e){ return 0; }
+}
+function advanceGoogleVisionKey(){
+  const keys = getGoogleVisionKeys();
+  const next = (getGoogleVisionKeyIndex() + 1) % keys.length;
+  try{ window.localStorage.setItem('sm:gvision-key-index', String(next)); }catch(e){}
+  return keys[next] || null;
+}
+// Legacy single-key getter — returns currently active key
+function getGoogleVisionKey(){
+  const keys = getGoogleVisionKeys();
+  if (!keys.length) return '';
+  return keys[getGoogleVisionKeyIndex() % keys.length] || '';
 }
 
 // Google Cloud Vision Web Detection — finds visually similar watch images
@@ -3117,6 +3151,18 @@ async function callGoogleVisionWebDetection(base64Image, mimeType){
 
   if (!res.ok){
     const err = await res.text().catch(() => String(res.status));
+    const isQuota = res.status === 429 ||
+      err.includes('RESOURCE_EXHAUSTED') ||
+      err.includes('rateLimitExceeded') ||
+      err.includes('quota');
+
+    const keys = getGoogleVisionKeys();
+    if (isQuota && keys.length > 1){
+      // This key hit its monthly 1,000 limit — rotate to next key
+      console.warn(`Google Vision key ${getGoogleVisionKeyIndex() + 1}/${keys.length} quota exceeded, rotating`);
+      advanceGoogleVisionKey();
+      return callGoogleVisionWebDetection(base64Image, mimeType); // retry with new key
+    }
     throw new Error(`Google Vision failed (${res.status}): ${err.slice(0, 200)}`);
   }
 
@@ -3155,11 +3201,10 @@ Find the most likely reference number from these results. Return ONLY this JSON:
 
 If no clear reference is identifiable, return {"reference_number":null}.`;
 
-  const { text } = await callAnthropic({
-    systemText: 'Extract watch reference numbers from Google Vision results. Return valid JSON only, no markdown.',
-    userParts:  [{ text: prompt }],
-    maxOutputTokens: 200
-  });
+  const parseResult = getOpenAIKey()
+    ? await callOpenAI({ systemText: 'Extract watch reference numbers from Google Vision results. Return valid JSON only, no markdown.', userText: prompt, maxOutputTokens: 200 })
+    : await callAnthropic({ systemText: 'Extract watch reference numbers from Google Vision results. Return valid JSON only, no markdown.', userParts: [{ text: prompt }], maxOutputTokens: 200 });
+  const { text } = parseResult;
 
   const parsed = parseJsonLoose(text);
   if (!parsed || !parsed.reference_number) return null;
@@ -3303,11 +3348,10 @@ Look at the most frequently mentioned or most specific reference number in the r
 
 If no clear reference is identifiable, return {"reference_number":null}.`;
 
-  const { text } = await callAnthropic({
-    systemText: 'Extract watch reference numbers from Google Lens results. Return valid JSON only, no markdown.',
-    userParts: [{ text: prompt }],
-    maxOutputTokens: 200
-  });
+  const parseResult2 = getOpenAIKey()
+    ? await callOpenAI({ systemText: 'Extract watch reference numbers from Google Lens results. Return valid JSON only, no markdown.', userText: prompt, maxOutputTokens: 200 })
+    : await callAnthropic({ systemText: 'Extract watch reference numbers from Google Lens results. Return valid JSON only, no markdown.', userParts: [{ text: prompt }], maxOutputTokens: 200 });
+  const { text } = parseResult2;
 
   const parsed = parseJsonLoose(text);
   if (!parsed || !parsed.reference_number) return null;
@@ -3410,6 +3454,137 @@ async function callGemini({ systemText, imageParts, userText, maxOutputTokens, o
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error('Gemini returned no text content');
   return { text };
+}
+
+function getOpenAIKey(){
+  try{ return window.localStorage.getItem('sm:openai-key') || ''; }catch(e){ return ''; }
+}
+function setOpenAIKey(key){
+  try{ window.localStorage.setItem('sm:openai-key', key.trim()); }catch(e){}
+}
+
+// GPT-4o-mini — vision extraction
+// $0.15/1M input, $0.60/1M output — 6x cheaper than Claude Haiku input
+// Prompt caching: $0.075/1M (50% off) for cached portions
+// No rate limits at this volume. Fast response times.
+async function callOpenAI({ systemText, imageParts, userText, maxOutputTokens }, attempt = 1){
+  const key = getOpenAIKey();
+  if (!key) throw new Error('No OpenAI key \u2014 add it in Settings');
+
+  const messages = [];
+  if (systemText) messages.push({ role: 'system', content: systemText });
+
+  const userContent = [];
+  (imageParts || []).forEach(p => {
+    if (p.inline_data){
+      userContent.push({ type: 'image_url', image_url: {
+        url: `data:${p.inline_data.mime_type};base64,${p.inline_data.data}`,
+        detail: 'auto'  // 'auto' = GPT picks resolution. Reads small text (ref numbers,
+                        // WhatsApp captions, certificate text) accurately like Claude does.
+                        // Low was 85 tokens flat but missed small text. Auto uses ~300-600
+                        // tokens depending on image size — still far cheaper than Claude.
+      }});
+    }
+  });
+  if (userText) userContent.push({ type: 'text', text: userText });
+  messages.push({ role: 'user', content: userContent });
+
+  let response;
+  try{
+    response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${key}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages,
+        max_tokens: maxOutputTokens || 1200,
+        response_format: { type: 'json_object' }  // enforces JSON output
+      })
+    });
+  }catch(networkErr){
+    if (attempt <= 3) return callOpenAI({ systemText, imageParts, userText, maxOutputTokens }, attempt+1);
+    throw new Error('OpenAI network error: ' + (networkErr.message || 'connection failed'));
+  }
+
+  if (!response.ok){
+    let errJson = null;
+    try{ errJson = await response.json(); }catch(e){}
+    const detail = errJson?.error?.message || '';
+    const isRateLimit = response.status === 429;
+    if ((isRateLimit || [500,502,503].includes(response.status)) && attempt <= 3){
+      await new Promise(r => setTimeout(r, attempt * 3000));
+      return callOpenAI({ systemText, imageParts, userText, maxOutputTokens }, attempt+1);
+    }
+    throw new Error('OpenAI error ' + response.status + (detail ? ': ' + detail.slice(0,200) : ''));
+  }
+
+  const data = await response.json();
+  const text = data?.choices?.[0]?.message?.content;
+  if (!text) throw new Error('OpenAI returned no content');
+  return { text };
+}
+
+// GPT-4o-mini with web search — fallback when Google Vision hits its limit.
+// Sends the watch image + asks GPT to identify it AND search the web
+// for confirmation. Uses the same OpenAI key, no new API needed.
+// Cost: standard GPT-4o-mini token rate + $10/1000 web searches (~$0.01/call)
+async function callOpenAIWithWebSearch({ systemText, imageParts, userText, maxOutputTokens }, attempt = 1){
+  const key = getOpenAIKey();
+  if (!key) throw new Error('No OpenAI key \u2014 add it in Settings');
+
+  const messages = [];
+  if (systemText) messages.push({ role: 'system', content: systemText });
+
+  const userContent = [];
+  (imageParts || []).forEach(p => {
+    if (p.inline_data){
+      userContent.push({ type: 'image_url', image_url: {
+        url: `data:${p.inline_data.mime_type};base64,${p.inline_data.data}`,
+        detail: 'auto'
+      }});
+    }
+  });
+  if (userText) userContent.push({ type: 'text', text: userText });
+  messages.push({ role: 'user', content: userContent });
+
+  let response;
+  try{
+    response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages,
+        max_tokens: maxOutputTokens || 1200,
+        tools: [{ type: 'web_search_preview' }],  // enables web search
+        tool_choice: 'auto',
+        response_format: { type: 'json_object' }
+      })
+    });
+  }catch(networkErr){
+    if (attempt <= 3) return callOpenAIWithWebSearch({ systemText, imageParts, userText, maxOutputTokens }, attempt+1);
+    throw new Error('OpenAI web search network error: ' + (networkErr.message || 'failed'));
+  }
+
+  if (!response.ok){
+    let errJson = null;
+    try{ errJson = await response.json(); }catch(e){}
+    const detail = errJson?.error?.message || '';
+    if ([429, 500, 502, 503].includes(response.status) && attempt <= 3){
+      await new Promise(r => setTimeout(r, attempt * 3000));
+      return callOpenAIWithWebSearch({ systemText, imageParts, userText, maxOutputTokens }, attempt+1);
+    }
+    throw new Error('OpenAI web search error ' + response.status + (detail ? ': ' + detail.slice(0,200) : ''));
+  }
+
+  const data = await response.json();
+  // Extract final text from the message content (may include tool call results)
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content) throw new Error('OpenAI web search returned no content');
+  return { text: content };
 }
 
 function getApiKey(){
@@ -4901,23 +5076,39 @@ Markers: rom/rn=Roman numerals | arab/an=Arabic numerals | diam/dia=Diamond mark
 Strap: jub=Jubilee | oys=Oyster | pres=President | leath=Leather | rub=Rubber
 Condition: bn/uw/lnib=New/Unworn | used=Pre-owned` : 'No caption provided. Rely on the image alone.';
 
-  // Inject learned correction hints (ML system — zero extra cost)
-  const learnedHints = getLearnedPromptHints();
-  const systemPrompt = FINGERPRINT_SCHEMA_PROMPT + learnedHints;
+  // System prompt is STATIC (FINGERPRINT_SCHEMA_PROMPT only) so prompt
+  // caching works consistently. Learned hints go in the user message instead.
+  const systemPrompt = FINGERPRINT_SCHEMA_PROMPT;
 
   // Call Claude Haiku with prompt caching on the large system prompt.
   // The ~4,500-token FINGERPRINT_SCHEMA_PROMPT is cached at $0.10/1M
   // instead of $1/1M — 90% cheaper on the biggest cost driver.
-  const { text } = await callAnthropic({
-    systemText:      systemPrompt,
-    cacheSystem:     true,           // cache the system prompt
-    userParts: [
-      { inline_data: { mime_type: effectiveMimeType, data: base64 } },
-      { text: captionGuide }
-    ],
-    maxOutputTokens: 1200,
-    onRetryWait
-  });
+  const learnedHints = getLearnedPromptHints();
+  const userText = captionGuide + (learnedHints ? '\n\n' + learnedHints : '');
+
+  // Use GPT-4o-mini if key is set (10x cheaper input tokens).
+  // Fall back to Claude Haiku with caching if no OpenAI key.
+  let extractResult;
+  if (getOpenAIKey()){
+    extractResult = await callOpenAI({
+      systemText:      systemPrompt,
+      imageParts:      [{ inline_data: { mime_type: effectiveMimeType, data: base64 } }],
+      userText,
+      maxOutputTokens: 1200
+    });
+  } else {
+    extractResult = await callAnthropic({
+      systemText:  systemPrompt,
+      cacheSystem: true,
+      userParts:   [
+        { inline_data: { mime_type: effectiveMimeType, data: base64 } },
+        { text: userText }
+      ],
+      maxOutputTokens: 1200,
+      onRetryWait
+    });
+  }
+  const { text } = extractResult;
 
   const fp = parseJsonLoose(text);
   if (!fp) throw new Error('Claude returned unparseable JSON for fingerprint extraction');
@@ -4994,6 +5185,43 @@ Condition: bn/uw/lnib=New/Unworn | used=Pre-owned` : 'No caption provided. Rely 
             lookup = await lookupRefWithGoogleLens(fp, base64, effectiveMimeType, caption, visualGuessRef, visualGuessModel);
           }catch(e){ console.warn('SerpAPI fallback also failed:', e.message); }
         }
+
+        // Final fallback: GPT-4o-mini with web search — same API already in use,
+        // no new key needed. GPT sees the watch photo AND searches the web.
+        // Triggers when both Vision and SerpAPI are unavailable or exhausted.
+        if (!lookup || !lookup.reference_number){
+          if (getOpenAIKey()){
+            try{
+              const searchPrompt = `Look at this watch image carefully. Search the web to identify the EXACT reference number of this specific watch variant.
+${fp.brand ? 'Brand: ' + fp.brand : ''}${fp.model_line ? ' | Model: ' + fp.model_line : ''}${caption ? '\nDealer caption: ' + caption : ''}
+${visualGuessRef ? 'Initial visual guess (may be wrong): ' + visualGuessRef : ''}
+
+Search for this watch on Chrono24, WatchBase, or the manufacturer site. Return JSON:
+{"reference_number":"EXACT_REF","model_line":"Model","brand":"Brand","confidence":"high|medium|low","reasoning":"brief"}
+If not identifiable, return {"reference_number":null}`;
+
+              const webResult = await callOpenAIWithWebSearch({
+                systemText: 'You are a luxury watch expert. Identify the exact watch reference number by searching online. Return only valid JSON.',
+                imageParts: [{ inline_data: { mime_type: effectiveMimeType, data: base64 } }],
+                userText: searchPrompt,
+                maxOutputTokens: 300
+              });
+              const parsed = parseJsonLoose(webResult.text);
+              if (parsed && parsed.reference_number){
+                lookup = {
+                  reference_number: parsed.reference_number,
+                  reference_number_source: 'looked_up',
+                  model_line: parsed.model_line || fp.model_line || null,
+                  brand: parsed.brand || fp.brand || null,
+                  confidence_notes: `GPT-4o-mini web search fallback. ${parsed.confidence} confidence. ${parsed.reasoning || ''}`,
+                  confirming_source: 'OpenAI web search'
+                };
+              }
+            }catch(webErr){
+              console.warn('OpenAI web search fallback failed:', webErr.message);
+            }
+          }
+        }
       }
     } else if (base64 && getSerpAPIKey() && getImgbbKey()){
       // No Vision key — fall back to SerpAPI directly
@@ -5031,12 +5259,10 @@ async function extractFingerprintFromText(text, onRetryWait, onLookupAttempt){
     .replace('For "message_text": transcribe any visible chat/message text in the screenshot verbatim (price, description, condition notes, seller comments). If there is no visible text, use null.',
       'For "message_text": set this to the original request text verbatim.');
 
-  const { text: responseText } = await callAnthropic({
-    systemText: textSystemPrompt,
-    userParts: [{ text: `Customer request text: "${text}"` }],
-    maxOutputTokens: 1200,
-    onRetryWait
-  });
+  const textFpResult = getOpenAIKey()
+    ? await callOpenAI({ systemText: textSystemPrompt, userText: `Customer request text: "${text}"`, maxOutputTokens: 1200 })
+    : await callAnthropic({ systemText: textSystemPrompt, userParts: [{ text: `Customer request text: "${text}"` }], maxOutputTokens: 1200, onRetryWait });
+  const { text: responseText } = textFpResult;
   const fp = parseJsonLoose(responseText);
 
   if (!fp.reference_number){
@@ -6075,11 +6301,10 @@ async function getAIVisualHints(demandItem, pendingCandidates){
         visualUserParts.push({ text: `CANDIDATE ${cand.label}: ${cand.summary}` });
       });
       visualUserParts.push({ text: demandDataText });
-      const { text } = await callAnthropic({
-        systemText: VISUAL_MATCH_PROMPT,
-        userParts: visualUserParts,
-        maxOutputTokens: 1000
-      });
+      const visualResult = getOpenAIKey()
+        ? await callOpenAI({ systemText: VISUAL_MATCH_PROMPT, imageParts: visualUserParts.filter(p => p.inline_data), userText: visualUserParts.filter(p => p.text).map(p => p.text).join('\n'), maxOutputTokens: 1000 })
+        : await callAnthropic({ systemText: VISUAL_MATCH_PROMPT, userParts: visualUserParts, maxOutputTokens: 1000 });
+      const { text } = visualResult;
       const parsed = parseJsonLoose(text);
       (parsed && parsed.results || []).forEach(r => {
         const cand = candPayload.find(c => c.label === r.candidate);
@@ -7103,8 +7328,12 @@ function init(){
   document.getElementById('serpaKeyInput2').value = window.localStorage.getItem('sm:serpa-key-2') || '';
   document.getElementById('serpaKeyInput3').value = window.localStorage.getItem('sm:serpa-key-3') || '';
   document.getElementById('imgbbKeyInput').value = getImgbbKey();
-  document.getElementById('gvisionKeyInput').value = getGoogleVisionKey();
+  document.getElementById('gvisionKeyInput1').value = window.localStorage.getItem('sm:gvision-key-1') || '';
+  document.getElementById('gvisionKeyInput2').value = window.localStorage.getItem('sm:gvision-key-2') || '';
+  document.getElementById('gvisionKeyInput3').value = window.localStorage.getItem('sm:gvision-key-3') || '';
+  document.getElementById('gvisionKeyInput4').value = window.localStorage.getItem('sm:gvision-key-4') || '';
   document.getElementById('geminiKeyInput').value = getGeminiKey();
+  document.getElementById('openaiKeyInput').value = getOpenAIKey();
     
     document.getElementById('firebaseConfigInput').value = getFirebaseConfigRaw();
     document.getElementById('supabaseUrlInput').value = getSupabaseUrl();
@@ -7125,10 +7354,18 @@ function init(){
     if (sk3) setSerpAPIKey(3, sk3);
     const imgbbKey = document.getElementById('imgbbKeyInput').value.trim();
     if (imgbbKey) setImgbbKey(imgbbKey);
-    const gvisionKey = document.getElementById('gvisionKeyInput').value.trim();
-    if (gvisionKey) setGoogleVisionKey(gvisionKey);
+    const gv1 = document.getElementById('gvisionKeyInput1').value.trim();
+    const gv2 = document.getElementById('gvisionKeyInput2').value.trim();
+    const gv3 = document.getElementById('gvisionKeyInput3').value.trim();
+    const gv4 = document.getElementById('gvisionKeyInput4').value.trim();
+    if (gv1) setGoogleVisionKey(1, gv1);
+    if (gv2) setGoogleVisionKey(2, gv2);
+    if (gv3) setGoogleVisionKey(3, gv3);
+    if (gv4) setGoogleVisionKey(4, gv4);
     const geminiKey = document.getElementById('geminiKeyInput').value.trim();
     if (geminiKey) setGeminiKey(geminiKey);
+    const openaiKey = document.getElementById('openaiKeyInput').value.trim();
+    if (openaiKey) setOpenAIKey(openaiKey);
     
     const firebaseConfigRaw = document.getElementById('firebaseConfigInput').value.trim();
     const supabaseUrl = document.getElementById('supabaseUrlInput').value.trim();
