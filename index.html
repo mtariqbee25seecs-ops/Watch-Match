@@ -3514,7 +3514,16 @@ async function callOpenAI({ systemText, imageParts, userText, maxOutputTokens },
     try{ errJson = await response.json(); }catch(e){}
     const detail = errJson?.error?.message || '';
     const isRateLimit = response.status === 429;
-    if ((isRateLimit || [500,502,503].includes(response.status)) && attempt <= 3){
+    if (isRateLimit && attempt <= 5){
+      // Parse the exact retry wait from OpenAI's error message
+      // e.g. "Please try again in 4.84s" → wait 5 seconds
+      const retryMatch = detail.match(/try again in ([\d.]+)s/);
+      const waitSecs = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) + 1 : attempt * 8;
+      console.warn(`OpenAI rate limit — waiting ${waitSecs}s (attempt ${attempt}/5)`);
+      await new Promise(r => setTimeout(r, waitSecs * 1000));
+      return callOpenAI({ systemText, imageParts, userText, maxOutputTokens }, attempt+1);
+    }
+    if ([500,502,503].includes(response.status) && attempt <= 3){
       await new Promise(r => setTimeout(r, attempt * 3000));
       return callOpenAI({ systemText, imageParts, userText, maxOutputTokens }, attempt+1);
     }
@@ -3573,7 +3582,13 @@ async function callOpenAIWithWebSearch({ systemText, imageParts, userText, maxOu
     let errJson = null;
     try{ errJson = await response.json(); }catch(e){}
     const detail = errJson?.error?.message || '';
-    if ([429, 500, 502, 503].includes(response.status) && attempt <= 3){
+    if (response.status === 429 && attempt <= 5){
+      const retryMatch2 = detail.match(/try again in ([\d.]+)s/);
+      const waitSecs2 = retryMatch2 ? Math.ceil(parseFloat(retryMatch2[1])) + 1 : attempt * 8;
+      await new Promise(r => setTimeout(r, waitSecs2 * 1000));
+      return callOpenAIWithWebSearch({ systemText, imageParts, userText, maxOutputTokens }, attempt+1);
+    }
+    if ([500, 502, 503].includes(response.status) && attempt <= 3){
       await new Promise(r => setTimeout(r, attempt * 3000));
       return callOpenAIWithWebSearch({ systemText, imageParts, userText, maxOutputTokens }, attempt+1);
     }
@@ -5459,10 +5474,11 @@ async function analyzeBatch(items, kind, renderFn, opts){
 
   let done = 0;
   const total = toProcess.length;
-  // Claude Haiku has no meaningful rate limits at this volume.
-  // CONCURRENCY=6: 6 images process in parallel. Each Claude call takes
-  // ~3-5s and SerpAPI calls timeout after 12s max, so throughput is fast.
-  const CONCURRENCY = 6;
+  // OpenAI GPT-4o-mini new accounts: 60,000 TPM limit.
+  // Each call uses ~4,500 tokens. CONCURRENCY=2 = ~9,000 tokens/batch,
+  // well under 60k/min even at fast call speeds.
+  // TPM limits increase automatically as you add credits and usage history.
+  const CONCURRENCY = 2;
   let idx = 0;
   let rateLimitNotice = '';
 
