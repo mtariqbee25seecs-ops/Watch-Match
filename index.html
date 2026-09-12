@@ -3341,12 +3341,29 @@ async function quickGeminiSearchForRef(fp, caption, attempt){
 
   const watchDesc = [fp.brand, fp.model_line, fp.dial_color ? 'dial: ' + fp.dial_color : null, fp.bracelet_or_strap, fp.case_size].filter(Boolean).join(', ');
 
+  // Include message_text — it often has nicknames like "batgirl", "batman",
+  // "pepsi", "panda", "wimbledon" that are the best clue for finding the exact ref
+  const msgText = fp.message_text || '';
+  const contextClues = [caption, msgText].filter(Boolean).join(' | ');
+
   const body = {
     contents: [{ role: 'user', parts: [{ text:
-      `Search online and find the exact reference number for this watch.\nWatch: ${watchDesc}${caption ? '\nNote: ' + caption : ''}\nSearch Chrono24 or WatchBase. State the reference number clearly, e.g. "The reference number is 126610LN".`
+      `Search online and find the exact reference number for this watch.
+Watch: ${watchDesc}${contextClues ? '\nContext/clues: ' + contextClues : ''}
+
+Note: watch nicknames like "batgirl"=126710BLNR, "batman"=126710BLNR, "pepsi"=126710BLRO, "panda"=Daytona white dial, "hulk"=116610LV, "kermit"=16610LV, "snowflake"=Tudor 79210, "wimbledon"=Rolex Jubilee Champagne, "coke"=16710 red/black.
+Search Chrono24, WatchBase, or WatchCharts.
+
+After your search, you MUST end your response with exactly this line (no variations):
+RESULT: {"ref":"EXACT_REFERENCE_NUMBER","brand":"Brand","model":"Model"}
+
+If you cannot find it, end with:
+RESULT: {"ref":null}
+
+Do not skip the RESULT line.`
     }] }],
     tools: [{ google_search: {} }],
-    generationConfig: { temperature: 0.1, maxOutputTokens: 300 }
+    generationConfig: { temperature: 0.1, maxOutputTokens: 400 }
   };
 
   let res;
@@ -3368,14 +3385,31 @@ async function quickGeminiSearchForRef(fp, caption, attempt){
   const rawText = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').trim();
   if (!rawText) return { reference_number: null };
 
-  const jsonResult = parseJsonLoose(rawText);
-  if (jsonResult && jsonResult.reference_number) return jsonResult;
+  // 1. Look for our structured RESULT line first (most reliable)
+  const resultLine = rawText.match(/RESULT:\s*(\{[^\n]+\})/);
+  if (resultLine){
+    const parsed = parseJsonLoose(resultLine[1]);
+    if (parsed){
+      return {
+        reference_number: parsed.ref || null,
+        brand:      parsed.brand || fp.brand || null,
+        model_line: parsed.model || fp.model_line || null,
+        confidence: parsed.ref ? 'high' : null
+      };
+    }
+  }
 
-  // Extract from natural language response
+  // 2. Try full JSON parse
+  const jsonResult = parseJsonLoose(rawText);
+  if (jsonResult && (jsonResult.reference_number || jsonResult.ref)){
+    return { reference_number: jsonResult.reference_number || jsonResult.ref, brand: jsonResult.brand || fp.brand || null, model_line: jsonResult.model || jsonResult.model_line || fp.model_line || null, confidence: 'medium' };
+  }
+
+  // 3. Extract from natural language as last resort
   const refPatterns = [
     /reference(?:\s+number)?[:\s]+([A-Z0-9][A-Z0-9\/\-\.]{3,25})/i,
     /ref(?:\.|\s+no\.?)?[:\s]+([A-Z0-9][A-Z0-9\/\-\.]{3,25})/i,
-    /\bis\s+(?:the\s+)?([A-Z]?\d{4,6}[A-Z]{0,8}(?:\/[A-Z0-9]{1,6}(?:-[A-Z0-9]{1,6})?)?)\b/i,
+    /\bREF:\s*([A-Z0-9][A-Z0-9\/\-\.]{3,25})/i,
     /\b(\d{4,6}[A-Z]{0,8}(?:\/[A-Z0-9]{1,6}(?:-[A-Z0-9]{1,6})?)?)\b/
   ];
   for (const pat of refPatterns){
@@ -3385,7 +3419,7 @@ async function quickGeminiSearchForRef(fp, caption, attempt){
       if (/^20[0-9]{2}$/.test(ref)) continue;
       const brandM = rawText.match(/\b(Rolex|Patek Philippe|Audemars Piguet|IWC|Cartier|Omega|Breitling|Hublot|Richard Mille|Vacheron)\b/i);
       const modelM = rawText.match(/\b(Submariner|Daytona|Datejust|GMT.?Master|Day.?Date|Nautilus|Aquanaut|Royal Oak|Speedmaster|Seamaster|Calatrava)\b/i);
-      return { reference_number: ref, brand: brandM ? brandM[1] : (fp.brand||null), model_line: modelM ? modelM[1] : (fp.model_line||null), confidence: 'medium' };
+      return { reference_number: ref, brand: brandM ? brandM[1] : (fp.brand||null), model_line: modelM ? modelM[1] : (fp.model_line||null), confidence: 'low' };
     }
   }
   return { reference_number: null };
