@@ -3130,8 +3130,6 @@ async function callGemini({ systemText, imageParts, userText, maxOutputTokens, o
 
   // Gemini 3.5 Flash-Lite free tier: 10-15 RPM actual limit.
   // 6 second gap = 10 RPM — stays safely within the limit.
-  // 6s gap = 10 RPM — stays under the free tier 10-15 RPM limit
-  // Enable paid billing on Google Cloud to remove rate limits entirely
   const now = Date.now();
   const elapsed = now - _geminiLastCall;
   if (elapsed < 6000) await new Promise(r => setTimeout(r, 6000 - elapsed));
@@ -3360,11 +3358,11 @@ ${contextClues ? 'Dealer clues: ' + contextClues : ''}
 
 Nicknames: batgirl/batman=126710BLNR, pepsi=126710BLRO, hulk=116610LV, wimbledon=Rolex champagne jubilee, rootbeer=126711CHNR, panda=Daytona white dial, snowflake=Tudor BB58.
 
-Search Chrono24 and report the EXACT reference number from listings. Be precise — give the full ref like 126710BLNR not just the model name.
+Search Chrono24 and report the EXACT reference number. Be precise.
 
-End your response with exactly:
+End with exactly:
 RESULT: {"ref":"EXACT_REF","brand":"Brand","model":"Model"}
-or: RESULT: {"ref":null}
+or: RESULT: {"ref":null}`
     }] }],
     tools: [{ google_search: {} }],
     generationConfig: { temperature: 0.1, maxOutputTokens: 500 }
@@ -3373,7 +3371,7 @@ or: RESULT: {"ref":null}
   let searchRes;
   try{
     searchRes = await fetchWithTimeout(
-      `${GEMINI_URL}?key=${encodeURIComponent(key)}`,  // use 3.5-flash-lite, not expensive 3.6-flash
+      `${GEMINI_URL}?key=${encodeURIComponent(key)}`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(searchBody) },
       20000
     );
@@ -4475,6 +4473,14 @@ CRITICAL BRAND-MODEL RULES — never confuse these:
 - Nautilus, Aquanaut, Calatrava = ALWAYS Patek Philippe, NEVER AP
 - Submariner, Daytona, GMT-Master, Datejust, Day-Date = ALWAYS Rolex
 
+CRITICAL BRAND-MODEL RULES — never confuse these:
+- Royal Oak, Royal Oak Offshore, Code 11.59 = ALWAYS Audemars Piguet (AP)
+- Nautilus, Aquanaut, Calatrava, Twenty-4 = ALWAYS Patek Philippe
+- Submariner, Daytona, GMT-Master, Datejust, Day-Date = ALWAYS Rolex
+- Portugieser, Pilot, Portofino = ALWAYS IWC
+- Santos, Tank, Panthere, Ballon Bleu = ALWAYS Cartier
+Check the dial text to confirm brand before finalizing.
+
 3. For dial_color: use specific color names (black, blue, silver, champagne, olive green, slate grey, etc.), not vague ones. If lighting/glare makes it genuinely ambiguous between two colors, pick the more likely one but set field_confidence.dial_color to "low". Do not default to "black" as a safe guess \u2014 black and blue are the most commonly confused pair under artificial light, look for blue undertones in reflections before committing to black.
 
 3b. ROLEX NAMED DIAL VARIANTS — these are specific Rolex marketing names used by dealers that you MUST recognize instead of guessing a generic color:
@@ -4984,12 +4990,8 @@ Known details: Brand=${hit.brand}, Model=${hit.model_line}, Dial=${hit.dial_colo
 DO NOT re-analyze the watch itself — use the catalogue data above for watch details.
 ONLY extract from this image: client_name, group_name, phone_number, message_text, price, condition, year.
 Return those fields in the usual JSON schema; for all watch fields (brand/model/dial/strap/case/ref) use the catalogue values provided.`;
-        // Use tiny prompt — we only need client name, phone, message text.
-        // Sending full FINGERPRINT_SCHEMA_PROMPT (3,769 tokens) here was
-        // costing $0.0011 per catalogue hit just for the system prompt.
-        const tinyPrompt = 'Extract ONLY: client_name, group_name, phone_number, message_text, price, condition, year from this WhatsApp image. Return JSON with only those fields. Do NOT analyze the watch itself.';
         const { text: hintResult } = await callGemini({
-          systemText: tinyPrompt,
+          systemText: FINGERPRINT_SCHEMA_PROMPT,
           imageParts: [{ inline_data: { mime_type: effectiveMimeType, data: base64 } }],
           userText: hintText, maxOutputTokens: 600, onRetryWait
         }).catch(() => ({ text: '{}' }));
@@ -5907,8 +5909,8 @@ function isValidRef(brand, ref){
     return /^\d{5,6}[A-Z]{0,8}$/i.test(cleaned);
   }
   if (b.includes('patek')){
-    // Patek: 4 digits / 1-4 digits + letters, optional -NNN suffix.
-    // \d{1,4} covers both short (5711/1A) and long (7118/1200A) formats.
+    // Patek: 4 digits / 1-4 digits + letters, optional -NNN.
+    // \d{1,4} handles: 5711/1A-010, 7118/012A, 7118/1200A-001
     const slashFmt  = /^\d{4}\/\d{1,4}[A-Z]{0,2}(-\d{2,3})?$/i.test(ref);
     const simpleFmt = /^\d{4}[A-Z]{0,2}(-\d{2,3})?$/i.test(ref);
     return slashFmt || simpleFmt;
@@ -7862,4 +7864,168 @@ h1{font-size:26px;font-weight:800;color:#0f172a;letter-spacing:0.02em;}
 </div>
 <div class="grid">${cardsHtml}</div>
 <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});<\/script>
-</body></html>
+</body></html>`;
+
+  win.document.write(html);
+  win.document.close();
+  showToast('PDF preview opened \u2014 use your browser\u2019s print dialog to save as PDF');
+}
+
+function generatePDF(){
+  const win = window.open('', '_blank');
+  if (!win){ showToast('Pop-up blocked \u2014 allow pop-ups for this site and try again', true); return; }
+
+  const analyzedStock = stockItems.filter(it => it.fingerprint);
+  const matchedPairs  = matchResults.filter(r => r.matches && r.matches.length);
+
+  function card(it){
+    const fp = it.fingerprint;
+    const price = it.priceOverride || (fp && fp.price) || null;
+    const imgTag = it.imageData
+      ? `<img class="pc-img" src="data:${imageMimeTypeOf(it)};base64,${it.imageData}" alt="">`
+      : `<div class="pc-no-img">No image</div>`;
+    return `
+    <div class="pc">
+      ${imgTag}
+      <div class="pc-body">
+        <div class="pc-brand">${escapeHtml(fp.brand || 'Unknown')}</div>
+        <div class="pc-model">${escapeHtml(fp.model_line || '')}${fp.date_complication ? ' \u00b7 ' + escapeHtml(fp.date_complication) : ''}</div>
+        <table class="pc-tbl">
+          <tr><td class="pc-lbl">Ref</td><td class="pc-val ref-val">${escapeHtml(fp.reference_number || '\u2014')}</td></tr>
+          <tr><td class="pc-lbl">Dial</td><td class="pc-val">${escapeHtml(fp.dial_color || '\u2014')}</td></tr>
+          <tr><td class="pc-lbl">Strap</td><td class="pc-val">${escapeHtml(fp.bracelet_or_strap || '\u2014')}</td></tr>
+          <tr><td class="pc-lbl">Case</td><td class="pc-val">${escapeHtml(fp.case_material || '\u2014')}</td></tr>
+          ${fp.condition ? `<tr><td class="pc-lbl">Cond</td><td class="pc-val">${escapeHtml(fp.condition)}</td></tr>` : ''}
+        </table>
+        ${price ? `<div class="pc-price">${escapeHtml(price)}</div>` : ''}
+      </div>
+    </div>`;
+  }
+
+  function matchCard(r){
+    const demand = r.demandItem;
+    const top    = r.matches[0];
+    const stock  = top.stockItem;
+    const dFp = demand.fingerprint || {};
+    const sFp = stock.fingerprint  || {};
+    function side(item, fp, label){
+      const imgTag = item.imageData
+        ? `<img class="pm-img" src="data:${imageMimeTypeOf(item)};base64,${item.imageData}" alt="">`
+        : `<div class="pm-no-img">No image</div>`;
+      return `
+      <div class="pm-side">
+        <div class="pm-lbl">${label}</div>
+        ${imgTag}
+        <div class="pm-brand">${escapeHtml(fp.brand || 'Unknown')}</div>
+        <div class="pm-ref">${escapeHtml(fp.reference_number || '\u2014')}</div>
+        <div class="pm-detail">${escapeHtml(fp.dial_color || '')}${fp.bracelet_or_strap ? ' \u00b7 ' + escapeHtml(fp.bracelet_or_strap) : ''}</div>
+      </div>`;
+    }
+    return `
+    <div class="pm">
+      ${side(demand, dFp, 'DEMAND')}
+      <div class="pm-arrow">&rarr;</div>
+      ${side(stock, sFp, 'MATCHED STOCK')}
+      <div class="pm-score">${Math.round(top.confidence)}%</div>
+    </div>`;
+  }
+
+  // "Close alternates" removed from PDF too \u2014 only confirmed (approved)
+  // matches are shown, consistent with the app no longer showing fuzzy
+  // "similar model" suggestions anywhere.
+  const stockHtml   = analyzedStock.map(card).join('');
+  const matchesHtml = matchedPairs.map(matchCard).join('');
+  const alternatesHtml = '';
+  const date = new Date().toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' });
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>Watch Inventory \u2014 ${date}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff;}
+@page{size:A4;margin:12mm 14mm;}
+h1{font-size:26px;font-weight:800;color:#0f172a;letter-spacing:0.02em;}
+.sub{color:#64748b;font-size:13px;margin-top:6px;}
+.dt{color:#94a3b8;font-size:11px;margin-top:4px;}
+.cover{padding:40px 0 28px;border-bottom:3px solid #d4a84b;margin-bottom:26px;}
+.sec{font-size:15px;font-weight:700;color:#0f172a;border-bottom:2px solid #d4a84b;padding-bottom:7px;margin:26px 0 16px;letter-spacing:0.02em;}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+.pc{border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;break-inside:avoid;}
+.pc-img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;}
+.pc-no-img{width:100%;aspect-ratio:4/3;background:#f8fafc;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;}
+.pc-body{padding:10px 12px 13px;}
+.pc-brand{font-size:13px;font-weight:700;color:#0f172a;margin-bottom:1px;}
+.pc-model{font-size:10.5px;color:#64748b;margin-bottom:8px;}
+.pc-tbl{width:100%;border-collapse:collapse;}
+.pc-lbl{color:#94a3b8;font-size:9.5px;text-transform:uppercase;letter-spacing:0.05em;padding:2px 6px 2px 0;white-space:nowrap;vertical-align:top;}
+.pc-val{font-size:11px;color:#1e293b;font-weight:500;padding:2px 0;vertical-align:top;}
+.pc-val.ref-val{color:#b8860b;font-family:monospace;font-size:10.5px;font-weight:700;}
+.pc-price{font-size:14px;font-weight:800;color:#b8860b;margin-top:8px;padding-top:7px;border-top:1px solid #f1f5f9;}
+.mgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.pm{border:1px solid #e2e8f0;border-radius:8px;padding:12px;display:flex;align-items:flex-start;gap:8px;break-inside:avoid;}
+.pm-side{flex:1;min-width:0;}
+.pm-lbl{font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#94a3b8;margin-bottom:6px;}
+.pm-img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:5px;margin-bottom:7px;display:block;}
+.pm-no-img{width:100%;aspect-ratio:4/3;background:#f8fafc;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:10px;margin-bottom:7px;}
+.pm-brand{font-size:12px;font-weight:700;color:#0f172a;}
+.pm-ref{font-size:11px;color:#b8860b;font-family:monospace;font-weight:700;margin:2px 0;}
+.pm-detail{font-size:10.5px;color:#64748b;}
+.pm-arrow{font-size:20px;color:#d4a84b;flex-shrink:0;padding-top:60px;}
+.pc-ref-line{font-family:monospace;font-size:10.5px;color:#b8860b;font-weight:700;margin:4px 0 6px;}
+.alt-pc{border-color:#f1d9a0;border-style:dashed;}
+.alt-reason{font-size:9.5px;color:#78716c;line-height:1.5;padding-top:6px;border-top:1px solid #f1f5f9;margin-top:2px;}
+.alt-group-pdf{margin-bottom:20px;break-inside:avoid;}
+.alt-group-head-pdf{font-size:11.5px;font-weight:700;color:#78716c;margin-bottom:8px;font-style:italic;}
+.alt-grid-pdf{grid-template-columns:repeat(3,1fr);}
+.pm-score{position:absolute;right:14px;top:14px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:3px 8px;border-radius:12px;}
+.pm{position:relative;}
+@media print{body{print-color-adjust:exact;-webkit-print-color-adjust:exact;}}
+</style></head><body>
+<div class="cover">
+  <h1>Watch Inventory Report</h1>
+  <div class="sub">${analyzedStock.length} items in stock &nbsp;&middot;&nbsp; ${matchedPairs.length} matched pair${matchedPairs.length !== 1 ? 's' : ''}</div>
+  <div class="dt">Generated ${date}</div>
+</div>
+<div class="sec">All Stock (${analyzedStock.length} watches)</div>
+<div class="grid">${stockHtml}</div>
+${matchesHtml ? `<div class="sec" style="page-break-before:always;">Matched Pairs (${matchedPairs.length})</div><div class="mgrid">${matchesHtml}</div>` : ''}
+${alternatesHtml ? `<div class="sec" style="page-break-before:always;">Close Alternates &amp; Year Variants</div>${alternatesHtml}` : ''}
+<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});<\/script>
+</body></html>`;
+
+  win.document.write(html);
+  win.document.close();
+  showToast('PDF preview opened \u2014 use your browser\u2019s print dialog to save as PDF');
+}
+
+function exportCatalog(){
+  const persistable = stockItems.map(it => ({ id: it.id, filename: it.filename, caption: it.caption, status: it.status, fingerprint: it.fingerprint || null, error: it.error || null, priceOverride: it.priceOverride !== undefined ? it.priceOverride : null }));
+  const blob = new Blob([JSON.stringify({ savedAt: new Date().toISOString(), stockItems: persistable }, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `stockmatch-catalog-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  showToast('Catalog backup downloaded');
+}
+
+function importCatalog(file){
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const parsed = JSON.parse(reader.result);
+      const items = Array.isArray(parsed) ? parsed : parsed.stockItems;
+      if (!Array.isArray(items)) throw new Error('not a valid catalog file');
+      stockItems = items.map(it => ({ ...it, imageData: null }));
+      saveStockCatalog(); renderStock(); renderDashboard();
+      showToast(`Restored ${items.length} stock item${items.length === 1 ? '' : 's'} from backup`);
+    }catch(e){ showToast('Could not read that file as a catalog backup', true); }
+  };
+  reader.onerror = () => showToast('Could not read that file', true);
+  reader.readAsText(file);
+}
+
+init();
+</script>
+</body>
+</html>
