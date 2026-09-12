@@ -3120,7 +3120,7 @@ function setGeminiKey(key){
 // Gemini 2.0 Flash — free tier, 1500 req/day, 60 RPM
 // Used for ALL extraction (stock + demand). Zero cost within free tier at
 // ~150 images/day average. 90% cheaper than Claude Haiku for this task.
-const GEMINI_MODEL = 'gemini-2.5-flash-lite'; // paid tier: $0.10/$0.40 per 1M, no rate limits, CORS works // cheapest GA model: $0.30/$2.50 per 1M tokens, free tier available
+const GEMINI_MODEL = 'gemini-3.5-flash-lite'; // 2.5-flash-lite deprecated Sept 2026 — migrated per Google's error message // cheapest GA model: $0.30/$2.50 per 1M tokens, free tier available
 const GEMINI_URL   = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 let _geminiLastCall = 0; // rate-limit enforcement: 60 RPM = 1/sec
 
