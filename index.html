@@ -2466,7 +2466,7 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
       <div class="tab-toolbar">
         <button class="btn" id="analyzeStockBtn" disabled>Analyze pending</button>
         <button class="btn danger-text" id="clearStockBtn">Clear all</button>
-        <button class="btn danger-text" id="reanalyzeAllBtnStock" title="Reanalyze every stock and demand item from scratch">Reanalyze all</button>
+
         <label class="btn primary file-btn" style="margin-left:auto;">
           + Add images
           <input type="file" id="stockFileInput" accept="image/*" multiple hidden>
@@ -2492,7 +2492,8 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
         <button class="btn" id="addTextDemandBtn">+ Text request</button>
         <button class="btn" id="analyzeDemandBtn" disabled>Analyze pending</button>
         <button class="btn danger-text" id="clearDemandBtn">Clear all</button>
-        <button class="btn danger-text" id="reanalyzeAllBtnDemand" title="Reanalyze every stock and demand item from scratch">Reanalyze all</button>
+
+        <button class="btn" id="searchWebAllBtn" title="Run Gemini web search on all demand items missing a ref number">&#128269; Search Web All</button>
         <button class="btn primary" id="exportDemandPdfBtn" title="Export demand list as PDF">&#128196; Export PDF</button>
         <label class="btn primary file-btn" style="margin-left:auto;">
           + Add image request
@@ -2517,7 +2518,7 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
       </div>
       <div class="tab-toolbar">
         <button class="btn danger-text" id="clearResultsBtn">Clear all</button>
-        <button class="btn danger-text" id="reanalyzeAllBtnResults" title="Reanalyze every stock and demand item from scratch">Reanalyze all</button>
+
         <button class="btn" id="runAIMatchBtn" title="Uses Claude to visually compare demand photos against stock photos one by one \u2014 slower and costs a few cents per run, but catches things field-matching might miss" style="margin-left:auto;">&#128269; AI Visual Match</button>
         <button class="btn primary" id="runMatchBtn" disabled>Run matching (free)</button>
       </div>
@@ -2548,7 +2549,6 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
         <button class="btn" id="pushImagesBtn" title="Upload all local images to cloud">Push images to cloud</button>
         <button class="btn danger-text" id="clearCloudBtn" title="Delete all images from cloud storage">Clear cloud images</button>
         <button class="btn danger-text" id="bulkReanalyzeBtn" title="Reanalyze only items missing dial marker/material data">Fix stale dial data</button>
-        <button class="btn danger-text" id="reanalyzeAllBtn" title="Reanalyze every item from scratch, not just stale ones">Reanalyze all</button>
         <button class="btn" id="runAIMatchBtnDash" title="Ask Claude to visually advise on pending ref-matches (see Results tab)">&#128269; AI Visual Match</button>
         <button class="btn primary" id="exportPdfBtn" title="Export dashboard as PDF" style="margin-left:auto;">&#128196; Export PDF</button>
       </div>
@@ -3183,6 +3183,69 @@ function getGoogleVisionKey(){
 // Accepts base64 directly: no imgbb upload, no CORS proxy needed.
 // Free: first 1,000 requests/month. After that: $3.50/1,000.
 // At ~600 demand lookups/month this costs $0 permanently.
+// Gemini 3.6 Flash with Google Search grounding — used for ref lookup.
+// Gemini 3 models: 5,000 free search queries/month, then $14/1,000.
+// At ~600 searches/month this costs $0. Much cheaper than Claude web
+// search ($10/1,000) or Gemini 2.5 grounding ($35/1,000).
+// Uses gemini-3.6-flash specifically (not gemini-2.5-flash-lite) to get
+// the Gemini 3 pricing tier with 5,000 free monthly searches.
+const GEMINI_SEARCH_MODEL = 'gemini-3.6-flash';
+const GEMINI_SEARCH_URL   = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_SEARCH_MODEL}:generateContent`;
+
+async function quickGeminiSearchForRef(fp, caption, attempt){
+  attempt = attempt || 1;
+  const key = getGeminiKey();
+  if (!key) throw new Error('No Gemini key \u2014 add it in Settings');
+
+  const watchDesc = [
+    fp.brand, fp.model_line,
+    fp.dial_color ? 'dial: ' + fp.dial_color : null,
+    fp.bracelet_or_strap, fp.case_size
+  ].filter(Boolean).join(', ');
+
+  const body = {
+    contents: [{
+      role: 'user',
+      parts: [{ text: `Find the exact reference number for this watch by searching online.
+Watch: ${watchDesc}${caption ? '\nDealer note: ' + caption : ''}
+Search Chrono24, WatchBase, or the brand official site.
+Return ONLY valid JSON (no markdown): {"reference_number":"EXACT_REF","brand":"Brand","model_line":"Model","confidence":"high|medium|low"}
+If genuinely not found: {"reference_number":null}` }]
+    }],
+    tools: [{ google_search: {} }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: 200 }
+  };
+
+  let res;
+  try{
+    res = await fetchWithTimeout(
+      `${GEMINI_SEARCH_URL}?key=${encodeURIComponent(key)}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      20000
+    );
+  }catch(netErr){
+    if (attempt <= 2) return quickGeminiSearchForRef(fp, caption, attempt + 1);
+    throw new Error('Gemini search network error: ' + (netErr.message || 'failed'));
+  }
+
+  if (!res.ok){
+    const errText = await res.text().catch(() => String(res.status));
+    if (res.status === 429 && attempt <= 3){
+      await new Promise(r => setTimeout(r, 15000));
+      return quickGeminiSearchForRef(fp, caption, attempt + 1);
+    }
+    throw new Error(`Gemini search failed (${res.status}): ${errText.slice(0, 150)}`);
+  }
+
+  const data  = await res.json();
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  const text  = parts.map(p => p.text || '').join('').trim();
+  return parseJsonLoose(text) || { reference_number: null };
+}
+
+// Keep old name as alias so existing button handler still works
+const quickWebSearchForRef = quickGeminiSearchForRef;
+
 async function callGoogleVisionWebDetection(base64Image, mimeType){
   const key = getGoogleVisionKey();
   if (!key) throw new Error('No Google Vision API key — add it in Settings');
@@ -3508,6 +3571,47 @@ async function callGemini({ systemText, imageParts, userText, maxOutputTokens, o
   const data = await response.json();
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error('Gemini returned no text content');
+  return { text };
+}
+
+// Gemini with Google Search grounding — for "Search Web" ref lookups.
+// Cost: $0.35/1,000 grounded queries = $0.00035/search (28x cheaper than Claude).
+// NOTE: responseMimeType:'application/json' is incompatible with tools,
+// so response is free text — JSON parsed with parseJsonLoose().
+async function callGeminiWithSearch({ systemText, userText, imageParts, maxOutputTokens }){
+  const key = getGeminiKey();
+  if (!key) throw new Error('No Gemini API key \u2014 add it in Settings');
+
+  const parts = [];
+  (imageParts || []).forEach(p => {
+    if (p.inline_data) parts.push({ inlineData: { mimeType: p.inline_data.mime_type, data: p.inline_data.data } });
+  });
+  if (userText) parts.push({ text: userText });
+
+  const body = {
+    contents: [{ role: 'user', parts }],
+    systemInstruction: systemText ? { parts: [{ text: systemText }] } : undefined,
+    tools: [{ google_search: {} }],   // enables Google Search grounding
+    generationConfig: {
+      // No responseMimeType here — incompatible with tools
+      temperature: 0.1,
+      maxOutputTokens: maxOutputTokens || 300
+    }
+  };
+
+  const res = await fetchWithTimeout(
+    `${GEMINI_URL}?key=${encodeURIComponent(key)}`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    20000
+  );
+
+  if (!res.ok){
+    const err = await res.json().catch(() => ({}));
+    throw new Error('Gemini search error ' + res.status + ': ' + (err?.error?.message || '').slice(0, 150));
+  }
+  const data = await res.json();
+  const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+  if (!text) throw new Error('Gemini search returned no content');
   return { text };
 }
 
@@ -4210,7 +4314,7 @@ function renderWatchCard(it, options){
       ${errorHtml}
       ${messageTextHtml}
       ${section === 'demand' && it.needs_manual_lookup
-        ? `<div class="needs-ref-hint">Ref not found — edit the ref field above manually</div>`
+        ? `<button class="btn small web-search-btn" data-item-id="${it.id}">&#128269; Search Web for ref</button>`
         : ''}
       ${lookupNotes}
       ${priceRowHtml}
@@ -7775,6 +7879,35 @@ function init(){
   });
 
   document.body.addEventListener('click', async (e) => {
+    // Search Web button — single cheap web search for missing ref
+    const wsBtn = e.target.closest('.web-search-btn');
+    if (wsBtn){
+      const item = demandItems.find(it => it.id === wsBtn.dataset.itemId);
+      if (!item){ return; }
+      wsBtn.disabled = true; wsBtn.textContent = 'Searching\u2026';
+      try{
+        const result = await quickWebSearchForRef(item.fingerprint || {}, item.caption);
+        if (result && result.reference_number){
+          if (!item.fingerprint) item.fingerprint = {};
+          item.fingerprint.reference_number        = result.reference_number;
+          item.fingerprint.reference_number_source = 'looked_up';
+          if (result.brand && !item.fingerprint.brand) item.fingerprint.brand = result.brand;
+          if (result.model && !item.fingerprint.model_line) item.fingerprint.model_line = result.model;
+          item.needs_manual_lookup = false;
+          await saveDemandCatalog();
+          renderDemand();
+          showToast('Found: ' + result.reference_number + ' (' + (result.confidence||'') + ' confidence)');
+        } else {
+          wsBtn.disabled = false; wsBtn.textContent = '\uD83D\uDD0D Search Web for ref (~$0.01)';
+          showToast('Not found — try editing the ref manually', true);
+        }
+      }catch(err){
+        wsBtn.disabled = false; wsBtn.textContent = '\uD83D\uDD0D Search Web for ref (~$0.01)';
+        showToast(err.message || 'Search failed', true);
+      }
+      return;
+    }
+
     const editToggleBtn = e.target.closest('.card-edit-toggle');
     if (editToggleBtn){
       const card = editToggleBtn.closest('.watch-card');
@@ -7819,6 +7952,50 @@ function init(){
     }
   });
   document.getElementById('exportPdfBtn').onclick = generatePDF;
+  // Search Web All — runs Gemini web search on every demand item
+  // that completed analysis but has no confirmed reference number.
+  const searchWebAllBtn = document.getElementById('searchWebAllBtn');
+  if (searchWebAllBtn){
+    searchWebAllBtn.onclick = async () => {
+      const noRefItems = demandItems.filter(it =>
+        it.status === 'done' &&
+        it.fingerprint &&
+        !it.fingerprint.reference_number
+      );
+      if (!noRefItems.length){
+        showToast('All demand items already have reference numbers \u2713');
+        return;
+      }
+      const est = (noRefItems.length * 0.001).toFixed(2);
+      if (!confirm(`Search web for ref numbers on ${noRefItems.length} demand item${noRefItems.length===1?'':'s'} with no ref.\n\nUsing Gemini Google Search grounding \u2014 free up to 5,000 searches/month.\nEstimated cost: ~$${est} (${noRefItems.length} \u00d7 $0.001)\n\nContinue?`)) return;
+
+      searchWebAllBtn.disabled = true;
+      let done = 0, found = 0;
+      for (const item of noRefItems){
+        searchWebAllBtn.textContent = `Searching\u2026 ${done+1}/${noRefItems.length}`;
+        try{
+          const result = await quickGeminiSearchForRef(item.fingerprint || {}, item.caption);
+          if (result && result.reference_number){
+            item.fingerprint.reference_number        = result.reference_number;
+            item.fingerprint.reference_number_source = 'looked_up';
+            if (result.brand && !item.fingerprint.brand) item.fingerprint.brand = result.brand;
+            if (result.model_line && !item.fingerprint.model_line) item.fingerprint.model_line = result.model_line;
+            item.needs_manual_lookup = false;
+            found++;
+          }
+        }catch(e){
+          console.warn('Search failed for item', item.id, e.message);
+        }
+        done++;
+      }
+      await saveDemandCatalog();
+      renderDemand();
+      searchWebAllBtn.disabled = false;
+      searchWebAllBtn.textContent = '\uD83D\uDD0D Search Web All';
+      showToast(`Done \u2014 found refs for ${found}/${noRefItems.length} watches`);
+    };
+  }
+
   const exportDemandPdfBtn = document.getElementById('exportDemandPdfBtn');
   if (exportDemandPdfBtn) exportDemandPdfBtn.onclick = generateDemandPDF;
   document.getElementById('bulkReanalyzeBtn').onclick = bulkReanalyzeStaleDialData;
