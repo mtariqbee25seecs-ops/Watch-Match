@@ -3337,93 +3337,111 @@ const GEMINI_SEARCH_URL   = `https://generativelanguage.googleapis.com/v1beta/mo
 async function quickGeminiSearchForRef(fp, caption, attempt){
   attempt = attempt || 1;
   const key = getGeminiKey();
-  if (!key) throw new Error('No Gemini key — add it in Settings');
+  if (!key) throw new Error('No Gemini key \u2014 add it in Settings');
 
-  const watchDesc = [fp.brand, fp.model_line, fp.dial_color ? 'dial: ' + fp.dial_color : null, fp.bracelet_or_strap, fp.case_size].filter(Boolean).join(', ');
+  const watchDesc = [fp.brand, fp.model_line,
+    fp.dial_color ? 'dial: ' + fp.dial_color : null,
+    fp.bracelet_or_strap, fp.case_size
+  ].filter(Boolean).join(', ');
 
-  // Include message_text — it often has nicknames like "batgirl", "batman",
-  // "pepsi", "panda", "wimbledon" that are the best clue for finding the exact ref
   const msgText = fp.message_text || '';
   const contextClues = [caption, msgText].filter(Boolean).join(' | ');
 
-  const body = {
+  // ── STEP 1: Gemini 3.6 Flash + Google Search grounding ──
+  // Returns natural language — JSON mode is incompatible with tools.
+  const searchBody = {
     contents: [{ role: 'user', parts: [{ text:
-      `Search online and find the exact reference number for this watch.
-Watch: ${watchDesc}${contextClues ? '\nContext/clues: ' + contextClues : ''}
-
-Note: watch nicknames like "batgirl"=126710BLNR, "batman"=126710BLNR, "pepsi"=126710BLRO, "panda"=Daytona white dial, "hulk"=116610LV, "kermit"=16610LV, "snowflake"=Tudor 79210, "wimbledon"=Rolex Jubilee Champagne, "coke"=16710 red/black.
-Search Chrono24, WatchBase, or WatchCharts.
-
-After your search, you MUST end your response with exactly this line (no variations):
-RESULT: {"ref":"EXACT_REFERENCE_NUMBER","brand":"Brand","model":"Model"}
-
-If you cannot find it, end with:
-RESULT: {"ref":null}
-
-Do not skip the RESULT line.`
+      `Search Chrono24 or WatchBase and find the exact reference number for this watch.
+Watch: ${watchDesc}${contextClues ? '\nContext: ' + contextClues : ''}
+Watch nicknames: batgirl=126710BLNR, batman=126710BLNR, pepsi=126710BLRO, hulk=116610LV, kermit=16610LV, panda=Daytona white dial, wimbledon=Rolex champagne Jubilee.
+Describe what you found including the reference number.`
     }] }],
     tools: [{ google_search: {} }],
-    generationConfig: { temperature: 0.1, maxOutputTokens: 400 }
+    generationConfig: { temperature: 0.1, maxOutputTokens: 500 }
   };
 
-  let res;
+  let searchRes;
   try{
-    res = await fetchWithTimeout(`${GEMINI_SEARCH_URL}?key=${encodeURIComponent(key)}`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, 20000);
+    searchRes = await fetchWithTimeout(
+      `${GEMINI_URL}?key=${encodeURIComponent(key)}`,  // use 3.5-flash-lite, not expensive 3.6-flash
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(searchBody) },
+      20000
+    );
   }catch(netErr){
     if (attempt <= 2) return quickGeminiSearchForRef(fp, caption, attempt + 1);
     throw new Error('Gemini search network error: ' + (netErr.message || 'failed'));
   }
 
-  if (!res.ok){
-    const errText = await res.text().catch(() => String(res.status));
-    if (res.status === 429 && attempt <= 3){ await new Promise(r => setTimeout(r, 15000)); return quickGeminiSearchForRef(fp, caption, attempt + 1); }
-    throw new Error(`Gemini search (${res.status}): ${errText.slice(0, 150)}`);
+  if (!searchRes.ok){
+    const errText = await searchRes.text().catch(() => String(searchRes.status));
+    if (searchRes.status === 429 && attempt <= 3){
+      await new Promise(r => setTimeout(r, 15000));
+      return quickGeminiSearchForRef(fp, caption, attempt + 1);
+    }
+    throw new Error(`Gemini search (${searchRes.status}): ${errText.slice(0, 150)}`);
   }
 
-  const data = await res.json();
-  const rawText = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').trim();
-  if (!rawText) return { reference_number: null };
+  const searchData = await searchRes.json();
+  const naturalText = (searchData?.candidates?.[0]?.content?.parts || [])
+    .map(p => p.text || '').join('').trim();
 
-  // 1. Look for our structured RESULT line first (most reliable)
-  const resultLine = rawText.match(/RESULT:\s*(\{[^\n]+\})/);
-  if (resultLine){
-    const parsed = parseJsonLoose(resultLine[1]);
-    if (parsed){
-      return {
-        reference_number: parsed.ref || null,
-        brand:      parsed.brand || fp.brand || null,
-        model_line: parsed.model || fp.model_line || null,
-        confidence: parsed.ref ? 'high' : null
+  if (!naturalText) return { reference_number: null };
+
+  // ── STEP 2: Extract ref from natural language using Gemini JSON mode ──
+  // No tools here — response_mime_type: 'application/json' works cleanly.
+  const extractBody = {
+    contents: [{ role: 'user', parts: [{ text:
+      `From this watch search result, extract the reference number.
+
+Search result:
+"${naturalText.slice(0, 800)}"
+
+Return ONLY valid JSON:
+{"reference_number": "EXACT_REF_OR_NULL", "brand": "Brand", "model_line": "Model", "confidence": "high or medium or low"}` }] }],
+    generationConfig: {
+      response_mime_type: 'application/json',
+      temperature: 0.0,
+      maxOutputTokens: 100
+    }
+  };
+
+  try{
+    const extractRes = await fetchWithTimeout(
+      `${GEMINI_URL}?key=${encodeURIComponent(key)}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(extractBody) },
+      10000
+    );
+    if (extractRes.ok){
+      const extractData = await extractRes.json();
+      const jsonText = (extractData?.candidates?.[0]?.content?.parts || [])
+        .map(p => p.text || '').join('').trim();
+      const parsed = parseJsonLoose(jsonText);
+      if (parsed) return {
+        reference_number: parsed.reference_number === 'null' ? null : (parsed.reference_number || null),
+        brand:      parsed.brand      || fp.brand      || null,
+        model_line: parsed.model_line || fp.model_line || null,
+        confidence: parsed.confidence || 'medium'
       };
     }
-  }
+  }catch(e){ console.warn('Step 2 extraction failed, using regex fallback:', e.message); }
 
-  // 2. Try full JSON parse
-  const jsonResult = parseJsonLoose(rawText);
-  if (jsonResult && (jsonResult.reference_number || jsonResult.ref)){
-    return { reference_number: jsonResult.reference_number || jsonResult.ref, brand: jsonResult.brand || fp.brand || null, model_line: jsonResult.model || jsonResult.model_line || fp.model_line || null, confidence: 'medium' };
-  }
-
-  // 3. Extract from natural language as last resort
+  // ── Regex fallback if step 2 fails ──
   const refPatterns = [
     /reference(?:\s+number)?[:\s]+([A-Z0-9][A-Z0-9\/\-\.]{3,25})/i,
     /ref(?:\.|\s+no\.?)?[:\s]+([A-Z0-9][A-Z0-9\/\-\.]{3,25})/i,
-    /\bREF:\s*([A-Z0-9][A-Z0-9\/\-\.]{3,25})/i,
     /\b(\d{4,6}[A-Z]{0,8}(?:\/[A-Z0-9]{1,6}(?:-[A-Z0-9]{1,6})?)?)\b/
   ];
   for (const pat of refPatterns){
-    const m = rawText.match(pat);
+    const m = naturalText.match(pat);
     if (m && m[1] && /\d/.test(m[1]) && m[1].length >= 4 && m[1].length <= 20){
       const ref = m[1].trim().toUpperCase();
       if (/^20[0-9]{2}$/.test(ref)) continue;
-      const brandM = rawText.match(/\b(Rolex|Patek Philippe|Audemars Piguet|IWC|Cartier|Omega|Breitling|Hublot|Richard Mille|Vacheron)\b/i);
-      const modelM = rawText.match(/\b(Submariner|Daytona|Datejust|GMT.?Master|Day.?Date|Nautilus|Aquanaut|Royal Oak|Speedmaster|Seamaster|Calatrava)\b/i);
-      return { reference_number: ref, brand: brandM ? brandM[1] : (fp.brand||null), model_line: modelM ? modelM[1] : (fp.model_line||null), confidence: 'low' };
+      return { reference_number: ref, brand: fp.brand || null, model_line: fp.model_line || null, confidence: 'low' };
     }
   }
   return { reference_number: null };
 }
+
 const quickWebSearchForRef = quickGeminiSearchForRef;
 
 function getApiKey(){
