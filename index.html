@@ -2375,6 +2375,56 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
   background: rgba(90,143,176,0.16);
   border-color: var(--steel-bright);
 }
+
+.needs-ref-hint{
+  font-size: 11px; color: var(--rust-bright);
+  padding: 6px 8px; margin-top: 6px;
+  background: rgba(181,86,60,0.06);
+  border-radius: var(--radius-sm);
+  border: 1px dashed rgba(181,86,60,0.3);
+}
+
+.catalogue-grid{
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+.catalogue-card{
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  font-family: var(--sans);
+}
+.catalogue-thumb{
+  width: 100%; aspect-ratio: 1;
+  object-fit: cover; display: block;
+}
+.catalogue-no-img{
+  width: 100%; aspect-ratio: 1;
+  background: var(--surface-hover);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--display); font-size: 28px; color: var(--text-faint);
+}
+.catalogue-info{ padding: 8px; }
+.catalogue-ref{
+  font-family: var(--mono); font-size: 10.5px;
+  font-weight: 700; color: var(--gold-bright);
+  margin-bottom: 2px;
+}
+.catalogue-brand{
+  font-size: 11px; font-weight: 600;
+  color: var(--text); line-height: 1.3;
+}
+.catalogue-detail{
+  font-size: 10px; color: var(--text-muted);
+  margin-top: 2px; line-height: 1.3;
+}
+.catalogue-seen{
+  font-size: 9.5px; color: var(--text-faint);
+  margin-top: 4px;
+}
 </style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2507,6 +2557,11 @@ main.main-wide{ max-width: 98vw !important; padding-left: 20px; padding-right: 2
       <div id="dashboardMatches"></div>
       <div class="corrections-panel" id="correctionsPanel" style="margin-top:24px;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);">
         <div style="font-family:var(--display);font-size:14px;font-weight:600;color:var(--text);margin-bottom:10px;">&#129302; Learning from corrections</div>
+      </div>
+
+      <div style="margin-top:24px;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);">
+        <div style="font-family:var(--display);font-size:14px;font-weight:600;color:var(--text);margin-bottom:10px;">&#128218; Watch Catalogue</div>
+        <div id="cataloguePanel"></div>
       </div>
 
       <div class="dash-section-label" id="stockSectionLabel" style="display:none;">All stock</div>
@@ -4155,7 +4210,7 @@ function renderWatchCard(it, options){
       ${errorHtml}
       ${messageTextHtml}
       ${section === 'demand' && it.needs_manual_lookup
-        ? `<button class="btn small web-search-btn" data-item-id="${it.id}" title="SerpAPI couldn't identify this watch — trigger manual Claude web search">&#128269; Search Web for ref</button>`
+        ? `<div class="needs-ref-hint">Ref not found — edit the ref field above manually</div>`
         : ''}
       ${lookupNotes}
       ${priceRowHtml}
@@ -5103,6 +5158,49 @@ Condition: bn/uw/lnib=New/Unworn | used=Pre-owned` : 'No caption provided. Rely 
 
   // Use GPT-4o-mini if key is set (10x cheaper input tokens).
   // Fall back to Claude Haiku with caching if no OpenAI key.
+  // ── Catalogue fast-path: check if this ref was seen before ──
+  // If caption/message contains a ref we already know, use stored details
+  // directly — zero API cost for repeat watches.
+  if (caption){
+    const capRef = extractRefFromCaptionText(caption);
+    if (capRef && isValidRef(null, capRef)){
+      const hit = lookupInCatalogue(capRef.toUpperCase());
+      if (hit){
+        const fp = catalogueEntryToFp(hit);
+        // Still need to read client name / message text from image → do a
+        // lightweight Claude call WITHOUT the image to extract text context
+        // (much cheaper: no image tokens). Only skip Gemini entirely for stock.
+        if (!allowLookup){ // stock — caption has everything
+          fp.confidence_notes = (fp.confidence_notes || '') + ' [Stock: full catalogue hit]';
+          return fp;
+        }
+        // For demand: use catalogue details but still read the image briefly
+        // to capture client name, group, message text, price. Pass catalogue
+        // data as context so Gemini focuses on those fields only.
+        const hintText = `CATALOGUE HIT: This watch (${hit.ref}) was previously analyzed.
+Known details: Brand=${hit.brand}, Model=${hit.model_line}, Dial=${hit.dial_color}, Strap=${hit.bracelet}, Case=${hit.case_size}.
+DO NOT re-analyze the watch itself — use the catalogue data above for watch details.
+ONLY extract from this image: client_name, group_name, phone_number, message_text, price, condition, year.
+Return those fields in the usual JSON schema; for all watch fields (brand/model/dial/strap/case/ref) use the catalogue values provided.`;
+        const { text: hintResult } = await callGemini({
+          systemText: FINGERPRINT_SCHEMA_PROMPT,
+          imageParts: [{ inline_data: { mime_type: effectiveMimeType, data: base64 } }],
+          userText: hintText, maxOutputTokens: 600, onRetryWait
+        }).catch(() => ({ text: '{}' }));
+        const hintFp = parseJsonLoose(hintResult) || {};
+        return { ...fp, ...{
+          client_name:  hintFp.client_name  || null,
+          group_name:   hintFp.group_name   || null,
+          phone_number: hintFp.phone_number || null,
+          message_text: hintFp.message_text || null,
+          price:        hintFp.price        || null,
+          condition:    hintFp.condition    || fp.condition || null,
+          year:         hintFp.year         || null
+        }, confidence_notes: (fp.confidence_notes || '') + ' [Demand: catalogue hit — context read from image]' };
+      }
+    }
+  }
+
   // Gemini 2.5 Flash-Lite paid tier — works from browser (CORS supported),
   // no rate limit issues on paid, $0.10/$0.40 per 1M tokens = ~$2.46/month.
   // OpenAI was tried but CORS blocks direct browser requests from static sites.
@@ -5158,8 +5256,9 @@ Condition: bn/uw/lnib=New/Unworn | used=Pre-owned` : 'No caption provided. Rely 
   }
 
   // Cross-validate claimed 'stated'/'visible' refs against actual message text
-  if (allowLookup && fp.reference_number &&
-      (fp.reference_number_source === 'stated' || fp.reference_number_source === 'visible')){
+  // 'visible' = read from physical text in the image (product card/certificate) — trusted.
+  // Only cross-validate 'stated' which claims the ref came from chat message text.
+  if (allowLookup && fp.reference_number && fp.reference_number_source === 'stated'){
     const numericPart = fp.reference_number.replace(/[^0-9]/g, '').slice(0, 6);
     const inMsg     = numericPart.length >= 4 && fp.message_text &&
                       fp.message_text.replace(/[^0-9]/g, '').includes(numericPart);
@@ -5568,6 +5667,14 @@ async function analyzeBatch(items, kind, renderFn, opts){
         item.fingerprint = fp;
         item.status = 'done';
         item.error = null;
+
+        // Save to catalogue if ref is confirmed
+        if (fp && fp.reference_number &&
+            (fp.reference_number_source === 'stated' ||
+             fp.reference_number_source === 'visible' ||
+             fp.reference_number_source === 'looked_up')){
+          addToCatalogue(fp, item.imageData, imageMimeTypeOf(item), kind).catch(()=>{});
+        }
       }catch(e){
         item.status = 'error';
           item.error = e.message || 'analysis failed';
@@ -6179,6 +6286,164 @@ function renderCorrectionsInsights(){
       </table>` : ''}
       <div style="color:var(--text-faint);font-size:10.5px;margin-top:10px;">After 3+ consistent corrections for the same brand+field, that pattern gets injected into Claude\u2019s extraction prompt automatically.</div>
     </div>`;
+}
+
+// ════════════════════════════════════════════════════════════════
+// WATCH CATALOGUE — persistent memory across sessions
+// Every confirmed watch (high-confidence ref + details) is saved here.
+// Next time the same ref appears, details are read from catalogue
+// instead of calling Gemini — zero API cost for repeat watches.
+// Stored in localStorage. Syncs to Supabase if configured.
+// ════════════════════════════════════════════════════════════════
+
+const CATALOGUE_KEY = 'stockmatch-catalogue-v1';
+const CATALOGUE_MAX  = 10000; // max entries before oldest are pruned
+
+function getCatalogue(){
+  try{ return JSON.parse(localStorage.getItem(CATALOGUE_KEY) || '[]'); }catch(e){ return []; }
+}
+function saveCatalogue(cat){
+  try{ localStorage.setItem(CATALOGUE_KEY, JSON.stringify(cat)); }catch(e){}
+}
+
+// Compress image to small thumbnail for catalogue display (~8-12KB)
+async function compressToThumb(base64, mimeType){
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const size = 180; // 180×180 thumbnail
+      const ratio = Math.min(size / img.width, size / img.height);
+      canvas.width  = Math.round(img.width  * ratio);
+      canvas.height = Math.round(img.height * ratio);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.55).split(',')[1]);
+    };
+    img.onerror = () => resolve(null);
+    img.src = `data:${mimeType || 'image/jpeg'};base64,${base64}`;
+  });
+}
+
+// Save a confirmed watch to the catalogue
+async function addToCatalogue(fingerprint, imageData, mimeType, source){
+  if (!fingerprint || !fingerprint.reference_number) return;
+  const ref = fingerprint.reference_number.toUpperCase().trim();
+  if (!ref || ref.length < 4) return;
+
+  const cat = getCatalogue();
+  const existing = cat.findIndex(e =>
+    e.ref === ref &&
+    (e.brand || '').toLowerCase() === (fingerprint.brand || '').toLowerCase()
+  );
+
+  const thumb = imageData ? await compressToThumb(imageData, mimeType) : null;
+
+  const entry = {
+    ref,
+    brand:        fingerprint.brand        || null,
+    model_line:   fingerprint.model_line   || null,
+    dial_color:   fingerprint.dial_color   || null,
+    dial_markers: fingerprint.dial_markers_type || null,
+    date:         fingerprint.date_complication || null,
+    bracelet:     fingerprint.bracelet_or_strap || null,
+    strap_color:  fingerprint.strap_color  || null,
+    case_size:    fingerprint.case_size    || null,
+    gender:       fingerprint.gender       || null,
+    thumb,
+    last_seen:    new Date().toISOString().split('T')[0],
+    source,
+    times_seen:   existing >= 0 ? (cat[existing].times_seen || 1) + 1 : 1
+  };
+
+  if (existing >= 0){
+    const oldThumb = cat[existing].thumb;
+    cat[existing] = { ...cat[existing], ...entry, thumb: thumb || oldThumb };
+  } else {
+    cat.unshift(entry);
+    if (cat.length > CATALOGUE_MAX) cat.splice(CATALOGUE_MAX);
+  }
+  // Keep thumbnails only for top 500 — text-only beyond that (localStorage ~5MB limit)
+  cat.forEach((e, i) => { if (i >= 500) e.thumb = null; });
+  try{
+    saveCatalogue(cat);
+  }catch(storageErr){
+    cat.forEach(e => { e.thumb = null; });
+    saveCatalogue(cat);
+  }
+}
+
+// Look up a ref in the catalogue — returns fingerprint-shaped object or null
+function lookupInCatalogue(refNumber, brand){
+  if (!refNumber) return null;
+  const ref = refNumber.toUpperCase().trim();
+  const cat = getCatalogue();
+  // Try exact ref + brand match first, then ref-only
+  return cat.find(e =>
+    e.ref === ref &&
+    (!brand || !e.brand || e.brand.toLowerCase() === brand.toLowerCase())
+  ) || cat.find(e => e.ref === ref) || null;
+}
+
+// Convert catalogue entry back to fingerprint shape
+function catalogueEntryToFp(entry){
+  return {
+    brand:                 entry.brand,
+    model_line:            entry.model_line,
+    reference_number:      entry.ref,
+    reference_number_source: 'stated',
+    dial_color:            entry.dial_color,
+    dial_markers_type:     entry.dial_markers,
+    date_complication:     entry.date,
+    bracelet_or_strap:     entry.bracelet,
+    strap_color:           entry.strap_color,
+    case_size:             entry.case_size,
+    gender:                entry.gender,
+    confidence_notes:      `From watch catalogue (seen ${entry.times_seen}× before). Last seen: ${entry.last_seen}.`
+  };
+}
+
+function getCatalogueCount(){ return getCatalogue().length; }
+function clearCatalogue(){ localStorage.removeItem(CATALOGUE_KEY); }
+
+// Render catalogue browser — called from Dashboard
+function renderCataloguePanel(){
+  const panel = document.getElementById('cataloguePanel');
+  if (!panel) return;
+  const cat = getCatalogue();
+  if (!cat.length){
+    panel.innerHTML = `<p style="color:var(--text-faint);font-size:12px;">No watches in catalogue yet. As you analyze images, confirmed watches are automatically saved here for instant recall.</p>`;
+    return;
+  }
+
+  // Group by brand
+  const byBrand = {};
+  cat.forEach(e => {
+    const b = e.brand || 'Unknown';
+    if (!byBrand[b]) byBrand[b] = 0;
+    byBrand[b]++;
+  });
+  const brandList = Object.entries(byBrand).sort((a,b)=>b[1]-a[1]).slice(0,6);
+
+  panel.innerHTML = `
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+      ${brandList.map(([b,n])=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 12px;font-size:11px;color:var(--text-muted);"><span style="color:var(--text);font-weight:600;">${escapeHtml(b)}</span> &middot; ${n}</div>`).join('')}
+    </div>
+    <div class="catalogue-grid">
+      ${cat.slice(0, 24).map(e => `
+        <div class="catalogue-card">
+          ${e.thumb
+            ? `<img src="data:image/jpeg;base64,${e.thumb}" class="catalogue-thumb" alt="">`
+            : `<div class="catalogue-no-img">${escapeHtml((e.brand||'?')[0])}</div>`}
+          <div class="catalogue-info">
+            <div class="catalogue-ref">${escapeHtml(e.ref)}</div>
+            <div class="catalogue-brand">${escapeHtml(e.brand||'')} ${escapeHtml(e.model_line||'')}</div>
+            <div class="catalogue-detail">${escapeHtml(e.dial_color||'')}${e.dial_color&&e.bracelet?' · ':''}${escapeHtml(e.bracelet||'')}</div>
+            <div class="catalogue-seen">${e.times_seen}× seen</div>
+          </div>
+        </div>`).join('')}
+    </div>
+    ${cat.length > 24 ? `<p style="font-size:11px;color:var(--text-faint);margin-top:10px;">Showing 24 of ${cat.length} watches. All ${cat.length} are used for instant recall.</p>` : ''}
+    <button class="btn small danger-text" onclick="if(confirm('Clear entire watch catalogue?')){clearCatalogue();renderCataloguePanel();showToast('Catalogue cleared');}" style="margin-top:12px;">Clear catalogue</button>`;
 }
 
 function extractRefFromCaptionText(text){
@@ -6908,6 +7173,7 @@ function renderDashboard(){
 
   updateBulkReanalyzeCount();
   renderCorrectionsInsights();
+  renderCataloguePanel();
 }
 
 function formatPrice(num){
@@ -7509,40 +7775,6 @@ function init(){
   });
 
   document.body.addEventListener('click', async (e) => {
-    // Manual web search for demand items where SerpAPI couldn't identify ref
-    const wsBtn = e.target.closest('.web-search-btn');
-    if (wsBtn){
-      const item = demandItems.find(it => it.id === wsBtn.dataset.itemId);
-      if (!item || !item.imageData){ showToast('Image not loaded this session', true); return; }
-      wsBtn.disabled = true;
-      wsBtn.textContent = 'Searching\u2026';
-      try{
-        const fp = item.fingerprint || {};
-        const lookup = await lookupReferenceNumber(
-          fp, item.imageData, imageMimeTypeOf(item), null, item.caption, null, fp.model_line
-        );
-        if (lookup && lookup.reference_number){
-          item.fingerprint.reference_number        = lookup.reference_number;
-          item.fingerprint.reference_number_source = lookup.reference_number_source || 'looked_up';
-          item.fingerprint.reference_source_site   = lookup.confirming_source || null;
-          item.needs_manual_lookup = false;
-          applyWebVerifiedFields(item.fingerprint, lookup);
-          await saveDemandCatalog();
-          renderDemand();
-          showToast('Ref found: ' + lookup.reference_number);
-        } else {
-          wsBtn.disabled = false;
-          wsBtn.textContent = '\uD83D\uDD0D Search Web for ref';
-          showToast('Web search found no confident ref \u2014 edit manually', true);
-        }
-      }catch(err){
-        wsBtn.disabled = false;
-        wsBtn.textContent = '\uD83D\uDD0D Search Web for ref';
-        showToast('Web search failed: ' + (err.message || err), true);
-      }
-      return;
-    }
-
     const editToggleBtn = e.target.closest('.card-edit-toggle');
     if (editToggleBtn){
       const card = editToggleBtn.closest('.watch-card');
