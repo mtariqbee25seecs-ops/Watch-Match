@@ -7626,22 +7626,24 @@ function init(){
   updateBulkReanalyzeCount();
   document.getElementById('pushImagesBtn').onclick = pushLocalImagesToCloud;
   document.getElementById('importCatalogInput').onchange = (e) => { if (e.target.files && e.target.files[0]) importCatalog(e.target.files[0]); e.target.value = ''; };
-  document.getElementById('clearStockBtn').onclick = () => {
+  document.getElementById('clearStockBtn').onclick = async () => {
     if (!stockItems.length){ showToast('Stock is already empty'); return; }
     if (!confirm(`Remove all ${stockItems.length} stock item${stockItems.length === 1 ? '' : 's'}? This can\u2019t be undone.`)) return;
     const ids = stockItems.map(it => it.id);
     ids.forEach(id => { imageStore.delete(id); if (supabaseSyncConfigured()) cloudSync.deleteImage(id); });
     stockItems = []; matchResults = matchResults.map(r => ({ ...r, matches: [] }));
-    saveStockCatalog(); renderStock(); renderDashboard(); renderResults();
+    await saveStockCatalog();
+    renderStock(); renderDashboard(); renderResults();
     showToast('Stock cleared');
   };
-  document.getElementById('clearDemandBtn').onclick = () => {
+  document.getElementById('clearDemandBtn').onclick = async () => {
     if (!demandItems.length){ showToast('Demand is already empty'); return; }
     if (!confirm(`Remove all ${demandItems.length} demand item${demandItems.length === 1 ? '' : 's'}? This can\u2019t be undone.`)) return;
     const ids = demandItems.map(it => it.id);
     ids.forEach(id => { imageStore.delete('demand:' + id); if (supabaseSyncConfigured()) cloudSync.deleteImage('demand_' + id); });
     demandItems = []; matchResults = [];
-    saveDemandCatalog(); renderDemand(); renderResults(); renderDashboard();
+    await saveDemandCatalog();
+    renderDemand(); renderResults(); renderDashboard();
     showToast('Demand cleared');
   };
   document.getElementById('clearResultsBtn').onclick = () => {
