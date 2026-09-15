@@ -3351,16 +3351,22 @@ async function quickGeminiSearchForRef(fp, caption, attempt){
   // Returns natural language — JSON mode is incompatible with tools.
   const searchBody = {
     contents: [{ role: 'user', parts: [{ text:
-      `You are a luxury watch expert. Search Chrono24.com or WatchBase.com for the exact reference number.
+      `You are a luxury watch expert. Find the EXACT reference number for this watch.
 
 Watch: ${watchDesc}
 ${contextClues ? 'Dealer clues: ' + contextClues : ''}
 
-Nicknames: batgirl/batman=126710BLNR, pepsi=126710BLRO, hulk=116610LV, wimbledon=Rolex champagne jubilee, rootbeer=126711CHNR, panda=Daytona white dial, snowflake=Tudor BB58.
+SEARCH THESE DATABASES IN ORDER:
+1. Chrono24.com — search "[brand] [model] [dial color] reference"
+2. WatchBase.com — full spec database
+3. WatchCharts.com — confirms generation (current vs previous)
+4. Official brand site if needed
 
-Search Chrono24 and report the EXACT reference number. Be precise.
+Nicknames: batgirl/batman=126710BLNR, pepsi=126710BLRO, hulk=116610LV, kermit=16610LV, wimbledon=chocolate jubilee Datejust, rootbeer=126711CHNR, panda=Daytona white dial, snowflake=Tudor BB58, coke=GMT red/black, BB58=M79030N.
 
-End with exactly:
+Find the EXACT ref (e.g., 126610LN not just "Submariner"). Match dial, bezel, and material to confirm the right variant.
+
+End your response with:
 RESULT: {"ref":"EXACT_REF","brand":"Brand","model":"Model"}
 or: RESULT: {"ref":null}`
     }] }],
@@ -4626,7 +4632,22 @@ function applyWebVerifiedFields(fp, lookup){
 
 const REFERENCE_LOOKUP_PROMPT = `You are verifying watch reference details for a dealer's matching system by checking real listings on watch specialist sites. Wrong data is worse than no data \u2014 this feeds an automated matcher that will produce bad matches if fed bad data.
 
-You are given: brand, model_line, and whatever partial details were already extracted (dial_color, bracelet_type, etc \u2014 treat these as hints, not confirmed facts).
+You are given: brand, model
+
+AUTHORITATIVE DATABASES (search in this priority order):
+1. Chrono24.com — largest global watch marketplace, excellent ref accuracy
+2. WatchBase.com — dedicated watch database with full spec sheets
+3. WatchCharts.com — market data, confirms current/previous generation
+4. Bob's Watches, Watches of Switzerland — authorized dealer listings
+5. Official brand sites: rolex.com, patek.com, audemarspiguet.com, omegawatches.com, iwc.com, cartier.com, tudorwatch.com
+6. Hodinkee, Crown & Caliber — editorial with accurate ref numbers
+
+IMPORTANT RULES FOR LOOKUP:
+- Always confirm the GENERATION — many refs have current (2022+) and previous versions (e.g., 126610LN vs 116610LN)
+- For Rolex: refs are 5-6 digits + up to 2 letters (no dashes). Never guess — check Chrono24 listings
+- For Patek: refs use slash format (5711/1A-010). Confirm the exact suffix
+- For AP: refs like 15510ST.OO.1320ST include case, bracelet, and dial codes — get the full ref
+- Match: dial color + bezel color + case material + bracelet type to confirm correct variant_line, and whatever partial details were already extracted (dial_color, bracelet_type, etc \u2014 treat these as hints, not confirmed facts).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PROCESS
@@ -4757,33 +4778,13 @@ async function lookupReferenceNumber(fp, base64Image, mimeType, onAttempt, capti
     : '';
 
   const detailsText = `Watch details extracted so far:\n${JSON.stringify(fp, null, 2)}${captionText}`;
-  const rolexHints = getRolexRefHints(fp);
-  const patekHints = getPatekRefHints(fp);
+  // Use unified brand dispatcher for all brands
+  const brandHints = getBrandRefHints(fp);
   let hintsText = '';
-  if (rolexHints){
-    hintsText = `\n\nROLEX REF HINTS: Based on the extracted details, the most likely reference numbers for this watch are:\n${rolexHints.map(h => '  • ' + h).join('\n')}\nSearch these SPECIFIC refs on Chrono24/WatchCharts first to confirm. Open a listing that matches the watch details (dial color, bezel, generation) and verify the exact ref.`;
-  } else if (patekHints){
-    hintsText = `\n\nPATEK PHILIPPE REF FAMILIES: The following ref families are common for this model line. Use them as search hints only, never as the answer itself:\n${patekHints.map(h => '  • ' + h).join('\n')}\nSearch these on Chrono24/WatchCharts, open a listing that visually matches, and read the exact ref (including dial-suffix like -010, -001) from the listing.`;
+  if (brandHints && brandHints.length){
+    const brand = (fp.brand || 'This brand').toUpperCase();
+    hintsText = `\n\n${brand} REF HINTS \u2014 most likely references based on extracted details:\n${brandHints.map(h => '  \u2022 ' + h).join('\n')}\nSearch these SPECIFIC refs on the databases below first. Open a matching listing and verify dial color, bezel, and generation match exactly.`;
   }
-  // If Claude already guessed a ref visually, tell the lookup to VERIFY it,
-  // not just find any ref. This catches wrong-variant guesses (e.g. 5719/1G
-  // vs 7118/1200A on a Nautilus ladies) that look identical in photos.
-  // Include visual guess hints WITHOUT anchoring — tell Claude what was
-  // guessed but instruct it to verify from scratch using the image.
-  const modelGuessNote = visualGuessModel
-    ? `\n  - Initial model guess: "${visualGuessModel}" — this may also be WRONG. For Patek:
-      * AQUANAUT = checked/diagonal embossed dial pattern, rounded octagonal case, rubber/composite strap. Refs: 5167, 5168, 5267, 5268, 5072 series.
-      * NAUTILUS LUCE (ladies) = horizontal wave/stripe dial, porthole-shaped case, composite or integrated strap. Refs: 7010, 7021 series.
-      * NAUTILUS (ladies) = horizontal wave/stripe dial, porthole case, integrated bracelet. Refs: 7118, 7119 series.
-      * NAUTILUS (men) = same wave dial, larger case 40mm+. Refs: 5711, 5712, 5726, 5740 series.
-      Look at the DIAL PATTERN in the image first (checked = Aquanaut, horizontal waves = Nautilus/Nautilus Luce) before forming search queries. Also check if this is ladies-sized (under 36mm) — ladies models have completely different ref families than men's.`
-    : '';
-
-  const verifyNote = visualGuessRef || visualGuessModel
-    ? `\n\nCRITICAL \u2014 The initial visual analysis is UNCONFIRMED and may be wrong:
-  - Guessed ref: "${visualGuessRef || 'none'}" \u2014 do NOT anchor to this.${modelGuessNote}
-  Search completely fresh using the photo. Look at the dial pattern and case shape to identify the exact model family first, then search for the correct reference. If you find the guessed ref consistently confirmed across multiple sources, use it. If sources point elsewhere, use the correct one. Do NOT repeat the guessed ref without actual search confirmation.`
-    : '';
 
   const promptText = base64Image
     ? `${detailsText}${hintsText}${verifyNote}\n\nThe photo is attached. Identify the exact reference number using the photo plus multiple Google searches, per your instructions.${officialSiteInstruction}`
@@ -5941,6 +5942,227 @@ function getPatekRefHints(fp){
   if (model.includes('calatrava'))      return ['5196G (manual WG)', '6119G (manual WG)', '5227G (auto WG)', '6006G (pointer date)'];
   if (model.includes('complications'))  return ['5205G (annual cal moon)', '5396G (annual cal)', '5940G (annual cal cushion)'];
   if (model.includes('twenty') || model.includes('24')) return ['7300/1200R (Twenty-4 RG auto)', '7300/1200A (Twenty-4 steel auto)', '7010G-010 (quartz WG)'];
+  return null;
+}
+
+// ── Brand ref hint functions ─────────────────────────────────
+// All brands below follow same pattern as Rolex/Patek hints above.
+// Hints are passed to Gemini search so it targets SPECIFIC refs,
+// not just the model family. Zero extra API cost — just smarter prompts.
+
+function getAudemarsRefHints(fp){
+  if (!fp || !fp.brand || !fp.brand.toLowerCase().includes('audemars')) return null;
+  const model = (fp.model_line || '').toLowerCase();
+  const mat   = (fp.case_material || '').toLowerCase();
+  const dial  = (fp.dial_color || '').toLowerCase();
+  const size  = (fp.case_size || '').toLowerCase();
+  const isSteel = mat.includes('steel') || mat.includes('stainless');
+  const isTT    = mat.includes('two-tone') || mat.includes('steel and gold');
+  const isWG    = mat.includes('white gold');
+  const isYG    = mat.includes('yellow gold');
+  const isEV    = mat.includes('rose gold') || mat.includes('pink gold');
+
+  // Royal Oak
+  if (model.includes('royal oak') && !model.includes('offshore')){
+    if (isSteel){
+      if (size.includes('41') || size.includes('42')) return ['15510ST.OO.1320ST (41mm current)', '15400ST (41mm previous)', '16202ST (Jumbo 39mm)'];
+      if (size.includes('37')) return ['15450ST (ladies 37mm)'];
+      return ['15510ST.OO.1320ST (41mm)', '15500ST (41mm blue)', '15202ST (Jumbo)'];
+    }
+    if (isTT) return ['15400SA (two-tone 41mm)'];
+    if (isWG) return ['15510BC (white gold)'];
+    if (isYG) return ['15510BA (yellow gold)'];
+    if (isEV) return ['15510OR (rose gold)'];
+  }
+
+  // Royal Oak Offshore
+  if (model.includes('offshore')){
+    const isChronograph = model.includes('chrono') || dial.includes('sub');
+    if (isSteel) return isChronograph ? ['26420SO.OO.A600CA (chrono 44mm)', '26470ST (chrono 42mm)']
+                                      : ['26400SO.OO.A002CA (Diver 42mm)'];
+    if (isEV) return ['26240OR (RO Offshore rose gold)'];
+    return ['26470OR (chrono rose gold)', '26470TI (titanium chrono)'];
+  }
+
+  // Code 11.59
+  if (model.includes('code') || model.includes('11.59')){
+    if (isWG) return ['15210BC (Code 11.59 WG 41mm)', '15202BC (Code 11.59 WG 38mm)'];
+    if (isEV) return ['15210OR (Code 11.59 RG 41mm)'];
+    if (isSteel) return ['15210ST (Code 11.59 steel 41mm)'];
+  }
+
+  return null;
+}
+
+function getOmegaRefHints(fp){
+  if (!fp || !fp.brand || !fp.brand.toLowerCase().includes('omega')) return null;
+  const model = (fp.model_line || '').toLowerCase();
+  const dial  = (fp.dial_color || '').toLowerCase();
+  const mat   = (fp.case_material || '').toLowerCase();
+  const isSteel = !mat.includes('gold') && !mat.includes('titanium');
+
+  // Speedmaster
+  if (model.includes('speedmaster')){
+    if (model.includes('moonwatch') || model.includes('professional'))
+      return ['310.30.42.50.01.001 (Moonwatch sapphire)', '310.60.42.50.99.001 (Moonwatch hesalite)', '311.30.42.30.01.005 (prev gen)'];
+    if (model.includes('racing')) return ['329.30.44.51.01.001 (Racing 44mm)'];
+    return ['310.30.42.50.01.001 (Moonwatch current)', '321.10.44.50.01.001 (321 steel)'];
+  }
+
+  // Seamaster
+  if (model.includes('seamaster')){
+    if (model.includes('300m') || model.includes('planet ocean')){
+      return dial.includes('black') ? ['210.32.42.20.01.001 (SM300 42mm black)', '215.32.44.21.01.001 (PO 44mm black)']
+                                    : ['210.30.42.20.03.001 (SM300 42mm blue)'];
+    }
+    if (model.includes('diver') || model.includes('300')) return ['210.32.42.20.01.001 (SM Diver 42mm)'];
+    if (model.includes('aqua terra')) return ['220.12.41.21.03.003 (Aqua Terra 41mm)'];
+  }
+
+  // Constellation
+  if (model.includes('constellation')) return ['131.10.39.20.02.001 (Constellation 39mm)', '131.20.39.20.05.002 (ladies MOP)'];
+
+  // De Ville
+  if (model.includes('de ville') || model.includes('deville')) return ['431.10.39.21.06.001 (Tresor)'];
+
+  return null;
+}
+
+function getTudorRefHints(fp){
+  if (!fp || !fp.brand || !fp.brand.toLowerCase().includes('tudor')) return null;
+  const model = (fp.model_line || '').toLowerCase();
+  const dial  = (fp.dial_color || '').toLowerCase();
+  const mat   = (fp.case_material || '').toLowerCase();
+
+  // Black Bay
+  if (model.includes('black bay') || model.includes('bb')){
+    if (model.includes('58') || model.includes('bb58')) return ['M79030N-0001 (BB58 steel black)', 'M79030B-0001 (BB58 blue)'];
+    if (model.includes('pro')) return ['M79470-0001 (BB Pro 39mm)'];
+    if (model.includes('gmt')) return ['M79830RB-0001 (BB GMT Batman)', 'M79830RB-0001 (BB GMT)'];
+    if (model.includes('chrono')) return ['M79360N-0101 (BB Chrono steel)'];
+    if (dial.includes('blue')) return ['M79230B-0007 (BB 41mm blue)', 'M79030B-0001 (BB58 blue)'];
+    return ['M79230N-0007 (BB 41mm black)', 'M79230R-0012 (BB burgundy)', 'M79010N-0001 (BB36)'];
+  }
+
+  // Pelagos
+  if (model.includes('pelagos')) return ['M25610TNL-0001 (Pelagos 42mm)', 'M25600TN-0001 (prev Pelagos)'];
+
+  // Ranger
+  if (model.includes('ranger')) return ['M79950-0001 (Ranger 39mm)'];
+
+  return null;
+}
+
+function getIWCRefHints(fp){
+  if (!fp || !fp.brand || !fp.brand.toLowerCase().includes('iwc')) return null;
+  const model = (fp.model_line || '').toLowerCase();
+  const size  = (fp.case_size || '').toLowerCase();
+
+  if (model.includes('portugieser') || model.includes('portuguese')){
+    if (model.includes('chrono')) return ['IW371617 (Chronograph 41mm)'];
+    if (model.includes('annual')) return ['IW503502 (Annual Calendar)'];
+    if (model.includes('moon'))   return ['IW459401 (Perpetual Calendar)'];
+    return size.includes('40') ? ['IW500701 (Portugieser 40mm auto)'] : ['IW358304 (Portugieser 42mm)'];
+  }
+  if (model.includes('pilot') || model.includes("pilot's")){
+    if (model.includes('spitfire')) return ['IW387901 (Spitfire 41mm)'];
+    if (model.includes('top gun')) return ['IW506902 (Top Gun 44mm ceramic)'];
+    return ['IW377701 (Mark XX 40mm)', 'IW328001 (Pilot 37mm auto)'];
+  }
+  if (model.includes('portofino')) return ['IW356523 (Portofino 40mm)', 'IW458102 (Portofino Hand-Wound)'];
+  if (model.includes('aquatimer')) return ['IW329001 (Aquatimer auto 42mm)'];
+
+  return null;
+}
+
+function getCartierRefHints(fp){
+  if (!fp || !fp.brand || !fp.brand.toLowerCase().includes('cartier')) return null;
+  const model = (fp.model_line || '').toLowerCase();
+  const mat   = (fp.case_material || '').toLowerCase();
+  const isSteel = mat.includes('steel') || mat.includes('stainless');
+  const isYG    = mat.includes('yellow gold');
+  const isWG    = mat.includes('white gold');
+  const isEV    = mat.includes('rose gold') || mat.includes('pink gold');
+  const isTT    = mat.includes('two-tone');
+
+  if (model.includes('santos')){
+    const isLarge = (fp.case_size || '').includes('39') || (fp.case_size || '').includes('40');
+    if (isSteel) return isLarge ? ['WSSA0018 (Santos L steel bracelet)', 'WSSA0030 (Santos M steel)']
+                                 : ['WSSA0009 (Santos M steel)', 'WSSA0030'];
+    if (isTT) return ['WGSA0006 (Santos L two-tone)', 'WGSA0015 (Santos M two-tone)'];
+  }
+  if (model.includes('tank')){
+    if (model.includes('must')) return ['WSTA0052 (Tank Must LM)', 'WSTA0040 (Tank Must SM)'];
+    if (model.includes('solo')) return ['W5200014 (Tank Solo SM)', 'W5200028 (Tank Solo LM)'];
+    if (model.includes('louis')) return ['WGTA0011 (Tank Louis YG)', 'W1529756 (Tank Louis LM)'];
+    return ['WSTA0053 (Tank Must XL)', 'W2601556 (Tank Francaise)'];
+  }
+  if (model.includes('ballon bleu') || model.includes('ballon')){
+    return (fp.case_size || '').includes('42') ? ['W6920042 (BB 42mm steel)', 'W6920031 (BB 42mm YG)']
+                                               : ['W6920086 (BB 36mm steel)', 'W6920040 (BB 36mm YG)'];
+  }
+  if (model.includes('drive')) return ['WSNM0004 (Drive de Cartier steel)'];
+  if (model.includes('pasha')) return ['WSPA0013 (Pasha 41mm steel)', 'W3109252 (Pasha 35mm)'];
+  if (model.includes('panthere')) return ['WSPN0007 (Panthere steel SM)', 'W4PN0006 (Panthere YG LM)'];
+
+  return null;
+}
+
+function getBreitlingRefHints(fp){
+  if (!fp || !fp.brand || !fp.brand.toLowerCase().includes('breitling')) return null;
+  const model = (fp.model_line || '').toLowerCase();
+
+  if (model.includes('navitimer')) return ['AB0137211B1P1 (Navitimer B01 46mm)', 'AB0139211B1A1 (Navitimer B01 43mm)'];
+  if (model.includes('superocean')) return ['A17376211B1S1 (Superocean 44mm)', 'A10370121C1A1 (Superocean Heritage 46mm)'];
+  if (model.includes('avenger')) return ['A13316101B1X1 (Avenger 44mm)'];
+  if (model.includes('chronomat')) return ['AB0134101G1P1 (Chronomat B01 44mm)', 'U10380101C1A1 (Chronomat 44mm)'];
+  if (model.includes('endurance') || model.includes('professional')) return ['X82310A71B1S1 (Endurance Pro)'];
+
+  return null;
+}
+
+function getVacheronRefHints(fp){
+  if (!fp || !fp.brand || !fp.brand.toLowerCase().includes('vacheron')) return null;
+  const model = (fp.model_line || '').toLowerCase();
+
+  if (model.includes('overseas')){
+    if (model.includes('chrono')) return ['49150/B01R-9745 (Overseas Chrono 42mm)'];
+    if (model.includes('dual')) return ['7900V/110R-B544 (Overseas Dual Time)'];
+    return ['4500V/110A-B483 (Overseas 41mm steel)', '2300V/100A-B640 (Overseas 37mm)'];
+  }
+  if (model.includes('traditionelle')) return ['82172/000R-9382 (Traditionelle 40mm)'];
+  if (model.includes('patrimony'))     return ['85180/000R-9248 (Patrimony 40mm RG)'];
+  if (model.includes('fiftysix'))      return ['4600E/000A-B442 (FiftySix 40mm steel)'];
+
+  return null;
+}
+
+function getRichardMilleRefHints(fp){
+  if (!fp || !fp.brand || !fp.brand.toLowerCase().includes('richard mille')) return null;
+  const model = (fp.model_line || '').toLowerCase();
+
+  if (model.includes('rm 11') || model.includes('rm11')) return ['RM 11-03 (Flyback Chrono)'];
+  if (model.includes('rm 10') || model.includes('rm10')) return ['RM 10 (Oversize Date)'];
+  if (model.includes('rm 35') || model.includes('rm35')) return ['RM 35-01 (Rafael Nadal)'];
+  if (model.includes('rm 27') || model.includes('rm27')) return ['RM 27-03 (Tourbillon Nadal)'];
+
+  return null;
+}
+
+// Master brand dispatcher — called in the lookup prompt builder
+function getBrandRefHints(fp){
+  if (!fp || !fp.brand) return null;
+  const b = fp.brand.toLowerCase();
+  if (b.includes('rolex'))         return getRolexRefHints(fp);
+  if (b.includes('patek'))         return getPatekRefHints(fp);
+  if (b.includes('audemars'))      return getAudemarsRefHints(fp);
+  if (b.includes('omega'))         return getOmegaRefHints(fp);
+  if (b.includes('tudor'))         return getTudorRefHints(fp);
+  if (b.includes('iwc'))           return getIWCRefHints(fp);
+  if (b.includes('cartier'))       return getCartierRefHints(fp);
+  if (b.includes('breitling'))     return getBreitlingRefHints(fp);
+  if (b.includes('vacheron'))      return getVacheronRefHints(fp);
+  if (b.includes('richard mille')) return getRichardMilleRefHints(fp);
   return null;
 }
 
@@ -7631,7 +7853,7 @@ function init(){
   const exportDemandPdfBtn = document.getElementById('exportDemandPdfBtn');
   if (exportDemandPdfBtn) exportDemandPdfBtn.onclick = generateDemandPDF;
   document.getElementById('bulkReanalyzeBtn').onclick = bulkReanalyzeStaleDialData;
-  document.getElementById('reanalyzeAllBtn').onclick = reanalyzeAllItems;
+  const _raAll = document.getElementById('reanalyzeAllBtn'); if (_raAll) _raAll.onclick = reanalyzeAllItems;
   const raStock = document.getElementById('reanalyzeAllBtnStock');
   if (raStock) raStock.onclick = reanalyzeAllItems;
   const raDemand = document.getElementById('reanalyzeAllBtnDemand');
